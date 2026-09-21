@@ -130,7 +130,9 @@ impl LinearProof {
             .challenge_bytes(b"challenge", 32)
             .map_err(|_| LinearProofError::VerificationFailed)?;
         let cs = ChallengeSet::sample(
-            ChallengeDistribution::SparseTernary { weight: ring.n() / 2 },
+            ChallengeDistribution::SparseTernary {
+                weight: ring.n() / 2,
+            },
             ring.n(),
             &chal_seed,
         )
@@ -226,7 +228,9 @@ impl LinearProof {
             .map_err(|_| LinearProofError::VerificationFailed)?;
         let ring = &pk.params.ring;
         let cs = ChallengeSet::sample(
-            ChallengeDistribution::SparseTernary { weight: ring.n() / 2 },
+            ChallengeDistribution::SparseTernary {
+                weight: ring.n() / 2,
+            },
             ring.n(),
             &chal_seed,
         )
@@ -246,9 +250,7 @@ impl LinearProof {
         for (w_i, ct_i) in self.mask_commitment.iter().zip(c_times_t.iter()) {
             expected_rows.push(w_i.add(ct_i).map_err(LinearProofError::Ring)?);
         }
-        let az = pk
-            .commit(&self.response)
-            .map_err(LinearProofError::Ajtai)?;
+        let az = pk.commit(&self.response).map_err(LinearProofError::Ajtai)?;
         if az.rows != expected_rows {
             return Err(LinearProofError::VerificationFailed);
         }
@@ -256,7 +258,10 @@ impl LinearProof {
         // 4. Linear relations: ⟨v_i, z⟩ == image_i + c·u_i.
         for (rel, image) in relations.iter().zip(self.mask_images.iter()) {
             let lhs = rel.evaluate(&self.response)?;
-            let cu = self.challenge.mul(&rel.target).map_err(LinearProofError::Ring)?;
+            let cu = self
+                .challenge
+                .mul(&rel.target)
+                .map_err(LinearProofError::Ring)?;
             let rhs = image.add(&cu).map_err(LinearProofError::Ring)?;
             if lhs != rhs {
                 return Err(LinearProofError::VerificationFailed);
@@ -296,8 +301,9 @@ mod tests {
             coefficients: v,
             target: u,
         };
-        let proof =
-            LinearProof::prove(&pk, std::slice::from_ref(&rel), &s, &t, b"prover-seed").ok().unwrap();
+        let proof = LinearProof::prove(&pk, std::slice::from_ref(&rel), &s, &t, b"prover-seed")
+            .ok()
+            .unwrap();
         assert!(proof.verify(&pk, &[rel], &t).is_ok());
     }
 
@@ -307,7 +313,9 @@ mod tests {
         let ring = &pk.params.ring;
         let s = crate::ajtai::sample_small_secret(ring, pk.params.m, 32, b"witness");
         let t = pk.commit(&s).ok().unwrap();
-        let proof = LinearProof::prove(&pk, &[], &s, &t, b"prover-seed").ok().unwrap();
+        let proof = LinearProof::prove(&pk, &[], &s, &t, b"prover-seed")
+            .ok()
+            .unwrap();
         assert!(proof.verify(&pk, &[], &t).is_ok());
         // Tamper with the response.
         let mut bad = proof.clone();
@@ -337,7 +345,9 @@ mod tests {
             coefficients: v,
             target: s[1].clone(),
         };
-        let proof = LinearProof::prove(&pk, std::slice::from_ref(&rel), &s, &t, b"ps").ok().unwrap();
+        let proof = LinearProof::prove(&pk, std::slice::from_ref(&rel), &s, &t, b"ps")
+            .ok()
+            .unwrap();
         // Verify against a wrong target.
         let wrong = LinearRelation {
             coefficients: rel.coefficients.clone(),
@@ -356,7 +366,10 @@ mod tests {
         };
         assert!(matches!(
             rel.evaluate(&[ring.one()]),
-            Err(LinearProofError::RelationShape { expected: 2, got: 1 })
+            Err(LinearProofError::RelationShape {
+                expected: 2,
+                got: 1
+            })
         ));
     }
 }

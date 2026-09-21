@@ -18,6 +18,19 @@ pub enum TranscriptError {
     MessageTooLarge,
 }
 
+impl core::fmt::Display for TranscriptError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            TranscriptError::RejectionBudgetExceeded => {
+                write!(f, "transcript rejection budget exceeded")
+            }
+            TranscriptError::MessageTooLarge => {
+                write!(f, "transcript message exceeds size bound")
+            }
+        }
+    }
+}
+
 /// A Fiat–Shamir transcript bound to a protocol name.
 pub struct Transcript {
     sponge: KeccakSponge,
@@ -70,12 +83,16 @@ impl Transcript {
     }
 
     /// Absorb a slice of field elements under a label.
-    pub fn append_field_slice(&mut self, label: &[u8], values: &[Goldilocks]) {
+    pub fn append_field_slice(
+        &mut self,
+        label: &[u8],
+        values: &[Goldilocks],
+    ) -> Result<(), TranscriptError> {
         let mut bytes = Vec::with_capacity(values.len() * 8);
         for v in values {
             bytes.extend_from_slice(&v.to_bytes());
         }
-        let _ = self.append_message(label, &bytes);
+        self.append_message(label, &bytes)
     }
 
     /// Absorb arbitrary bytes (e.g. commitments) under a label.
@@ -85,7 +102,11 @@ impl Transcript {
 
     /// Sample `n` field challenges under a label, using rejection sampling
     /// over SHAKE-256 output to preserve uniformity. Counts one query.
-    pub fn challenge_fields(&mut self, label: &[u8], n: usize) -> Result<Vec<Goldilocks>, TranscriptError> {
+    pub fn challenge_fields(
+        &mut self,
+        label: &[u8],
+        n: usize,
+    ) -> Result<Vec<Goldilocks>, TranscriptError> {
         self.query_count += 1;
         if self.query_count > self.query_budget {
             return Err(TranscriptError::RejectionBudgetExceeded);

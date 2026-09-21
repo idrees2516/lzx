@@ -21,12 +21,31 @@ pub enum MleError {
     PointLengthMismatch { expected: usize, got: usize },
 }
 
+impl core::fmt::Display for MleError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            MleError::WrongEvaluationCount { expected, got } => {
+                write!(
+                    f,
+                    "MLE evaluation count {got} != power-of-two expectation {expected}"
+                )
+            }
+            MleError::PointLengthMismatch { expected, got } => {
+                write!(f, "MLE point length {got} != {expected}")
+            }
+        }
+    }
+}
+
 impl DenseMle {
     /// Build from evaluations; length must be a power of two.
     pub fn new(evaluations: Vec<Goldilocks>) -> Result<Self, MleError> {
         let len = evaluations.len();
         if !len.is_power_of_two() {
-            return Err(MleError::WrongEvaluationCount { expected: len, got: len });
+            return Err(MleError::WrongEvaluationCount {
+                expected: len,
+                got: len,
+            });
         }
         Ok(DenseMle {
             num_vars: len.trailing_zeros() as usize,
@@ -36,15 +55,24 @@ impl DenseMle {
 
     /// Constant polynomial.
     pub fn constant(c: Goldilocks) -> Self {
-        DenseMle { num_vars: 0, evaluations: vec![c] }
+        DenseMle {
+            num_vars: 0,
+            evaluations: vec![c],
+        }
     }
 
     pub fn zero(num_vars: usize) -> Self {
-        DenseMle { num_vars, evaluations: vec![Goldilocks::ZERO; 1 << num_vars] }
+        DenseMle {
+            num_vars,
+            evaluations: vec![Goldilocks::ZERO; 1 << num_vars],
+        }
     }
 
     pub fn one(num_vars: usize) -> Self {
-        DenseMle { num_vars, evaluations: vec![Goldilocks::ONE; 1 << num_vars] }
+        DenseMle {
+            num_vars,
+            evaluations: vec![Goldilocks::ONE; 1 << num_vars],
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -64,7 +92,10 @@ impl DenseMle {
             arr.copy_from_slice(&chunk[..8.min(chunk.len())]);
             evals.push(Goldilocks::from_u64(u64::from_le_bytes(arr)));
         }
-        DenseMle { num_vars, evaluations: evals }
+        DenseMle {
+            num_vars,
+            evaluations: evals,
+        }
     }
 
     /// The multilinear "eq" indicator relative to a boolean point `b`:
@@ -81,7 +112,10 @@ impl DenseMle {
                 *e = e.mul(&term);
             }
         }
-        DenseMle { num_vars, evaluations: evals }
+        DenseMle {
+            num_vars,
+            evaluations: evals,
+        }
     }
 
     /// Evaluate at a full point.
@@ -158,7 +192,10 @@ impl DenseMle {
             .zip(other.evaluations.iter())
             .map(|(a, b)| a.add(b))
             .collect();
-        Ok(DenseMle { num_vars: self.num_vars, evaluations: evals })
+        Ok(DenseMle {
+            num_vars: self.num_vars,
+            evaluations: evals,
+        })
     }
 
     /// Pointwise subtraction.
@@ -175,7 +212,10 @@ impl DenseMle {
             .zip(other.evaluations.iter())
             .map(|(a, b)| a.sub(b))
             .collect();
-        Ok(DenseMle { num_vars: self.num_vars, evaluations: evals })
+        Ok(DenseMle {
+            num_vars: self.num_vars,
+            evaluations: evals,
+        })
     }
 
     /// Scalar multiply.
@@ -225,7 +265,10 @@ impl DenseMle {
             }
             evals = next;
         }
-        DenseMle { num_vars: m, evaluations: evals }
+        DenseMle {
+            num_vars: m,
+            evaluations: evals,
+        }
     }
 }
 
@@ -243,7 +286,9 @@ mod tests {
         // (variable 0 = most significant index bit).
         // Multilinear interpolation: f(x0, x1) = 1 + x0 + 2*x1.
         // At (x0=2, x1=5): 1 + 2 + 10 = 13.
-        let f = DenseMle::new(vec![fe(1), fe(3), fe(2), fe(4)]).ok().unwrap();
+        let f = DenseMle::new(vec![fe(1), fe(3), fe(2), fe(4)])
+            .ok()
+            .unwrap();
         let val = f.evaluate(&[fe(2), fe(5)]).ok().unwrap();
         assert_eq!(val, fe(13));
     }

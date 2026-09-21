@@ -81,8 +81,7 @@ impl RingConfig {
 
     /// Deterministic pseudorandom element (reference/testing only).
     pub fn random(&self, seed: &[u8]) -> RingElement {
-        let bytes =
-            lattice_core::transcript::Transcript::xof(b"ring-random", seed, self.n() * 4);
+        let bytes = lattice_core::transcript::Transcript::xof(b"ring-random", seed, self.n() * 4);
         let coeffs: Vec<u32> = bytes
             .chunks(4)
             .take(self.n())
@@ -147,7 +146,10 @@ impl std::fmt::Debug for RingElement {
         f.debug_struct("RingElement")
             .field("q", &self.config.modulus.q)
             .field("log_n", &self.config.log_n)
-            .field("coeffs[..4]", &self.coeffs.iter().take(4).collect::<Vec<_>>())
+            .field(
+                "coeffs[..4]",
+                &self.coeffs.iter().take(4).collect::<Vec<_>>(),
+            )
             .finish()
     }
 }
@@ -235,11 +237,7 @@ impl RingElement {
         }
     }
 
-    fn zip(
-        &self,
-        other: &Self,
-        f: impl Fn(Modulus32, u32, u32) -> u32,
-    ) -> Result<Self, RingError> {
+    fn zip(&self, other: &Self, f: impl Fn(Modulus32, u32, u32) -> u32) -> Result<Self, RingError> {
         if self.config.modulus.q != other.config.modulus.q
             || self.config.log_n != other.config.log_n
             || self.coeffs.len() != other.coeffs.len()
@@ -274,21 +272,12 @@ impl RingElement {
         let q = self.config.modulus;
         let mut a = self.coeffs.clone();
         let mut b = other.coeffs.clone();
-        self.config
-            .tables
-            .forward(&mut a)
-            .map_err(RingError::Ntt)?;
-        self.config
-            .tables
-            .forward(&mut b)
-            .map_err(RingError::Ntt)?;
+        self.config.tables.forward(&mut a).map_err(RingError::Ntt)?;
+        self.config.tables.forward(&mut b).map_err(RingError::Ntt)?;
         for i in 0..a.len() {
             a[i] = q.mul(a[i], b[i]);
         }
-        self.config
-            .tables
-            .inverse(&mut a)
-            .map_err(RingError::Ntt)?;
+        self.config.tables.inverse(&mut a).map_err(RingError::Ntt)?;
         Ok(RingElement {
             config: self.config.clone(),
             coeffs: a,
@@ -299,10 +288,7 @@ impl RingElement {
     /// bit-reversed order).
     pub fn to_ntt(&self) -> Result<Vec<u32>, RingError> {
         let mut a = self.coeffs.clone();
-        self.config
-            .tables
-            .forward(&mut a)
-            .map_err(RingError::Ntt)?;
+        self.config.tables.forward(&mut a).map_err(RingError::Ntt)?;
         Ok(a)
     }
 
@@ -380,7 +366,11 @@ impl RingElement {
         let half = q / 2;
         let mut acc: u64 = 0;
         for &c in &self.coeffs {
-            let b = if c <= half { c as i64 } else { c as i64 - q as i64 };
+            let b = if c <= half {
+                c as i64
+            } else {
+                c as i64 - q as i64
+            };
             acc = acc.saturating_add((b * b) as u64);
         }
         acc
@@ -419,7 +409,19 @@ mod tests {
         assert!(a.add(&a.neg()).ok().unwrap().is_zero());
         // scale
         let s = a.scale_i64(3);
-        assert_eq!(s.sub(&a).ok().unwrap().sub(&a).ok().unwrap().sub(&a).ok().unwrap().infinity_norm(), 0);
+        assert_eq!(
+            s.sub(&a)
+                .ok()
+                .unwrap()
+                .sub(&a)
+                .ok()
+                .unwrap()
+                .sub(&a)
+                .ok()
+                .unwrap()
+                .infinity_norm(),
+            0
+        );
     }
 
     #[test]
@@ -449,7 +451,13 @@ mod tests {
         let a_bd = a.mul(&b.mul(&d).ok().unwrap()).ok().unwrap();
         assert_eq!(ab_d, a_bd);
         let lhs = a.mul(&b.add(&d).ok().unwrap()).ok().unwrap();
-        let rhs = a.mul(&b).ok().unwrap().add(&a.mul(&d).ok().unwrap()).ok().unwrap();
+        let rhs = a
+            .mul(&b)
+            .ok()
+            .unwrap()
+            .add(&a.mul(&d).ok().unwrap())
+            .ok()
+            .unwrap();
         assert_eq!(lhs, rhs);
     }
 

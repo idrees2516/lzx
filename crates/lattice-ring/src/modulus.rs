@@ -141,10 +141,7 @@ mod tests {
     fn ring_arithmetic_matches_u64_reference() {
         let m = Modulus32::Q_32;
         let (a, b) = (1234567891u32, 3221225470u32);
-        assert_eq!(
-            m.mul(a, b),
-            ((a as u64 * b as u64) % m.q as u64) as u32
-        );
+        assert_eq!(m.mul(a, b), ((a as u64 * b as u64) % m.q as u64) as u32);
         // add/sub wrap correctly at the modulus
         let x = m.q - 1;
         assert_eq!(m.add(x, 2), 1);

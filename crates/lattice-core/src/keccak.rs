@@ -35,8 +35,7 @@ const RC: [u64; 24] = [
 
 /// Rotation offsets for the rho step, indexed by lane (x, y) -> y*5 + x.
 const RHO: [u32; 25] = [
-    0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56,
-    14,
+    0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14,
 ];
 
 /// Keccak-f\[1600\] permutation, in place over 25 lanes.
@@ -182,7 +181,10 @@ mod tests {
         );
         // Longer input crossing the rate boundary (136 bytes).
         let long = sha3_256(&[0u8; 200]);
-        assert_eq!(hex(&long), "2b43036c229ba512995f91fdb46fcd5327a4dc834d86d6e0f58a08053346dc2e");
+        assert_eq!(
+            hex(&long),
+            "2b43036c229ba512995f91fdb46fcd5327a4dc834d86d6e0f58a08053346dc2e"
+        );
     }
 
     #[test]

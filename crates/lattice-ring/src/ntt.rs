@@ -276,7 +276,11 @@ mod tests {
             let tables = NttTables::new(m, log_n).ok().unwrap();
             tables.forward(&mut coeffs).ok().unwrap();
             tables.inverse(&mut coeffs).ok().unwrap();
-            assert_eq!(coeffs, a.coeffs().to_vec(), "roundtrip failed at log_n={log_n}");
+            assert_eq!(
+                coeffs,
+                a.coeffs().to_vec(),
+                "roundtrip failed at log_n={log_n}"
+            );
         }
     }
 

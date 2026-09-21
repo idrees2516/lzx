@@ -139,7 +139,11 @@ impl ChallengeSet {
             // by compaction, remap through the live list.
             let live = Self::nth_live(&coefficients, pos);
             if let Some(p) = live {
-                let sign = if (stream[idx % stream.len()] & 1) == 0 { 1i64 } else { -1 };
+                let sign = if (stream[idx % stream.len()] & 1) == 0 {
+                    1i64
+                } else {
+                    -1
+                };
                 idx += 1;
                 coefficients[p] = sign;
                 chosen.push(p);
@@ -177,11 +181,7 @@ impl ChallengeSet {
 
     /// The infinity norm of the challenge (bound bookkeeping for SIS).
     pub fn infinity_norm(&self) -> i64 {
-        self.coefficients
-            .iter()
-            .map(|c| c.abs())
-            .max()
-            .unwrap_or(0)
+        self.coefficients.iter().map(|c| c.abs()).max().unwrap_or(0)
     }
 
     /// Hamming weight (number of non-zero coefficients).
@@ -233,16 +233,19 @@ mod tests {
 
     #[test]
     fn uniform_ternary_distribution() {
-        let cs = ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-a").unwrap();
+        let cs =
+            ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-a").unwrap();
         assert_eq!(cs.coefficients.len(), 1024);
         for c in &cs.coefficients {
             assert!(*c == 0 || *c == 1 || *c == -1);
         }
         // Deterministic.
-        let cs2 = ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-a").unwrap();
+        let cs2 =
+            ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-a").unwrap();
         assert_eq!(cs, cs2);
         // Different seed -> different set (whp).
-        let cs3 = ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-b").unwrap();
+        let cs3 =
+            ChallengeSet::sample(ChallengeDistribution::UniformTernary, 1024, b"seed-b").unwrap();
         assert_ne!(cs, cs3);
     }
 
@@ -271,12 +274,8 @@ mod tests {
     #[test]
     fn small_interval_bounded() {
         let bound = 15u32;
-        let cs = ChallengeSet::sample(
-            ChallengeDistribution::SmallInterval { bound },
-            768,
-            b"int",
-        )
-        .unwrap();
+        let cs = ChallengeSet::sample(ChallengeDistribution::SmallInterval { bound }, 768, b"int")
+            .unwrap();
         assert_eq!(cs.infinity_norm() as u32, 15); // whp hits both ends
         for c in &cs.coefficients {
             assert!(c.abs() <= bound as i64);

@@ -275,7 +275,10 @@ mod tests {
     fn canonical_encoding_roundtrip_and_reject() {
         let a = fe(0xDEAD_BEEF_CAFE_F00D % GOLDILOCKS_MODULUS);
         let bytes = a.to_bytes();
-        assert_eq!(Goldilocks::from_bytes(&bytes).unwrap_or(Goldilocks::ZERO), a);
+        assert_eq!(
+            Goldilocks::from_bytes(&bytes).unwrap_or(Goldilocks::ZERO),
+            a
+        );
         let bad = GOLDILOCKS_MODULUS.to_le_bytes();
         assert_eq!(
             Goldilocks::from_bytes(&bad).err(),

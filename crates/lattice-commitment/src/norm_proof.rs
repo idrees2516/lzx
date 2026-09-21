@@ -33,10 +33,22 @@ pub struct NormProof {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NormProofError {
-    NormExceeded { norm: u32, bound: u32 },
-    RecompositionMismatch { index: usize },
-    DigitOutOfRange { index: usize, digit: i64, bound: i64 },
-    ShapeMismatch { expected: usize, got: usize },
+    NormExceeded {
+        norm: u32,
+        bound: u32,
+    },
+    RecompositionMismatch {
+        index: usize,
+    },
+    DigitOutOfRange {
+        index: usize,
+        digit: i64,
+        bound: i64,
+    },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl NormProof {
@@ -193,7 +205,10 @@ mod tests {
         let s = vec![RingElement::from_signed(&r, &[1000, 0, 0, 0, 0, 0, 0, 0])];
         assert_eq!(
             NormProof::prove(&s, 100).err(),
-            Some(NormProofError::NormExceeded { norm: 1000, bound: 100 })
+            Some(NormProofError::NormExceeded {
+                norm: 1000,
+                bound: 100
+            })
         );
     }
 
@@ -233,7 +248,7 @@ mod tests {
         let r = ring(3);
         let s = vec![
             RingElement::from_signed(&r, &[3, -4, 0, 0, 0, 0, 0, 0]), // 9+16
-            RingElement::from_signed(&r, &[12, 0, 0, 0, 0, 0, 0, 0]),  // +144
+            RingElement::from_signed(&r, &[12, 0, 0, 0, 0, 0, 0, 0]), // +144
         ];
         assert_eq!(NormProof::euclidean_norm_squared(&s), 9 + 16 + 144);
     }

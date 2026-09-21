@@ -99,14 +99,19 @@ pub fn crt_pack(
     moduli: &[u64],
 ) -> Result<Vec<RingElement>, PackingError> {
     if moduli.is_empty() {
-        return Err(PackingError::LengthMismatch { expected: 1, got: 0 });
+        return Err(PackingError::LengthMismatch {
+            expected: 1,
+            got: 0,
+        });
     }
     let mut product = 1u64;
     for &m in moduli {
         if m == 0 || m >= config.modulus.q as u64 {
             return Err(PackingError::ModulusTooLarge { modulus: m });
         }
-        product = product.checked_mul(m).ok_or(PackingError::ModulusTooLarge { modulus: m })?;
+        product = product
+            .checked_mul(m)
+            .ok_or(PackingError::ModulusTooLarge { modulus: m })?;
         if product >= config.modulus.q as u64 {
             return Err(PackingError::ModulusTooLarge { modulus: product });
         }
@@ -136,8 +141,8 @@ pub fn crt_pack(
             // t ≡ (v - combined) * prod_so_far^{-1} (mod m).
             let v = values[idx];
             let diff = (v + m - (combined % m)) % m;
-            let inv = mod_inverse(prod_so_far % m, m)
-                .ok_or(PackingError::NotCoprime { modulus: m })?;
+            let inv =
+                mod_inverse(prod_so_far % m, m).ok_or(PackingError::NotCoprime { modulus: m })?;
             let t = (diff * inv) % m;
             combined += prod_so_far * t;
             prod_so_far *= m;

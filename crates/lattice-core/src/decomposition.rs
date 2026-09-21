@@ -55,7 +55,11 @@ impl GadgetDecomposition {
             // by borrowing when it exceeds base/2. u128 intermediate so the
             // borrow never overflows.
             let digit = (rem % self.base as u128) as i64;
-            let d = if digit > half { digit - self.base as i64 } else { digit };
+            let d = if digit > half {
+                digit - self.base as i64
+            } else {
+                digit
+            };
             // i128 intermediate: a negative d would wrap if cast to u128.
             rem = ((rem as i128 - d as i128) / self.base as i128) as u128;
             out.push(d);
@@ -76,7 +80,10 @@ impl GadgetDecomposition {
         for &d in digits {
             let half = (self.base / 2) as i64;
             if d < -half || d > half {
-                return Err(DecompositionError::DigitOutOfRange { digit: d, bound: half });
+                return Err(DecompositionError::DigitOutOfRange {
+                    digit: d,
+                    bound: half,
+                });
             }
             acc += d as i128 * power;
             power *= self.base as i128;
@@ -149,7 +156,10 @@ mod tests {
         digits[0] = 200;
         assert_eq!(
             g.recompose(&digits).err(),
-            Some(DecompositionError::DigitOutOfRange { digit: 200, bound: 128 })
+            Some(DecompositionError::DigitOutOfRange {
+                digit: 200,
+                bound: 128
+            })
         );
         assert_eq!(
             g.recompose(&[0; 7]).err(),

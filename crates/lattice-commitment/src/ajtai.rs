@@ -14,8 +14,8 @@
 //! (see `norm_proof` and the lattice-zk design notes); the audit report
 //! requires privacy to be an explicit, separately-reviewed capability.
 
-use lattice_ring::{RingConfig, RingElement};
 use lattice_core::Goldilocks;
+use lattice_ring::{RingConfig, RingElement};
 
 /// Structural parameters of an Ajtai commitment instance.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,7 +76,11 @@ impl AjtaiPublicKey {
         for i in 0..total {
             matrix.push(params.ring.uniform_from_seed(b"ajtai-A", &seed, i as u64));
         }
-        Ok(AjtaiPublicKey { params, seed, matrix })
+        Ok(AjtaiPublicKey {
+            params,
+            seed,
+            matrix,
+        })
     }
 
     /// Matrix entry A[i][j] (cloned; hot paths use `commit` directly).
@@ -180,11 +184,7 @@ impl AjtaiCommitment {
     }
 
     /// Decode from canonical bytes given the ring config and dimension.
-    pub fn from_bytes(
-        ring: &RingConfig,
-        k: usize,
-        bytes: &[u8],
-    ) -> Result<Self, AjtaiError> {
+    pub fn from_bytes(ring: &RingConfig, k: usize, bytes: &[u8]) -> Result<Self, AjtaiError> {
         let expected = k * ring.n() * 4;
         if bytes.len() != expected {
             return Err(AjtaiError::DimensionMismatch {
@@ -214,11 +214,7 @@ pub fn sample_small_secret(
 ) -> Vec<RingElement> {
     let mut out = Vec::with_capacity(m);
     for i in 0..m {
-        let bytes = lattice_core::transcript::Transcript::xof(
-            b"ajtai-secret",
-            seed,
-            8 + i * 4,
-        );
+        let bytes = lattice_core::transcript::Transcript::xof(b"ajtai-secret", seed, 8 + i * 4);
         // Rejection to [-bound, bound] per coefficient.
         let mut coeffs = Vec::with_capacity(ring.n());
         let mut counter = 0usize;
@@ -303,14 +299,19 @@ mod tests {
         let t = pk.commit(&s).ok().unwrap();
         assert!(matches!(
             pk.verify_opening(&t, &s),
-            Err(AjtaiError::NormExceeded { norm: 1000, bound: 8 })
+            Err(AjtaiError::NormExceeded {
+                norm: 1000,
+                bound: 8
+            })
         ));
     }
 
     #[test]
     fn deterministic_key_derivation() {
         let params = test_params(3, 2, 2, 16);
-        let pk1 = AjtaiPublicKey::from_seed(params.clone(), seed(7)).ok().unwrap();
+        let pk1 = AjtaiPublicKey::from_seed(params.clone(), seed(7))
+            .ok()
+            .unwrap();
         let pk2 = AjtaiPublicKey::from_seed(params, seed(7)).ok().unwrap();
         assert_eq!(pk1.entry(0, 0), pk2.entry(0, 0));
         let pk3 = AjtaiPublicKey::from_seed(
@@ -334,8 +335,9 @@ mod tests {
         let s = sample_small_secret(&pk.params.ring, pk.params.m, 4, b"x");
         let t = pk.commit(&s).ok().unwrap();
         let bytes = t.to_bytes();
-        let back =
-            AjtaiCommitment::from_bytes(&pk.params.ring, pk.params.k, &bytes).ok().unwrap();
+        let back = AjtaiCommitment::from_bytes(&pk.params.ring, pk.params.k, &bytes)
+            .ok()
+            .unwrap();
         assert_eq!(back, t);
         // Wrong length rejected.
         assert!(AjtaiCommitment::from_bytes(&pk.params.ring, pk.params.k, &bytes[..10]).is_err());
