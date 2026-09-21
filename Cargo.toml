@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/lattice-core",
+    "crates/lattice-ring",
+    "crates/lattice-commitment",
+    "crates/lattice-sumcheck",
+    "crates/lattice-relations",
+    "crates/lattice-embeddings",
+    "crates/lattice-akita",
+    "crates/lattice-pcs",
+    "crates/lattice-folding",
+    "crates/lattice-lookup",
+    "crates/lattice-salsa",
+    "crates/lattice-rokoko",
+    "crates/lattice-vm",
+    "crates/lattice-memory",
+    "crates/lattice-zkvm",
+]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.75"
+
+[workspace.dependencies]
+lattice-core = { path = "crates/lattice-core" }
+lattice-ring = { path = "crates/lattice-ring" }
+lattice-commitment = { path = "crates/lattice-commitment" }
+lattice-sumcheck = { path = "crates/lattice-sumcheck" }
+lattice-relations = { path = "crates/lattice-relations" }
+lattice-embeddings = { path = "crates/lattice-embeddings" }
+lattice-akita = { path = "crates/lattice-akita" }
+lattice-pcs = { path = "crates/lattice-pcs" }
+lattice-folding = { path = "crates/lattice-folding" }
+lattice-lookup = { path = "crates/lattice-lookup" }
+lattice-salsa = { path = "crates/lattice-salsa" }
+lattice-rokoko = { path = "crates/lattice-rokoko" }
+lattice-vm = { path = "crates/lattice-vm" }
+lattice-memory = { path = "crates/lattice-memory" }
+lattice-zkvm = { path = "crates/lattice-zkvm" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.test]
+opt-level = 1

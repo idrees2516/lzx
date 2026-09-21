@@ -1,0 +1,15 @@
+[package]
+name = "lattice-folding"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-ring = { workspace = true }
+lattice-commitment = { workspace = true }
+lattice-sumcheck = { workspace = true }
+lattice-relations = { workspace = true }
