@@ -69,6 +69,11 @@ impl Memory {
         }
     }
 
+    /// Deterministic (address, value) pairs (the Twist final state).
+    pub fn snapshot_pairs(&self) -> Vec<(u64, u64)> {
+        self.words.iter().map(|(a, v)| (*a, *v)).collect()
+    }
+
     /// Memory footprint in words.
     pub fn len(&self) -> usize {
         self.words.len()

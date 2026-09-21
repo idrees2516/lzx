@@ -12,6 +12,7 @@
 //!   exact operands/flags/addresses the claim DAG consumes.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::double_parens)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -20,5 +21,5 @@ pub mod exec;
 pub mod state;
 
 pub use decode::{decode, Instr, InstrFormat};
-pub use exec::{step, TraceRow};
+pub use exec::{run, step, ExecError, TraceRow};
 pub use state::MachineState;

@@ -13,6 +13,7 @@
 //!   committed evaluation-trace checks.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_range_loop)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 

@@ -185,7 +185,7 @@ pub fn accumulate_partial_evaluation(
     }
     // Number of prefix variables to collapse: leave one variable so the
     // result is still a non-degenerate MLE (unless total is 0).
-    let collapse = total_vars.saturating_sub(1).max(0);
+    let collapse = total_vars.saturating_sub(1);
     let prefix = transcript
         .challenge_fields(b"quasar-prefix", collapse)
         .map_err(LookupError::Transcript)
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn lookup_missing_entry_rejected() {
-        let table: Vec<Goldilocks> = (0..16u64).map(|i| fe(i)).collect();
+        let table: Vec<Goldilocks> = (0..16u64).map(fe).collect();
         // 99 is not in the table.
         let reads = vec![fe(1), fe(99), fe(2)];
         let mut t = Transcript::new_default(b"lzx-lookup-test");
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn lookup_multiplicity_enforced() {
-        let table: Vec<Goldilocks> = (0..8u64).map(|i| fe(i)).collect();
+        let table: Vec<Goldilocks> = (0..8u64).map(fe).collect();
         // Table contains one 5; reads demand two.
         let reads = vec![fe(5), fe(5)];
         let mut t = Transcript::new_default(b"lzx-lookup-test");
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn tampered_lookup_rejected() {
-        let table: Vec<Goldilocks> = (0..16u64).map(|i| fe(i)).collect();
+        let table: Vec<Goldilocks> = (0..16u64).map(fe).collect();
         let reads = vec![fe(1), fe(2)];
         let mut t = Transcript::new_default(b"lzx-lookup-test");
         let mut proof = prove_lookup(&table, &reads, &mut t).ok().unwrap();
@@ -345,7 +345,7 @@ mod tests {
         // so R_total = R1·R2 and Q_total = T / R_total closes the identity.
         let table: Vec<Goldilocks> = (0..64u64).map(|i| fe(i * 13 + 1)).collect();
         let reads1 = vec![table[5], table[9]];
-        let reads2 = vec![table[40], table[2], table[5]];
+        let _reads2 = [table[40], table[2], table[5]];
         // Shared challenge (the accumulation point).
         let tau = Goldilocks::from_u64(0x9E37_79B9_7F4A_7C15);
         // NOTE: reads2 reuses table[5] which reads1 already consumed —

@@ -3,23 +3,17 @@
 //! SALSAA (ePrint 2025/2124): linear-time provers and lattice arguments.
 //!
 //! Core components (the "sumcheck-aided" toolkit):
-//! * `norm_sumcheck` — prove `Σ_x z(x)² = claimed` over the hypercube for
-//!   a committed MLE z: the ℓ2-norm check becomes a degree-2 sumcheck with
-//!   a linear-time prover (the paper's central observation). The ℓ∞ bound
-//!   follows from ℓ2 by norm domination.
-//! * `lde_tensor` — verify the low-degree-extension tensor structure: an
-//!   LDE over a larger domain must equal the tensor of its base points;
-//!   checked with an eq-multiplied sumcheck (the LDE tensor relation the
-//!   paper's reductions target).
-//! * `structured_matrix` — circulant/Toeplitz structured-matrix-vector
-//!   products verified via their ring embedding (negacyclic convolution
-//!   through the NTT): a linear-map check with a linear-time prover.
-//! * `zk_sumcheck` — the zero-knowledge masking layer: each round
-//!   polynomial is masked with transcript-derived blinding so the round
-//!   evaluations leak nothing (the SALSA zk contribution); the sum claim
-//!   is adjusted by an absorbed blinding scalar.
+//! * norm_sumcheck: prove the squared-l2 norm over the hypercube for a
+//!   committed MLE via a degree-2 sumcheck (the paper's central
+//!   observation); the l-infinity bound follows by norm domination.
+//! * lde_tensor: verify the LDE tensor structure with an eq-multiplied
+//!   sumcheck.
+//! * structured_matrix: circulant/negacyclic matrix-vector products
+//!   verified through the ring embedding (NTT convolution).
+//! * zk_sumcheck: zero-knowledge masking of round polynomials.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_range_loop, clippy::manual_div_ceil)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -205,13 +199,12 @@ pub fn structured_matrix_product(
 /// Zero-knowledge sumcheck: mask each round polynomial so round
 /// evaluations reveal nothing about the witness.
 ///
-/// Protocol shape (both sides derive masks from the *statement-level*
-/// transcript state, before any round is absorbed):
-/// 1. absorb the claim; sample all mask points `m_{j,i}`;
-/// 2. prover sends `masked_{j,i} = g_j(i) + m_{j,i}`;
-/// 3. verifier absorbs the MASKED round (Fiat–Shamir over what is sent),
-///    samples `r_j`, unmasks with the known masks, checks
-///    `g_j(0) + g_j(1) = running claim`, and interpolates.
+/// Protocol shape (both sides derive masks from the statement-level
+/// transcript state, before any round is absorbed): first absorb the
+/// claim and sample all mask points; then the prover sends the masked
+/// round values; then the verifier absorbs the MASKED round (Fiat–Shamir
+/// over what is sent), samples the round challenge, unmasks with the
+/// known masks, checks the round identity, and interpolates.
 /// The masked round values are transcript-derived randomness plus the
 /// protocol checks — simulated without the witness (the SALSA zk
 /// property at the sumcheck layer).
@@ -224,7 +217,7 @@ pub struct ZkSumcheckProof {
 fn round_poly_evals(
     bound: &[DenseMle],
     terms: &[(Goldilocks, Vec<usize>)],
-    d: usize,
+    _d: usize,
     t: Goldilocks,
 ) -> Goldilocks {
     // g(t): half-bind every factor's first variable to t and accumulate

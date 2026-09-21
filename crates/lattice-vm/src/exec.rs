@@ -72,7 +72,7 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         Instr::Addiw { rd, rs1, imm } => {
             let a = rr!(rs1);
             let w = (a as i32).wrapping_add(imm as i32);
-            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
         Instr::Slti { rd, rs1, imm } => {
             let a = rr!(rs1);
@@ -155,27 +155,27 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         Instr::Addw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
             let w = (a as i32).wrapping_add(b as i32);
-            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
         Instr::Subw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
             let w = (a as i32).wrapping_sub(b as i32);
-            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
         Instr::Sllw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
             let w = ((a as u32).wrapping_shl(b as u32 & 0x1f)) as i32;
-            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
         Instr::Srlw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
             let w = (a as u32).wrapping_shr(b as u32 & 0x1f);
-            rd_write(&mut reg_writes, rd, w as u32 as u64);
+            rd_write(&mut reg_writes, rd, w as u64);
         }
         Instr::Sraw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
-            let w = ((a as i32).wrapping_shr(b as u32 & 0x1f));
-            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
+            let w = (a as i32).wrapping_shr(b as u32 & 0x1f);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
         Instr::Lw { rd, rs1, imm } => {
             let a = rr!(rs1);
@@ -266,7 +266,7 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Mulh { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
-            rd_write(&mut reg_writes, rd, (((a as i64) as i128) * ((b as i64) as i128) >> 64) as i64 as u64);
+            rd_write(&mut reg_writes, rd, ((((a as i64) as i128) * ((b as i64) as i128)) >> 64) as i64 as u64);
         }
         Instr::Mulhu { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
@@ -283,7 +283,7 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Divu { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
-            let v = if b == 0 { u64::MAX } else { a / b };
+            let v = a.checked_div(b).unwrap_or(u64::MAX);
             rd_write(&mut reg_writes, rd, v);
         }
         Instr::Rem { rd, rs1, rs2 } => {
@@ -307,11 +307,7 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Divuw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
-            let v = if (b as u32) == 0 {
-                u32::MAX
-            } else {
-                (a as u32) / (b as u32)
-            };
+            let v = (a as u32).checked_div(b as u32).unwrap_or(u32::MAX);
             rd_write(&mut reg_writes, rd, v as u64);
         }
         Instr::Remw { rd, rs1, rs2 } => {
@@ -501,7 +497,7 @@ mod tests {
     use super::*;
 
     fn enc_addi(rd: u8, rs1: u8, imm: i64) -> u32 {
-        ((imm as u32) << 20) | ((rs1 as u32) << 15) | (0 << 12) | ((rd as u32) << 7) | 0x13
+        (((imm as u32) << 20) | ((rs1 as u32) << 15)) | ((rd as u32) << 7) | 0x13
     }
 
     #[test]
@@ -543,7 +539,7 @@ mod tests {
         prog.extend_from_slice(&enc_addi(1, 1, -1).to_le_bytes());
         // bne x1, x0, -4: imm[12]=1, imm[10:5]=0x3f, rs2=0, rs1=1, f3=1,
         // imm[4:1]=0xe, imm[11]=1
-        let bne: u32 = (1 << 31) | (0x3f << 25) | (0 << 20) | (1 << 15) | (1 << 12)
+        let bne: u32 = ((1 << 31) | (0x3f << 25)) | (1 << 15) | (1 << 12)
             | (0b1110 << 8) | (1 << 7) | 0x63;
         prog.extend_from_slice(&bne.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
@@ -563,10 +559,10 @@ mod tests {
         prog.extend_from_slice(&enc_addi(1, 0, 0x100).to_le_bytes());
         prog.extend_from_slice(&enc_addi(2, 0, 0xAB).to_le_bytes());
         // sw x2, 0(x1): f3=2, opcode 0x23.
-        let sw: u32 = (2 << 20) | (1 << 15) | (2 << 12) | (0 << 7) | 0x23; // sw x2, 0(x1)
+        let sw: u32 = ((2 << 20) | (1 << 15) | (2 << 12)) | 0x23; // sw x2, 0(x1)
         prog.extend_from_slice(&sw.to_le_bytes());
         // lw x3, 0(x1): f3=2, opcode 0x03.
-        let lw: u32 = (0 << 20) | (1 << 15) | (2 << 12) | (3 << 7) | 0x03;
+        let lw: u32 = ((1 << 15)) | (2 << 12) | (3 << 7) | 0x03;
         prog.extend_from_slice(&lw.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
         s.load_program(0, &prog);
@@ -591,10 +587,10 @@ mod tests {
         let mulh: u32 = (1 << 25) | (2 << 20) | (1 << 15) | (1 << 12) | (3 << 7) | 0x33;
         prog.extend_from_slice(&mulh.to_le_bytes());
         // div x4, x1, x0 (divide by zero): f3=4, f7=1.
-        let divz: u32 = (1 << 25) | (0 << 20) | (1 << 15) | (4 << 12) | (4 << 7) | 0x33;
+        let divz: u32 = ((1 << 25)) | (1 << 15) | (4 << 12) | (4 << 7) | 0x33;
         prog.extend_from_slice(&divz.to_le_bytes());
         // rem x5, x2, x0.
-        let remz: u32 = (1 << 25) | (0 << 20) | (2 << 15) | (6 << 12) | (5 << 7) | 0x33;
+        let remz: u32 = ((1 << 25)) | (2 << 15) | (6 << 12) | (5 << 7) | 0x33;
         prog.extend_from_slice(&remz.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
         s.load_program(0, &prog);
@@ -632,7 +628,7 @@ mod tests {
         let lr: u32 = (2 << 27) | (1 << 15) | (2 << 12) | (2 << 7) | 0x2f;
         prog.extend_from_slice(&lr.to_le_bytes());
         // sc.w x3, x0, (x1): f5=0x3, rs2=x0.
-        let sc: u32 = (3 << 27) | (0 << 20) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
+        let sc: u32 = ((3 << 27)) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
         prog.extend_from_slice(&sc.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
         s.load_program(0, &prog);
@@ -644,7 +640,7 @@ mod tests {
         prog2.extend_from_slice(&enc_addi(1, 0, 0x300).to_le_bytes());
         prog2.extend_from_slice(&enc_addi(2, 0, 5).to_le_bytes());
         // amoadd.w x3, x2, (x1): f5=0x00.
-        let amo: u32 = (0 << 27) | (2 << 20) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
+        let amo: u32 = ((2 << 20)) | (1 << 15) | (2 << 12) | (3 << 7) | 0x2f;
         prog2.extend_from_slice(&amo.to_le_bytes());
         prog2.extend_from_slice(&0x73u32.to_le_bytes());
         s2.load_program(0, &prog2);

@@ -394,6 +394,17 @@ pub fn decode_compressed(pc: u64, half: u16) -> Result<(Instr, u64), DecodeError
                 ))
             }
         }
+        // C.SUB / C.XOR / C.OR / C.AND (funct3=4 with bit12 set).
+        (1, 4) if (half >> 12) & 0x1 == 1 => {
+            let rd = expand(rs1c);
+            let rs2 = expand(((half >> 2) & 0x7) as u8);
+            match (half >> 5) & 0x3 {
+                0 => Ok((Instr::Sub { rd, rs1: rd, rs2 }, pc + 2)),
+                1 => Ok((Instr::Xor { rd, rs1: rd, rs2 }, pc + 2)),
+                2 => Ok((Instr::Or { rd, rs1: rd, rs2 }, pc + 2)),
+                _ => Ok((Instr::And { rd, rs1: rd, rs2 }, pc + 2)),
+            }
+        }
         // C.SRLI / C.SRAI / C.ANDI.
         (1, 4) => {
             let rd = expand(rs1c);
@@ -418,17 +429,6 @@ pub fn decode_compressed(pc: u64, half: u16) -> Result<(Instr, u64), DecodeError
                 },
                 pc + 2,
             ))
-        }
-        // C.SUB / C.XOR / C.OR / C.AND (funct3=4 with bit12 set).
-        (1, 4) if (half >> 12) & 0x1 == 1 => {
-            let rd = expand(rs1c);
-            let rs2 = expand(((half >> 2) & 0x7) as u8);
-            match (half >> 5) & 0x3 {
-                0 => Ok((Instr::Sub { rd, rs1: rd, rs2 }, pc + 2)),
-                1 => Ok((Instr::Xor { rd, rs1: rd, rs2 }, pc + 2)),
-                2 => Ok((Instr::Or { rd, rs1: rd, rs2 }, pc + 2)),
-                _ => Ok((Instr::And { rd, rs1: rd, rs2 }, pc + 2)),
-            }
         }
         // C.SW / C.SD.
         (2, 6) => {

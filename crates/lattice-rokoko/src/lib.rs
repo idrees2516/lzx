@@ -185,7 +185,7 @@ pub fn verify_refinement(
     pk: &AjtaiPublicKey,
     statement: &RefinedProjection,
     coarse_witness: &[RingElement],
-    coarse_target: usize,
+    _coarse_target: usize,
     fine_target: usize,
 ) -> Result<bool, RokokoError> {
     // Coarse commitment must open to the provided coarse image.
