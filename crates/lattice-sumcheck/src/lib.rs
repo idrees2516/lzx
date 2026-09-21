@@ -23,5 +23,5 @@ pub mod sumcheck;
 pub mod virtual_poly;
 pub mod zerocheck;
 
-pub use sumcheck::{SumcheckProof, SumcheckVerifier};
-pub use virtual_poly::VirtualPolynomial;
+pub use sumcheck::{SumcheckError, SumcheckProof, SumcheckVerifier};
+pub use virtual_poly::{VirtualPolyError, VirtualPolynomial};

@@ -21,6 +21,8 @@
 pub mod modulus;
 pub mod ntt;
 pub mod packing;
+
+pub use packing::PackingError;
 pub mod ring;
 
 pub use modulus::Modulus32;
