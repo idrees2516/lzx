@@ -271,7 +271,7 @@ pub fn fold_double(
     };
     let inner = fold_rows(&d1.inner, &d2.inner)?;
     let outer = fold_rows(&d1.outer, &d2.outer)?;
-    let r_abs = r_int.unsigned_abs() as u64;
+    let r_abs = r_int.unsigned_abs();
     Ok(FoldedDouble {
         commitment: DoubleCommitment { inner, outer },
         challenge_balanced: r_int,

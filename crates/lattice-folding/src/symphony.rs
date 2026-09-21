@@ -18,6 +18,7 @@
 //! * The subset cross terms are committed once (a single stacked Ajtai
 //!   commitment), keeping the one-shot fold non-interactive.
 
+#[allow(unused_imports)] // AjtaiParams used by the test module via super::*
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
 use lattice_ring::RingElement;
@@ -306,7 +307,7 @@ mod tests {
         let mut rhs = ring.zero();
         for (i, w) in witnesses.iter().enumerate() {
             let r2 = q.reduce_u64(
-                (fold.challenges[i] as i64 * fold.challenges[i] as i64)
+                (fold.challenges[i] * fold.challenges[i])
                     .rem_euclid(q.q as i64) as u64,
             );
             let f = rel.evaluate(w).ok().unwrap();
@@ -384,7 +385,7 @@ mod tests {
         };
         let pk_cross = AjtaiPublicKey::from_seed(params_cross, [54u8; 32]).ok().unwrap();
         assert!(matches!(
-            fold_many_degree2(&pk, &pk_cross, &rel, &[w.clone()], &[c.clone()]),
+            fold_many_degree2(&pk, &pk_cross, &rel, std::slice::from_ref(&w), std::slice::from_ref(&c)),
             Err(SymphonyError::ArityTooSmall { arity: 1 })
         ));
         // Witness/commitment count mismatch.

@@ -70,6 +70,7 @@ pub fn sparse_bits(witness: &[Goldilocks]) -> Vec<(usize, u8)> {
 /// * w' = w1 + r·w2,
 /// * slack' = slack1 + r²·slack2 + r·E where E is the Hadamard cross-term
 ///   of the linearized constraint images (exact for the relaxed form).
+#[allow(clippy::needless_range_loop)]
 pub fn fold_relaxed_ccs(
     ccs: &Ccs,
     inst1: &RelaxedCcsInstance,

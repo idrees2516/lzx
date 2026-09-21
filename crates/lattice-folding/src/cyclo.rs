@@ -15,9 +15,9 @@
 //! * **R_q ↔ F_q bridge** — the polynomial evaluation map connects ring
 //!   elements to field polynomials (used when folding F_q constraints).
 
+#[allow(unused_imports)] // AjtaiParams used by the test module via super::*
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
-use lattice_core::Goldilocks;
 use lattice_ring::RingElement;
 
 /// An extension commitment: decomposed-chunk commitment that reduces the
@@ -82,7 +82,8 @@ fn chunk_element(
 }
 
 /// Recompose chunk elements back into the original element (exact inverse
-/// of `chunk_element`).
+/// of `chunk_element`). (Library-visible for the test oracle.)
+#[allow(dead_code)]
 fn unchunk_elements(
     ring: &lattice_ring::RingConfig,
     chunks: &[RingElement],
