@@ -83,7 +83,7 @@ impl ChallengeSet {
     fn sample_small_interval(bound: u32, n: usize, seed: &[u8]) -> Result<Self, ChallengeError> {
         // Unbiased rejection: need span = 2*bound+1 values per byte-window;
         // accept u16 < floor(65536 / span) * span.
-        let span = (2 * bound as u64 + 1) as u64;
+        let span = 2 * bound as u64 + 1;
         let limit = (65536 / span) * span;
         let stream = shake256(&Self::frame(b"interval", seed, n * 2), n * 8);
         let mut coefficients = Vec::with_capacity(n);
@@ -130,7 +130,7 @@ impl ChallengeSet {
             idx += 4;
             // Unbiased modulo rejection for the shrinking range.
             let range = remaining as u64;
-            let limit = (u32::MAX as u64 / range) * range;
+            let limit = (u32::MAX / range as u32) as u64 * range;
             if raw >= limit {
                 continue;
             }

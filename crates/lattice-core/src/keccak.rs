@@ -74,16 +74,6 @@ pub fn keccak_f1600(state: &mut [u64; 25]) {
     }
 }
 
-/// Byte-order mapping: Keccak state is column-major with lanes in LE.
-fn bytes_to_state(bytes: &[u8], state: &mut [u64; 25], offset: usize) {
-    for i in 0..25 {
-        let base = offset + i * 8;
-        let mut lane = [0u8; 8];
-        lane.copy_from_slice(&bytes[base..base + 8]);
-        state[i] = u64::from_le_bytes(lane);
-    }
-}
-
 /// Generic Keccak sponge (original padding, not SHA3's 0x06 domain byte —
 /// the domain byte is supplied by the caller for flexibility).
 pub struct KeccakSponge {
@@ -143,8 +133,8 @@ impl KeccakSponge {
         let mut out = Vec::with_capacity(out_len);
         while out.len() < out_len {
             let mut block = [0u8; 200];
-            for i in 0..25 {
-                block[i * 8..i * 8 + 8].copy_from_slice(&self.state[i].to_le_bytes());
+            for (i, lane) in self.state.iter().enumerate() {
+                block[i * 8..i * 8 + 8].copy_from_slice(&lane.to_le_bytes());
             }
             let take = self.rate.min(out_len - out.len());
             out.extend_from_slice(&block[..take]);

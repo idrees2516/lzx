@@ -75,10 +75,10 @@ impl DenseMle {
         let mut evals = vec![Goldilocks::ONE; 1 << num_vars];
         for (var_idx, p) in point.iter().enumerate() {
             let bit_shift = num_vars - 1 - var_idx;
-            for idx in 0..(1 << num_vars) {
+            for (idx, e) in evals.iter_mut().enumerate() {
                 let bit = (idx >> bit_shift) & 1;
                 let term = if bit == 1 { *p } else { Goldilocks::ONE.sub(p) };
-                evals[idx] = evals[idx].mul(&term);
+                *e = e.mul(&term);
             }
         }
         DenseMle { num_vars, evaluations: evals }
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn lagrange_basis_matches_eq() {
-        let point: Vec<Goldilocks> = (1..=4).map(|i| fe(i)).collect();
+        let point: Vec<Goldilocks> = (1..=4).map(fe).collect();
         let lb = DenseMle::lagrange_basis(4, &point);
         let eq = DenseMle::eq_extension(&point);
         assert_eq!(lb, eq);

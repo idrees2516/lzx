@@ -39,7 +39,7 @@ impl GadgetDecomposition {
     /// because balanced range is symmetric around zero).
     pub fn power_of_two(bits: u32, log_base: u32) -> Self {
         let base = 1u64 << log_base;
-        let num_digits = ((bits + 1 + log_base - 1) / log_base) as usize;
+        let num_digits = (bits + 1).div_ceil(log_base) as usize;
         GadgetDecomposition { base, num_digits }
     }
 
@@ -137,7 +137,7 @@ mod tests {
         for x in (0..100_000u64).step_by(977) {
             let digits = g.decompose(x).unwrap();
             for &d in &digits {
-                assert!(d >= -8 && d <= 8, "digit {d} out of balanced range");
+                assert!((-8..=8).contains(&d), "digit {d} out of balanced range");
             }
         }
     }

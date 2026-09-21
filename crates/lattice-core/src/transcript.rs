@@ -164,8 +164,8 @@ impl Transcript {
         let mut out = Vec::with_capacity(n);
         while out.len() < n {
             let mut block = [0u8; 200];
-            for i in 0..25 {
-                block[i * 8..i * 8 + 8].copy_from_slice(&state[i].to_le_bytes());
+            for (i, lane) in state.iter().enumerate() {
+                block[i * 8..i * 8 + 8].copy_from_slice(&lane.to_le_bytes());
             }
             let take = (RATE - pos).min(n - out.len());
             out.extend_from_slice(&block[pos..pos + take]);
