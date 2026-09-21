@@ -128,7 +128,7 @@ mod tests {
         assert!(is_satisfied(&ccs, &w).ok().unwrap());
         // The sumcheck statement sums to zero at any random point.
         let r: Vec<Goldilocks> = (1..=2).map(|i| fe(i * 7)).collect();
-        let stmt = build_statement(&ccs, &w, &vec![fe(0); 4], &r).ok().unwrap();
+        let stmt = build_statement(&ccs, &w, &[fe(0); 4], &r).ok().unwrap();
         assert!(stmt.claim.is_zero());
         assert_eq!(stmt.vp.sum_over_hypercube(), fe(0));
     }
@@ -140,7 +140,7 @@ mod tests {
         assert!(!is_satisfied(&ccs, &w).ok().unwrap());
         let r: Vec<Goldilocks> = (1..=2).map(|i| fe(i * 7)).collect();
         // With zero slack the statement sum is nonzero (whp).
-        let stmt = build_statement(&ccs, &w, &vec![fe(0); 4], &r).ok().unwrap();
+        let stmt = build_statement(&ccs, &w, &[fe(0); 4], &r).ok().unwrap();
         assert!(!stmt.vp.sum_over_hypercube().is_zero());
         // Proper slack (w∘w - w per row: row0 = 4-2 = 2) fixes it.
         let slack = vec![fe(2), fe(0), fe(0), fe(0)];
@@ -157,7 +157,7 @@ mod tests {
         let w = vec![fe(1), fe(0), fe(1)];
         let r = vec![fe(3), fe(5)];
         assert!(matches!(
-            build_statement(&ccs, &w, &vec![fe(0); 3], &r),
+            build_statement(&ccs, &w, &[fe(0); 3], &r),
             Err(StatementError::MleShape)
         ));
     }

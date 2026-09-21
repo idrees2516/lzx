@@ -81,19 +81,25 @@ impl ChallengeSet {
     }
 
     fn sample_small_interval(bound: u32, n: usize, seed: &[u8]) -> Result<Self, ChallengeError> {
-        // Unbiased rejection: need span = 2*bound+1 values per byte-window;
-        // accept u16 < floor(65536 / span) * span.
+        // Unbiased rejection over u32 draws: span = 2*bound+1 values per
+        // window; accept v < floor(2^32 / span) * span. u32 windows support
+        // any bound up to 2^31 - 1 (u16 windows capped at span <= 65536).
         let span = 2 * bound as u64 + 1;
-        let limit = (65536 / span) * span;
-        let stream = shake256(&Self::frame(b"interval", seed, n * 2), n * 8);
+        let limit = ((1u64 << 32) / span) * span;
+        let stream = shake256(&Self::frame(b"interval", seed, n * 4), n * 12);
         let mut coefficients = Vec::with_capacity(n);
         let mut idx = 0usize;
         while coefficients.len() < n {
-            if idx + 2 > stream.len() {
+            if idx + 4 > stream.len() {
                 return Err(ChallengeError::RejectionBudgetExceeded);
             }
-            let v = u16::from_le_bytes([stream[idx], stream[idx + 1]]) as u64;
-            idx += 2;
+            let v = u32::from_le_bytes([
+                stream[idx],
+                stream[idx + 1],
+                stream[idx + 2],
+                stream[idx + 3],
+            ]) as u64;
+            idx += 4;
             if v < limit {
                 coefficients.push(v as i64 % span as i64 - bound as i64);
             }
