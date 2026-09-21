@@ -24,4 +24,4 @@ pub mod packing;
 pub mod ring;
 
 pub use modulus::Modulus32;
-pub use ring::{RingConfig, RingElement};
+pub use ring::{RingConfig, RingElement, RingError};

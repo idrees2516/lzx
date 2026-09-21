@@ -160,6 +160,16 @@ impl PartialEq for RingElement {
     }
 }
 
+impl Eq for RingElement {}
+
+impl PartialEq for RingConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.modulus.q == other.modulus.q && self.log_n == other.log_n
+    }
+}
+
+impl Eq for RingConfig {}
+
 impl RingElement {
     /// Construct from raw coefficients (length must be n).
     pub fn from_coeffs(config: &RingConfig, coeffs: Vec<u32>) -> Self {

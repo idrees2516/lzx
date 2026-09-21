@@ -79,8 +79,8 @@ impl Transcript {
     }
 
     /// Absorb arbitrary bytes (e.g. commitments) under a label.
-    pub fn append_bytes(&mut self, label: &[u8], bytes: &[u8]) {
-        let _ = self.append_message(label, bytes);
+    pub fn append_bytes(&mut self, label: &[u8], bytes: &[u8]) -> Result<(), TranscriptError> {
+        self.append_message(label, bytes)
     }
 
     /// Sample `n` field challenges under a label, using rejection sampling
