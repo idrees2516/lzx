@@ -26,7 +26,7 @@
 //! at the final proof layer (digit-decomposed norm proofs; see
 //! lattice-commitment::norm_proof and cyclo for the partial variant).
 
-use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
+use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiPublicKey};
 use lattice_core::challenge_set::{ChallengeDistribution, ChallengeSet};
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
@@ -132,7 +132,7 @@ impl PgRelation {
         let mut total = Goldilocks::ZERO;
         let mut alpha_pow = Goldilocks::ONE;
         // Public constant multiplier; linearity is what matters.
-        let alpha = Goldilocks::from_u64(0x1000_193);
+        let alpha = Goldilocks::from_u64(0x0010_0193);
         for e in evals {
             for &c in e.coeffs() {
                 total = total.add(&Goldilocks::from_u64(c as u64).mul(&alpha_pow));
@@ -212,7 +212,8 @@ pub fn fold(
     let r_int = cs.coefficients[0]; // balanced in [-2^16, 2^16]
     let r_scalar = q.reduce_i64(r_int);
     let r = Goldilocks::from_u64(
-        r_int.rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i64) as u64,
+        (r_int as i128)
+            .rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
     );
     let challenge = FoldChallenge {
         field_elem: r,
@@ -336,6 +337,7 @@ impl PgError {
 /// Extract cross-term vectors E_1..E_{d-1} from sample evaluations via
 /// exact polynomial interpolation on nodes 0..d. Returns one vector of
 /// ring elements per power.
+#[allow(clippy::needless_range_loop)]
 fn interpolate_cross_terms(
     samples: &[Vec<RingElement>],
     d: usize,
@@ -404,6 +406,7 @@ fn interpolate_cross_terms(
 
 /// Coefficient of r^power in C(r, j) = falling_factorial(r, j)/j!:
 /// coefficient of r^power in r(r-1)...(r-j+1) times inv(j!) mod q.
+#[allow(clippy::needless_range_loop)]
 fn falling_factorial_coefficient(j: usize, power: usize, q: &lattice_ring::Modulus32) -> u32 {
     if power > j || j == 0 {
         return 0;
@@ -447,6 +450,7 @@ fn elementary_symmetric(vals: &[u32], k: usize, q: &lattice_ring::Modulus32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lattice_commitment::ajtai::AjtaiParams;
     use lattice_ring::{Modulus32, RingConfig};
 
     fn setup(log_n: u32, m: usize) -> (AjtaiPublicKey, RingConfig) {
