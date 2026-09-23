@@ -4,7 +4,6 @@
 //! expected memory words)` — the expectations are computed from the
 //! RISC-V specification, NOT from either interpreter.
 
-use crate::exec::run;
 
 /// One golden vector.
 pub struct Golden {
@@ -43,7 +42,6 @@ fn enc_s(opcode: u32, funct3: u32, rs1: u8, rs2: u8, imm: i32) -> u32 {
 const OP: u32 = 0x33;
 const OPIMM: u32 = 0x13;
 const OP32: u32 = 0x3B;
-const OPIMM32: u32 = 0x1B;
 const LOAD: u32 = 0x03;
 const STORE: u32 = 0x23;
 const BRANCH: u32 = 0x63;
@@ -69,10 +67,7 @@ const NEG1: u64 = (-1i64) as u64;
 
 /// The corpus.
 pub fn corpus() -> Vec<Golden> {
-    let mut v = Vec::new();
-
-    // --- RV64I arithmetic edges ---
-    v.push(Golden {
+    let mut v = vec![Golden {
         name: "add-overflow-wraps",
         program: vec![
             enc_i(OPIMM, 1, 0, 0, -1),      // x1 = MAX
@@ -84,7 +79,7 @@ pub fn corpus() -> Vec<Golden> {
         memory: vec![],
         expect_regs: vec![(1, MAX), (2, 1), (3, 0), (4, MAX)],
         expect_mem32: vec![],
-    });
+    }];
     v.push(Golden {
         name: "sub-underflow-wraps",
         program: vec![
@@ -327,10 +322,8 @@ pub fn corpus() -> Vec<Golden> {
         program: vec![
             enc_i(OPIMM, 1, 0, 0, 5),       // x1 = 5
             enc_i(OPIMM, 2, 0, 0, 5),       // x2 = 5
-            // beq x1, x2, +8 (skip the x3 = 1)
-            (((8u32 >> 12) & 1) << 31) | (((8 >> 11) & 1) << 7)
-                | (((8 >> 5) & 0x3F) << 25) | (((8 >> 1) & 0xF) << 8)
-                | (0 << 12) | (1 << 15) | (2 << 20) | BRANCH,
+            // beq x1, x2, +8 (skip the x3 = 1): imm[4:1] = 4 -> bits 11:8.
+            (4u32 << 8) | (1 << 15) | (2 << 20) | BRANCH,
             enc_i(OPIMM, 3, 0, 0, 1),       // x3 = 1 (skipped)
             enc_i(OPIMM, 4, 0, 0, 2),       // x4 = 2 (executed)
             SYSTEM,
@@ -342,10 +335,8 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "jal-link-and-jalr",
         program: vec![
-            // jal x1, +8 (skip next)
-            (((8u32 >> 20) & 1) << 31) | (((8 >> 12) & 0xFF) << 12)
-                | (((8 >> 11) & 1) << 20) | (((8 >> 1) & 0x3FF) << 21)
-                | (1 << 7) | JAL,
+            // jal x1, +8 (skip next): imm[3:1] = 4 -> bits 30:21.
+            (4u32 << 21) | (1 << 7) | JAL,
             enc_i(OPIMM, 5, 0, 0, 99),      // skipped
             enc_i(OPIMM, 2, 0, 0, 16),      // x2 = 16 (target addr for jalr)
             // jalr x3, x2, 0 -> jumps to 16, link = pc+4 = 16
@@ -409,6 +400,7 @@ pub fn corpus() -> Vec<Golden> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exec::run;
     use crate::state::MachineState;
 
     #[test]

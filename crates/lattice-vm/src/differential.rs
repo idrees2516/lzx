@@ -113,10 +113,12 @@ fn gen_program(prng: &mut Prng, n: usize) -> Vec<u32> {
                     } else {
                         0
                     };
-                    ((funct6 << 26) | (shamt << 20) | ((r8(prng) as u32) << 15)
+                    (funct6 << 26)
+                        | (shamt << 20)
+                        | ((r8(prng) as u32) << 15)
                         | (funct3 << 12)
                         | ((r8(prng) as u32) << 7)
-                        | OPIMM)
+                        | OPIMM
                 } else {
                     enc_i(prng.range(0x1000) as u32, r8(prng), funct3, r8(prng), OPIMM)
                 }
@@ -138,21 +140,21 @@ fn gen_program(prng: &mut Prng, n: usize) -> Vec<u32> {
                     0 => enc_i(prng.range(0x1000) as u32, r8(prng), 0, r8(prng), OPIMM32),
                     1 => {
                         let shamt = (prng.range(32) as u32) & 0x1f;
-                        ((shamt << 20)
+                        (shamt << 20)
                             | ((r8(prng) as u32) << 15)
                             | (1 << 12)
                             | ((r8(prng) as u32) << 7)
-                            | OPIMM32)
+                            | OPIMM32
                     }
                     _ => {
                         let shamt = (prng.range(32) as u32) & 0x1f;
                         let funct7 = if prng.range(2) == 1 { 0x20u32 } else { 0 };
-                        ((funct7 << 25)
+                        (funct7 << 25)
                             | (shamt << 20)
                             | ((r8(prng) as u32) << 15)
                             | (5 << 12)
                             | ((r8(prng) as u32) << 7)
-                            | OPIMM32)
+                            | OPIMM32
                     }
                 }
             }
@@ -309,7 +311,7 @@ fn run_differential(seed: u64, n_instr: usize) -> Result<(), String> {
     }
     // The program image region is byte-identical by construction; the
     // interesting region is the sandbox.
-    for (a, want) in &addr_set {
+    for a in addr_set.keys() {
         let cbyte = cb
             .iter()
             .find(|(x, _)| x == a)

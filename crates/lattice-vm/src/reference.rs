@@ -15,6 +15,8 @@
 //! compressed-expansion contract (see `decode_compressed` for its
 //! funct3 mapping). Uncompressed encodings follow the RISC-V spec.
 
+#![allow(clippy::manual_checked_ops)]
+
 use std::collections::BTreeMap;
 
 /// Byte-level reference memory (default zero).
