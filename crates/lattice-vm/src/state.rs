@@ -29,6 +29,42 @@ impl Memory {
         self.words.insert(addr, value);
     }
 
+    /// Load a 64-bit doubleword at ANY alignment (spec-correct: an
+    /// unaligned LD spans two aligned words). Wave 3 conformance fix —
+    /// the previous exact-key lookup silently read zero for unaligned
+    /// addresses.
+    pub fn load_u64(&self, addr: u64) -> u64 {
+        let base = addr & !0x7;
+        let off = (addr & 0x7) as u32;
+        if off == 0 {
+            self.load(addr)
+        } else {
+            let lo = self.load(base);
+            let hi = self.load(base + 8);
+            let lo_bits = 64 - off * 8;
+            (lo >> (off * 8)) | (hi << lo_bits)
+        }
+    }
+
+    /// Store a 64-bit doubleword at ANY alignment (RMW across up to two
+    /// aligned words).
+    pub fn store_u64(&mut self, addr: u64, value: u64) {
+        let base = addr & !0x7;
+        let off = (addr & 0x7) as u32;
+        if off == 0 {
+            self.store(addr, value);
+        } else {
+            let lo_bits = 64 - off * 8;
+            let lo = self.load(base);
+            let hi = self.load(base + 8);
+            let lo_mask: u64 = (1u64 << (64 - lo_bits)) - 1;
+            let new_lo = (lo & lo_mask) | ((value << (off * 8)) & !lo_mask);
+            let new_hi = (hi & !((1u64 << lo_bits) - 1)) | (value >> lo_bits);
+            self.store(base, new_lo);
+            self.store(base + 8, new_hi);
+        }
+    }
+
     /// Load a 32-bit word at any alignment (unaligned subword loads span
     /// two 64-bit words).
     pub fn load_word32(&self, addr: u64) -> u64 {

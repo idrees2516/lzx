@@ -1,0 +1,13 @@
+[package]
+name = "lattice-qrom"
+description = "LZX QROM layer: Fiat-Shamir query-budget accounting, workspace-wide domain-separation registry, and composition review attestations (audit gate G5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-zk = { workspace = true }
+
+[dev-dependencies]

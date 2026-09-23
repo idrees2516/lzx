@@ -29,12 +29,17 @@ pub struct ProofEnvelope {
 /// Hard caps (allocation-bomb defense).
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_SECTION_BYTES: usize = 1 << 24; // 16 MiB
+/// Total proof-size cap: the *sum* of section payloads. Without this,
+/// a 64 x 16 MiB section-count bomb allocates 1 GiB before any check
+/// runs (audit SS10.2: no unbounded allocations on untrusted paths).
+pub const MAX_TOTAL_SECTION_BYTES: usize = 1 << 25; // 32 MiB
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvelopeError {
     VersionUnsupported { got: u32 },
     TooManySections { got: usize },
     SectionTooLarge { tag: u8, got: usize },
+    TotalTooLarge { got: usize },
     TrailingBytes { got: usize },
     MissingSection { tag: u8 },
     DuplicateSection { tag: u8 },
@@ -56,6 +61,7 @@ impl ProofEnvelope {
             });
         }
         let mut seen = [false; 5];
+        let mut total = 0usize;
         for s in &sections {
             let (tag, len) = match s {
                 Section::Commitment(b) => (1u8, b.len()),
@@ -65,6 +71,10 @@ impl ProofEnvelope {
             };
             if len > MAX_SECTION_BYTES {
                 return Err(EnvelopeError::SectionTooLarge { tag, got: len });
+            }
+            total = total.saturating_add(len);
+            if total > MAX_TOTAL_SECTION_BYTES {
+                return Err(EnvelopeError::TotalTooLarge { got: total });
             }
             let idx = tag as usize;
             if idx < seen.len() {
@@ -141,6 +151,7 @@ impl ProofEnvelope {
         }
         let mut sections = Vec::with_capacity(num_sections);
         let mut seen = [false; 5];
+        let mut total = 0usize;
         for _ in 0..num_sections {
             let tag = *bytes.get(off).ok_or(EnvelopeError::TrailingBytes {
                 got: bytes.len(),
@@ -155,6 +166,11 @@ impl ProofEnvelope {
             off += 4;
             if len > MAX_SECTION_BYTES {
                 return Err(EnvelopeError::SectionTooLarge { tag, got: len });
+            }
+            // Sum cap enforced BEFORE the section allocation.
+            total = total.saturating_add(len);
+            if total > MAX_TOTAL_SECTION_BYTES {
+                return Err(EnvelopeError::TotalTooLarge { got: total });
             }
             let data = bytes
                 .get(off..off + len)

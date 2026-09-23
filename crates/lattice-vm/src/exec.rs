@@ -106,6 +106,21 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
             let a = rr!(rs1);
             rd_write(&mut reg_writes, rd, ((a as i64).wrapping_shr(shamt as u32)) as u64);
         }
+        Instr::Slliw { rd, rs1, shamt } => {
+            let a = rr!(rs1);
+            let w = (a as u32).wrapping_shl(shamt as u32);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
+        }
+        Instr::Srliw { rd, rs1, shamt } => {
+            let a = rr!(rs1);
+            let w = (a as u32).wrapping_shr(shamt as u32);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
+        }
+        Instr::Sraiw { rd, rs1, shamt } => {
+            let a = rr!(rs1);
+            let w = (a as i32).wrapping_shr(shamt as u32);
+            rd_write(&mut reg_writes, rd, w as i64 as u64);
+        }
         Instr::Lui { rd, imm } => {
             rd_write(&mut reg_writes, rd, imm as u64);
         }
@@ -194,7 +209,8 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         Instr::Ld { rd, rs1, imm } => {
             let a = rr!(rs1);
             let addr = a.wrapping_add(imm as u64);
-            let val = state.memory.load(addr);
+            // Spec-correct unaligned doubleword read.
+            let val = state.memory.load_u64(addr);
             mem_access = Some((addr, val, None));
             rd_write(&mut reg_writes, rd, val);
         }
@@ -208,8 +224,9 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         Instr::Sd { rs1, rs2, imm } => {
             let (a, v) = (rr!(rs1), rr!(rs2));
             let addr = a.wrapping_add(imm as u64);
-            let old = state.memory.load(addr);
-            state.memory.store(addr, v);
+            // Spec-correct unaligned doubleword write (RMW across words).
+            let old = state.memory.load_u64(addr);
+            state.memory.store_u64(addr, v);
             mem_access = Some((addr, old, Some(v)));
         }
         Instr::Beq { rs1, rs2, imm } => {

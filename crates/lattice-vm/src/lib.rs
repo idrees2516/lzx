@@ -17,7 +17,11 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod decode;
+#[cfg(test)]
+mod differential;
 pub mod exec;
+pub mod golden;
+pub mod reference;
 pub mod state;
 
 pub use decode::{decode, Instr, InstrFormat};

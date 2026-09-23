@@ -75,6 +75,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-qrom"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-zk",
+]
+
+[[package]]
 name = "lattice-relations"
 version = "0.2.0"
 dependencies = [

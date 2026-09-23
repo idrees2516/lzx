@@ -19,6 +19,12 @@ pub enum Instr {
     Srai { rd: u8, rs1: u8, shamt: u8 },
     // RV64I register-register.
     Addiw { rd: u8, rs1: u8, imm: i64 },
+    // RV64I word-width shift-immediates (wave 3 conformance fix: the
+    // decoder previously folded SLLIW/SRLIW/SRAIW into the 64-bit
+    // variants, producing wrong result widths).
+    Slliw { rd: u8, rs1: u8, shamt: u8 },
+    Srliw { rd: u8, rs1: u8, shamt: u8 },
+    Sraiw { rd: u8, rs1: u8, shamt: u8 },
     Add { rd: u8, rs1: u8, rs2: u8 },
     Sub { rd: u8, rs1: u8, rs2: u8 },
     Sll { rd: u8, rs1: u8, rs2: u8 },
@@ -117,13 +123,17 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
     let rs2 = ((word >> 20) & 0x1f) as u8;
     let funct7 = (word >> 25) & 0x7f;
     match opcode {
+        // LUI / AUIPC: the immediate is the 32-bit (word & 0xFFFFF000)
+        // value, SIGN-EXTENDED to XLEN (wave 3 conformance fix: the
+        // previous (sign_extend(imm20) << 12) lost the sign for
+        // immediates with bit 31 set).
         0x37 => Ok(Instr::Lui {
             rd,
-            imm: sign_extend(word as u64 >> 12, 32) << 12,
+            imm: sign_extend((word & 0xFFFF_F000) as u64, 32),
         }),
         0x17 => Ok(Instr::Auipc {
             rd,
-            imm: sign_extend(word as u64 >> 12, 32) << 12,
+            imm: sign_extend((word & 0xFFFF_F000) as u64, 32),
         }),
         0x6f => {
             let imm = ((word >> 31) << 20)
@@ -192,16 +202,24 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
                 4 => Instr::Xori { rd, rs1, imm },
                 6 => Instr::Ori { rd, rs1, imm },
                 7 => Instr::Andi { rd, rs1, imm },
-                1 => Instr::Slli {
-                    rd,
-                    rs1,
-                    shamt: ((word >> 20) & 0x3f) as u8,
-                },
+                1 => {
+                    // RV64: 6-bit shamt at bits[25:20], funct6 (bits
+                    // [31:26]) must be zero. The previous 7-bit funct7
+                    // check rejected every shamt >= 32.
+                    if (word >> 26) & 0x3f != 0 {
+                        return Err(DecodeError::UnsupportedFunct { pc, word });
+                    }
+                    Instr::Slli {
+                        rd,
+                        rs1,
+                        shamt: ((word >> 20) & 0x3f) as u8,
+                    }
+                }
                 5 => {
                     let shamt = ((word >> 20) & 0x3f) as u8;
-                    match funct7 {
+                    match (word >> 26) & 0x3f {
                         0 => Instr::Srli { rd, rs1, shamt },
-                        0x20 => Instr::Srai { rd, rs1, shamt },
+                        0x10 => Instr::Srai { rd, rs1, shamt },
                         _ => {
                             return Err(DecodeError::UnsupportedFunct { pc, word });
                         }
@@ -216,16 +234,22 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
             let imm = sign_extend((word as u64 >> 20) & 0xfff, 12);
             match funct3 {
                 0 => Ok(Instr::Addiw { rd, rs1, imm }),
-                1 => Ok(Instr::Slli {
-                    rd,
-                    rs1,
-                    shamt: ((word >> 20) & 0x3f) as u8,
-                }),
+                1 => {
+                    // SLLIW: 5-bit shamt, funct7 must be zero.
+                    if funct7 != 0 {
+                        return Err(DecodeError::UnsupportedFunct { pc, word });
+                    }
+                    Ok(Instr::Slliw {
+                        rd,
+                        rs1,
+                        shamt: ((word >> 20) & 0x1f) as u8,
+                    })
+                }
                 5 => {
-                    let shamt = ((word >> 20) & 0x3f) as u8;
+                    let shamt = ((word >> 20) & 0x1f) as u8;
                     match funct7 {
-                        0 => Ok(Instr::Srli { rd, rs1, shamt }),
-                        0x20 => Ok(Instr::Srai { rd, rs1, shamt }),
+                        0 => Ok(Instr::Srliw { rd, rs1, shamt }),
+                        0x20 => Ok(Instr::Sraiw { rd, rs1, shamt }),
                         _ => Err(DecodeError::UnsupportedFunct { pc, word }),
                     }
                 }

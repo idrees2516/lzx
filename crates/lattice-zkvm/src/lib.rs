@@ -25,6 +25,9 @@
 pub mod envelope;
 pub mod prove;
 
+#[cfg(test)]
+mod fuzz;
+
 pub use envelope::{ProofEnvelope, MAX_SECTIONS, MAX_SECTION_BYTES};
 pub use prove::{prove_program, verify_program, PublicOutput, ZkvmError};
 
