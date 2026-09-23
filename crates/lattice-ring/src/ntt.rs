@@ -26,6 +26,13 @@ pub struct NttTables {
     pow_omega_inv: Vec<u32>,
     /// n^{-1} mod q.
     n_inv: u32,
+    /// Per-level contiguous twiddle tables (wave 3 performance pass):
+    /// level_twiddles[j][t] = omega^{stride*t} for the butterfly level
+    /// with len = 2^(j+1), stride = n / len — so the hot inner loop
+    /// reads sequentially instead of striding through pow_omega.
+    level_twiddles: Vec<Vec<u32>>,
+    /// Inverse-direction per-level tables ( Gentleman-Sande ).
+    level_twiddles_inv: Vec<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,6 +77,21 @@ impl NttTables {
             w = modulus.mul(w, omega);
             wi = modulus.mul(wi, omega_inv);
         }
+        // Per-level contiguous tables.
+        let mut level_twiddles = Vec::with_capacity(log_n as usize);
+        let mut level_twiddles_inv = Vec::with_capacity(log_n as usize);
+        for level in 0..log_n {
+            let len = 1usize << (level + 1);
+            let stride = n / len;
+            let mut fwd = Vec::with_capacity(len / 2);
+            let mut inv = Vec::with_capacity(len / 2);
+            for t in 0..len / 2 {
+                fwd.push(pow_omega[t * stride]);
+                inv.push(pow_omega_inv[t * stride]);
+            }
+            level_twiddles.push(fwd);
+            level_twiddles_inv.push(inv);
+        }
         Ok(NttTables {
             modulus,
             log_n,
@@ -78,11 +100,49 @@ impl NttTables {
             pow_omega,
             pow_omega_inv,
             n_inv,
+            level_twiddles,
+            level_twiddles_inv,
         })
     }
 
     pub fn n(&self) -> usize {
         1usize << self.log_n
+    }
+
+    /// Forward negacyclic NTT (optimized, wave 3): coefficients (natural
+    /// order) -> evaluations at psi^{2j+1} (bit-reversed order). In
+    /// place. Identical output to [`forward`]; the optimization reads
+    /// twiddles from contiguous per-level tables (sequential access in
+    /// the hot butterfly loop) and fuses the psi pre-scale into a
+    /// single pass.
+    pub fn forward_fast(&self, a: &mut [u32]) -> Result<(), NttError> {
+        if a.len() != self.n() {
+            return Err(NttError::LengthMismatch);
+        }
+        let q = self.modulus;
+        // Pre-scale by psi^i (fused single pass).
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..a.len() {
+            a[i] = q.mul(a[i], self.pow_psi[i]);
+        }
+        bit_reverse(a);
+        let n = a.len();
+        for twiddles in &self.level_twiddles {
+            let stride_len = twiddles.len(); // len/2
+            let len = stride_len << 1;
+            let mut start = 0usize;
+            while start < n {
+                for t in 0..stride_len {
+                    let w = twiddles[t];
+                    let u = a[start + t];
+                    let v = q.mul(a[start + t + stride_len], w);
+                    a[start + t] = q.add(u, v);
+                    a[start + t + stride_len] = q.sub(u, v);
+                }
+                start += len;
+            }
+        }
+        Ok(())
     }
 
     /// Forward negacyclic NTT: coefficients (natural order) -> evaluations
@@ -121,6 +181,40 @@ impl NttTables {
         Ok(())
     }
 
+    /// Inverse negacyclic NTT (optimized, wave 3): identical output to
+    /// [`inverse`]; GS butterflies with contiguous per-level inverse
+    /// twiddle tables.
+    pub fn inverse_fast(&self, a: &mut [u32]) -> Result<(), NttError> {
+        if a.len() != self.n() {
+            return Err(NttError::LengthMismatch);
+        }
+        let q = self.modulus;
+        let n = a.len();
+        for level in (0..self.level_twiddles_inv.len()).rev() {
+            let twiddles = &self.level_twiddles_inv[level];
+            let stride_len = twiddles.len();
+            let len = stride_len << 1;
+            let mut start = 0usize;
+            while start < n {
+                for t in 0..stride_len {
+                    let w = twiddles[t];
+                    let u = a[start + t];
+                    let v = a[start + t + stride_len];
+                    a[start + t] = q.add(u, v);
+                    a[start + t + stride_len] = q.mul(q.sub(u, v), w);
+                }
+                start += len;
+            }
+        }
+        bit_reverse(a);
+        // Post-scale by psi^{-i} and n^{-1} (fused).
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            a[i] = q.mul(q.mul(a[i], self.pow_psi_inv[i]), self.n_inv);
+        }
+        Ok(())
+    }
+
     /// Inverse negacyclic NTT (in place, exact inverse of `forward`).
     #[allow(clippy::needless_range_loop)]
     pub fn inverse(&self, a: &mut [u32]) -> Result<(), NttError> {
@@ -148,6 +242,7 @@ impl NttTables {
         }
         bit_reverse(a);
         // Post-scale by psi^{-i} and n^{-1} (fused).
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             a[i] = q.mul(q.mul(a[i], self.pow_psi_inv[i]), self.n_inv);
         }
@@ -338,6 +433,32 @@ mod tests {
                 partial, full,
                 "partial({levels}) + complete != full forward"
             );
+        }
+    }
+
+    #[test]
+    fn fast_paths_match_generic_exactly() {
+        let m = Modulus32::Q_32;
+        for &log_n in &[1u32, 2, 3, 4, 5, 6, 8] {
+            let cfg = RingConfig::new(m, log_n).ok().unwrap();
+            let a = rand_poly(&cfg, b"fast-a");
+            let tables = NttTables::new(m, log_n).ok().unwrap();
+            // forward_fast == forward, coefficient-for-coefficient.
+            let mut generic = a.coeffs().to_vec();
+            let mut fast = a.coeffs().to_vec();
+            tables.forward(&mut generic).ok().unwrap();
+            tables.forward_fast(&mut fast).ok().unwrap();
+            assert_eq!(generic, fast, "forward_fast mismatch at log_n={log_n}");
+            // inverse_fast inverts forward_fast exactly.
+            tables.inverse_fast(&mut fast).ok().unwrap();
+            assert_eq!(fast, a.coeffs().to_vec(), "inverse_fast roundtrip at log_n={log_n}");
+            // inverse_fast == inverse on generic output.
+            let mut g2 = a.coeffs().to_vec();
+            tables.forward(&mut g2).ok().unwrap();
+            let mut g3 = g2.clone();
+            tables.inverse(&mut g2).ok().unwrap();
+            tables.inverse_fast(&mut g3).ok().unwrap();
+            assert_eq!(g2, g3, "inverse mismatch at log_n={log_n}");
         }
     }
 

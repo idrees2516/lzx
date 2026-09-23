@@ -272,12 +272,12 @@ impl RingElement {
         let q = self.config.modulus;
         let mut a = self.coeffs.clone();
         let mut b = other.coeffs.clone();
-        self.config.tables.forward(&mut a).map_err(RingError::Ntt)?;
-        self.config.tables.forward(&mut b).map_err(RingError::Ntt)?;
+        self.config.tables.forward_fast(&mut a).map_err(RingError::Ntt)?;
+        self.config.tables.forward_fast(&mut b).map_err(RingError::Ntt)?;
         for i in 0..a.len() {
             a[i] = q.mul(a[i], b[i]);
         }
-        self.config.tables.inverse(&mut a).map_err(RingError::Ntt)?;
+        self.config.tables.inverse_fast(&mut a).map_err(RingError::Ntt)?;
         Ok(RingElement {
             config: self.config.clone(),
             coeffs: a,
@@ -288,7 +288,7 @@ impl RingElement {
     /// bit-reversed order).
     pub fn to_ntt(&self) -> Result<Vec<u32>, RingError> {
         let mut a = self.coeffs.clone();
-        self.config.tables.forward(&mut a).map_err(RingError::Ntt)?;
+        self.config.tables.forward_fast(&mut a).map_err(RingError::Ntt)?;
         Ok(a)
     }
 
@@ -301,7 +301,7 @@ impl RingElement {
             });
         }
         let mut a = evals.to_vec();
-        config.tables.inverse(&mut a).map_err(RingError::Ntt)?;
+        config.tables.inverse_fast(&mut a).map_err(RingError::Ntt)?;
         Ok(RingElement {
             config: config.clone(),
             coeffs: a,

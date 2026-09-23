@@ -1,0 +1,24 @@
+[package]
+name = "lattice-bench"
+description = "LZX reproducible benchmark matrix: per-stage timings, proof/setup sizes, and KAT manifest generation (audit gate G7)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-ring = { workspace = true }
+lattice-commitment = { workspace = true }
+lattice-sumcheck = { workspace = true }
+lattice-relations = { workspace = true }
+lattice-zk = { workspace = true }
+lattice-qrom = { workspace = true }
+lattice-akita = { workspace = true }
+lattice-vm = { workspace = true }
+lattice-zkvm = { workspace = true }
+lattice-memory = { workspace = true }
+
+[[bin]]
+name = "lattice-bench"
+path = "src/bin/bench.rs"
