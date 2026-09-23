@@ -1,0 +1,15 @@
+[package]
+name = "lattice-zk"
+description = "LZX zero-knowledge layer: secret-entropy masking, ZK linear proofs (ABDLOP), secret-mask ZK sumcheck with CRT-carrier binding, privacy specification, and security capability tokens"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-ring = { workspace = true }
+lattice-commitment = { workspace = true }
+lattice-sumcheck = { workspace = true }
+
+[dev-dependencies]

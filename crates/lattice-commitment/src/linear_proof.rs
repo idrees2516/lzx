@@ -107,42 +107,64 @@ impl LinearProof {
             }
         }
 
-        let mut transcript = Transcript::new_default(b"lzx-linear-proof");
-        transcript
-            .append_bytes(b"pk-seed", &pk.seed)
-            .map_err(|_| LinearProofError::VerificationFailed)?;
-        transcript
-            .append_bytes(b"commitment", &commitment.to_bytes())
-            .map_err(|_| LinearProofError::VerificationFailed)?;
+        // Canonical statement bytes (for per-attempt transcript
+        // rebuilds below).
+        let mut statement = Vec::new();
+        statement.extend_from_slice(&pk.seed);
+        statement.extend_from_slice(&commitment.to_bytes());
         for rel in relations {
-            transcript
-                .append_bytes(b"relation-v", &rel.target.to_bytes())
-                .map_err(|_| LinearProofError::VerificationFailed)?;
+            statement.extend_from_slice(&rel.target.to_bytes());
             for v in &rel.coefficients {
-                transcript
-                    .append_bytes(b"rel-coeff", &v.to_bytes())
-                    .map_err(|_| LinearProofError::VerificationFailed)?;
+                statement.extend_from_slice(&v.to_bytes());
             }
         }
-
-        // Challenge: one sparse-ternary ring element.
-        let chal_seed = transcript
-            .challenge_bytes(b"challenge", 32)
+        // Derive the challenge from (statement, w, images) — the
+        // SOUNDNESS FIX (wave 3): the masking commitment w and the
+        // relation images must be absorbed BEFORE the challenge, or the
+        // Fiat-Shamir transform is malleable (pick any short z', set
+        // w' := A·z' − c·t with the statement-only c, and verification
+        // passes without knowledge of s).
+        let derive = |w: &crate::ajtai::AjtaiCommitment,
+                      images: &[RingElement]|
+         -> Result<RingElement, LinearProofError> {
+            let mut t = Transcript::new_default(b"lzx-linear-proof");
+            t.append_bytes(b"pk-seed", &pk.seed)
+                .map_err(|_| LinearProofError::VerificationFailed)?;
+            t.append_bytes(b"commitment", &commitment.to_bytes())
+                .map_err(|_| LinearProofError::VerificationFailed)?;
+            for rel in relations {
+                t.append_bytes(b"relation-v", &rel.target.to_bytes())
+                    .map_err(|_| LinearProofError::VerificationFailed)?;
+                for v in &rel.coefficients {
+                    t.append_bytes(b"rel-coeff", &v.to_bytes())
+                        .map_err(|_| LinearProofError::VerificationFailed)?;
+                }
+            }
+            t.append_bytes(b"statement", &statement)
+                .map_err(|_| LinearProofError::VerificationFailed)?;
+            t.append_bytes(b"mask-w", &w.to_bytes())
+                .map_err(|_| LinearProofError::VerificationFailed)?;
+            for img in images {
+                t.append_bytes(b"mask-image", &img.to_bytes())
+                    .map_err(|_| LinearProofError::VerificationFailed)?;
+            }
+            let chal_seed = t
+                .challenge_bytes(b"challenge", 32)
+                .map_err(|_| LinearProofError::VerificationFailed)?;
+            let cs = ChallengeSet::sample(
+                ChallengeDistribution::SparseTernary {
+                    weight: ring.n() / 2,
+                },
+                ring.n(),
+                &chal_seed,
+            )
             .map_err(|_| LinearProofError::VerificationFailed)?;
-        let cs = ChallengeSet::sample(
-            ChallengeDistribution::SparseTernary {
-                weight: ring.n() / 2,
-            },
-            ring.n(),
-            &chal_seed,
-        )
-        .map_err(|_| LinearProofError::VerificationFailed)?;
-        let challenge = RingElement::from_signed(ring, &cs.coefficients);
-
-        // Rejection-sampled masking and response.
+            Ok(RingElement::from_signed(ring, &cs.coefficients))
+        };
+        // Rejection-sampled masking and response (each attempt is a
+        // fresh Fiat-Shamir instance over the fixed statement).
         let bound = pk.params.norm_bound;
-        let c_norm = cs.infinity_norm() as u32;
-        let response_bound = bound.saturating_sub(c_norm.saturating_mul(2));
+        let response_bound = bound.saturating_sub(2);
         if response_bound == 0 {
             return Err(LinearProofError::NormExceeded);
         }
@@ -158,6 +180,8 @@ impl LinearProof {
             for rel in relations {
                 images.push(rel.evaluate(&y)?);
             }
+            // Challenge derived AFTER absorbing (w, images).
+            let challenge = derive(&w, &images)?;
             // z = y + c·s
             let mut z = Vec::with_capacity(m);
             let mut ok = true;
@@ -205,7 +229,8 @@ impl LinearProof {
                 return Err(LinearProofError::NormExceeded);
             }
         }
-        // 2. Recompute the challenge deterministically (Fiat–Shamir).
+        // 2. Recompute the challenge deterministically (Fiat–Shamir,
+        //    with the mask commitment and images absorbed first).
         let mut transcript = Transcript::new_default(b"lzx-linear-proof");
         transcript
             .append_bytes(b"pk-seed", &pk.seed)
@@ -222,6 +247,29 @@ impl LinearProof {
                     .append_bytes(b"rel-coeff", &v.to_bytes())
                     .map_err(|_| LinearProofError::VerificationFailed)?;
             }
+        }
+        let mut statement = Vec::new();
+        statement.extend_from_slice(&pk.seed);
+        statement.extend_from_slice(&commitment.to_bytes());
+        for rel in relations {
+            statement.extend_from_slice(&rel.target.to_bytes());
+            for v in &rel.coefficients {
+                statement.extend_from_slice(&v.to_bytes());
+            }
+        }
+        transcript
+            .append_bytes(b"statement", &statement)
+            .map_err(|_| LinearProofError::VerificationFailed)?;
+        let w_commitment = crate::ajtai::AjtaiCommitment {
+            rows: self.mask_commitment.clone(),
+        };
+        transcript
+            .append_bytes(b"mask-w", &w_commitment.to_bytes())
+            .map_err(|_| LinearProofError::VerificationFailed)?;
+        for img in &self.mask_images {
+            transcript
+                .append_bytes(b"mask-image", &img.to_bytes())
+                .map_err(|_| LinearProofError::VerificationFailed)?;
         }
         let chal_seed = transcript
             .challenge_bytes(b"challenge", 32)
@@ -285,6 +333,53 @@ mod tests {
             norm_bound: bound,
         };
         AjtaiPublicKey::from_seed(params, [9u8; 32]).ok().unwrap()
+    }
+
+
+    /// Regression (wave 3 FS-ordering fix): the pre-fix attack chose any
+    /// short z', set w' := A·z' − c·t with the statement-only challenge,
+    /// and passed verification without knowledge of s. The fixed
+    /// verifier derives the challenge AFTER absorbing w', so the attack
+    /// fails.
+    #[test]
+    fn post_hoc_malleability_rejected() {
+        let pk = setup(4, 2, 3, 1 << 23);
+        let ring = &pk.params.ring;
+        let s = crate::ajtai::sample_small_secret(ring, pk.params.m, 32, b"attack");
+        let t = pk.commit(&s).ok().unwrap();
+        // Old-order challenge: statement only.
+        let old_c = {
+            let mut tr = Transcript::new_default(b"lzx-linear-proof");
+            tr.append_bytes(b"pk-seed", &pk.seed).ok().unwrap();
+            tr.append_bytes(b"commitment", &t.to_bytes()).ok().unwrap();
+            let seed = tr.challenge_bytes(b"challenge", 32).ok().unwrap();
+            let cs = ChallengeSet::sample(
+                ChallengeDistribution::SparseTernary {
+                    weight: ring.n() / 2,
+                },
+                ring.n(),
+                &seed,
+            )
+            .ok()
+            .unwrap();
+            RingElement::from_signed(ring, &cs.coefficients)
+        };
+        // Forge with a z' that never touched s.
+        let z = crate::ajtai::sample_small_secret(ring, pk.params.m, 64, b"forge");
+        let az = pk.commit(&z).ok().unwrap();
+        let mut w_rows = Vec::new();
+        for (az_i, t_i) in az.rows.iter().zip(t.rows.iter()) {
+            let ct = old_c.mul(t_i).ok().unwrap();
+            w_rows.push(az_i.sub(&ct).ok().unwrap());
+        }
+        let forged = LinearProof {
+            mask_commitment: w_rows,
+            mask_images: vec![],
+            challenge: old_c,
+            response: z,
+            retries: 0,
+        };
+        assert!(forged.verify(&pk, &[], &t).is_err());
     }
 
     #[test]

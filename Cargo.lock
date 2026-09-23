@@ -124,6 +124,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-zk"
+version = "0.2.0"
+dependencies = [
+ "lattice-commitment",
+ "lattice-core",
+ "lattice-ring",
+ "lattice-sumcheck",
+]
+
+[[package]]
 name = "lattice-zkvm"
 version = "0.2.0"
 dependencies = [

@@ -204,38 +204,50 @@ impl AjtaiCommitment {
     }
 }
 
-/// Deterministic small-norm secret generation (testing/reference; the
-/// prover's real entropy comes from the OS in production).
+/// Deterministic small-norm secret generation: coefficients uniform in
+/// `[-bound, bound]` via unbiased rejection sampling.
+///
+/// BUG FIX (wave 3): the previous implementation requested only
+/// `8 + 4·i` XOF bytes per ring element, so at most two coefficients
+/// per element were random and the remainder was silently zero-filled —
+/// a degenerate distribution that collapsed the masking entropy of
+/// every Lyubashevsky-style proof (and the Ajtai hiding argument). The
+/// sampler now draws a full rejection budget per element and continues
+/// from a counter domain until every coefficient is filled.
 pub fn sample_small_secret(
     ring: &RingConfig,
     m: usize,
     bound: u32,
     seed: &[u8],
 ) -> Vec<RingElement> {
+    let n = ring.n();
+    let span = 2u64 * bound as u64 + 1;
+    let limit = (u32::MAX as u64 / span) * span;
     let mut out = Vec::with_capacity(m);
     for i in 0..m {
-        let bytes = lattice_core::transcript::Transcript::xof(b"ajtai-secret", seed, 8 + i * 4);
-        // Rejection to [-bound, bound] per coefficient.
-        let mut coeffs = Vec::with_capacity(ring.n());
-        let mut counter = 0usize;
-        while coeffs.len() < ring.n() {
-            let off = counter * 4;
-            if off + 4 > bytes.len() {
-                break; // fall back to zero fill (deterministic)
+        let mut coeffs = Vec::with_capacity(n);
+        let mut stream_counter = 0u64;
+        while coeffs.len() < n {
+            // Domain: seed ‖ element index ‖ stream counter; 4 candidate
+            // u32s per coefficient on average is ample (rejection
+            // probability ~ 2^-31 for typical spans).
+            let mut input = Vec::with_capacity(seed.len() + 16);
+            input.extend_from_slice(seed);
+            input.extend_from_slice(&(i as u64).to_le_bytes());
+            input.extend_from_slice(&stream_counter.to_le_bytes());
+            let bytes =
+                lattice_core::transcript::Transcript::xof(b"ajtai-secret", &input, (n * 16).max(64));
+            for chunk in bytes.chunks_exact(4) {
+                if coeffs.len() == n {
+                    break;
+                }
+                let v = u32::from_le_bytes(chunk.try_into().unwrap_or([0u8; 4]));
+                if (v as u64) < limit {
+                    let b = v as u64 % span;
+                    coeffs.push(ring.modulus.reduce_i64(b as i64 - bound as i64));
+                }
             }
-            let mut arr = [0u8; 4];
-            arr.copy_from_slice(&bytes[off..off + 4]);
-            let v = u32::from_le_bytes(arr);
-            let span = 2 * bound + 1;
-            let limit = (u32::MAX / span) * span;
-            if v < limit {
-                let b = v % span;
-                coeffs.push(ring.modulus.reduce_i64(b as i64 - bound as i64));
-            }
-            counter += 1;
-        }
-        while coeffs.len() < ring.n() {
-            coeffs.push(0);
+            stream_counter = stream_counter.wrapping_add(1);
         }
         out.push(RingElement::from_coeffs(ring, coeffs));
     }

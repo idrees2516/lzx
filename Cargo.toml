@@ -16,6 +16,7 @@ members = [
     "crates/lattice-vm",
     "crates/lattice-memory",
     "crates/lattice-zkvm",
+    "crates/lattice-zk",
 ]
 
 [workspace.package]
@@ -40,6 +41,7 @@ lattice-rokoko = { path = "crates/lattice-rokoko" }
 lattice-vm = { path = "crates/lattice-vm" }
 lattice-memory = { path = "crates/lattice-memory" }
 lattice-zkvm = { path = "crates/lattice-zkvm" }
+lattice-zk = { path = "crates/lattice-zk" }
 
 [profile.release]
 lto = "thin"
