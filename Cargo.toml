@@ -19,6 +19,8 @@ members = [
     "crates/lattice-zk",
     "crates/lattice-qrom",
     "crates/lattice-bench",
+    "crates/lattice-labrador",
+    "crates/lattice-labinius",
 ]
 
 [workspace.package]

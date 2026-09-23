@@ -62,6 +62,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-labinius"
+version = "0.1.0"
+dependencies = [
+ "lattice-core",
+ "lattice-labrador",
+]
+
+[[package]]
+name = "lattice-labrador"
+version = "0.1.0"
+dependencies = [
+ "lattice-core",
+]
+
+[[package]]
 name = "lattice-lookup"
 version = "0.2.0"
 dependencies = [

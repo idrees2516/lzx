@@ -1,0 +1,8 @@
+[package]
+name = "lattice-labrador"
+version = "0.1.0"
+edition = "2021"
+description = "Native pure-std Rust port of the LaBRADOR (Dachshund) proof system over Z_Q[X]/(X^64+1), Q = 2^48 - 59, from the lattice-dogs reference"
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }

@@ -83,6 +83,17 @@ pub struct KeccakSponge {
     suffix: u8,
 }
 
+impl Clone for KeccakSponge {
+    fn clone(&self) -> Self {
+        KeccakSponge {
+            state: self.state,
+            rate: self.rate,
+            pos: self.pos,
+            suffix: self.suffix,
+        }
+    }
+}
+
 impl KeccakSponge {
     /// SHA3 (FIPS 202): suffix 0x06, rate 136 for 256-bit output.
     pub fn new_sha3_256() -> Self {
@@ -106,6 +117,42 @@ impl KeccakSponge {
     /// Snapshot of the internal state (for resumable squeeze in transcripts).
     pub fn raw_state(&self) -> [u64; 25] {
         self.state
+    }
+
+    /// Finish absorbing (apply padding and permute once), transitioning the sponge to squeeze
+    /// mode without consuming it. After this, `update` must not be called; use `squeeze`.
+    pub fn finalize_in_place(&mut self) {
+        let pos = self.pos;
+        self.state[pos / 8] ^= (self.suffix as u64) << (8 * (pos % 8));
+        let last = self.rate - 1;
+        self.state[last / 8] ^= 0x80u64 << (8 * (last % 8));
+        keccak_f1600(&mut self.state);
+        self.pos = 0;
+    }
+
+    /// Squeeze `out.len()` bytes from a finalized sponge (`finalize_in_place` already called),
+    /// permuting between rate blocks. This is the raw SHAKE squeeze step.
+    pub fn squeeze(&mut self, out: &mut [u8]) {
+        let mut done = 0;
+        while done < out.len() {
+            if self.pos == self.rate {
+                keccak_f1600(&mut self.state);
+                self.pos = 0;
+            }
+            let avail = self.rate - self.pos;
+            let take = avail.min(out.len() - done);
+            let mut i = 0;
+            while i < take {
+                let lane = (self.pos + i) / 8;
+                let off = (self.pos + i) % 8;
+                let bytes = self.state[lane].to_le_bytes();
+                let chunk = (8 - off).min(take - i);
+                out[done + i..done + i + chunk].copy_from_slice(&bytes[off..off + chunk]);
+                i += chunk;
+            }
+            self.pos += take;
+            done += take;
+        }
     }
 
     /// Absorb bytes.
