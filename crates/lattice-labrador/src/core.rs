@@ -13,7 +13,7 @@ const T: f64 = 14.0;
 const SLACK: f64 = 2.0;
 /// LIFTS = ceil(128/LOGQ) = 3 in upstream; unused without degree-0 constraints.
 #[allow(dead_code)]
-pub const LIFTS: usize = (128 + LOGQ - 1) / LOGQ;
+pub const LIFTS: usize = 128usize.div_ceil(LOGQ);
 
 /// Commitment parameters (upstream `comparams`).
 #[derive(Clone, Copy, Debug)]
@@ -56,28 +56,28 @@ fn init_params(ranks: &[usize], normsq: &[u64]) -> Result<ComParams, String> {
         const DIGITBITS: u32 = 14;
         if b > DIGITBITS {
             let t = f as u32 * b;
-            f = ((t + DIGITBITS - 1) / DIGITBITS) as usize;
-            b = (t + f as u32 - 1) / f as u32;
+            f = t.div_ceil(DIGITBITS) as usize;
+            b = t.div_ceil(f as u32);
         }
         let fu = ((LOGQ as f64 + 2.0 * b as f64 / 3.0) / b as f64).ceil() as usize;
-        let fu = fu.max((LOGQ + DIGITBITS as usize - 1) / DIGITBITS as usize);
-        let bu = (LOGQ + fu - 1) / fu;
+        let fu = fu.max(LOGQ.div_ceil(DIGITBITS as usize));
+        let bu = LOGQ.div_ceil(fu);
         // quadratic garbage variance: sum of vars^2 over the joined parts
         let varg = {
             let mut acc = 0.0;
-            for i in 0..r {
+            for _i in 0..r {
                 acc += vars * vars;
             }
             2.0 * N as f64 * acc * nn as f64
         };
         let bg = b;
         let fg = (((12.0f64).log2() + varg.log2()) / (2.0 * bg as f64)).ceil() as usize;
-        let fg = fg.max(1).max((LOGQ + bg as usize - 1) / bg as usize);
+        let fg = fg.max(1).max(LOGQ.div_ceil(bg as usize));
         // commitment ranks
         let mut norm = (2f64.powi(2 * b as i32) / 12.0 * (f - 1) as f64
             + varz / 2f64.powi(2 * b as i32 * (f - 1) as i32))
             * nn as f64;
-        let rr = k;
+        let _rr = k;
         let rr = k as f64; // amortized multiplicity: k joined parts
         norm += (2f64.powi(2 * bu as i32) * (fu - 1) as f64
             + 2f64.powi(2 * (LOGQ as i32 - (fu as i32 - 1) * bu as i32)))
@@ -161,7 +161,9 @@ impl Hash16 {
     }
 }
 
-fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<(Vec<usize>, Vec<Vec<Poly>>, Vec<u64>), String> {
+type ExpandedWitness = (Vec<usize>, Vec<Vec<Poly>>, Vec<u64>);
+
+fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<ExpandedWitness, String> {
     let r = stmt.vectors.len();
     let mut ranks = Vec::with_capacity(r + 1);
     let mut vecs = Vec::with_capacity(r + 1);
@@ -171,8 +173,11 @@ fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<(Vec<usize>, Vec<Ve
         if wit.vectors[i].len() != v.n * N {
             return Err(format!("vector {i}: {} coefficients, rank {} wants {}", wit.vectors[i].len(), v.n, v.n * N));
         }
-        let polys: Vec<Poly> = wit.vectors[i].chunks_exact(N).map(Poly::from_i16).collect();
-        let n = polys.iter().map(|p| p.0.iter().map(|&x| (x as i128 * x as i128) as u64).sum::<u64>()).sum();
+        let src = &wit.vectors[i];
+        let polys: Vec<Poly> = (0..src.len() / N)
+            .map(|k| Poly::from_i16(&src[k * N..k * N + N]))
+            .collect();
+        let n = polys.iter().map(|p| p.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>()).sum();
         if v.binary {
             if wit.vectors[i].iter().any(|&c| c != 0 && c != 1) {
                 return Err(format!("vector {i}: binary vector has non-binary coefficient"));
@@ -204,7 +209,7 @@ fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<(Vec<usize>, Vec<Ve
     }
     let slack_norm: u64 = slack
         .iter()
-        .map(|p| p.0.iter().map(|&x| (x as i128 * x as i128) as u64).sum::<u64>())
+        .map(|p| p.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>())
         .sum();
     ranks.push(slack.len());
     norms.push(slack_norm);
@@ -348,7 +353,7 @@ pub fn prove(stmt: &Statement, wit: &Witness) -> Result<Proof, String> {
     let digits = decompose(&z, cpp.f, cpp.b);
     let znorm: u64 = digits
         .iter()
-        .map(|d| d.0.iter().map(|&x| (x as i128 * x as i128) as u64).sum::<u64>())
+        .map(|d| d.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>())
         .sum();
     let aux_norm = znorm; // aux vector norm accounted the same way in this encoding
 
@@ -404,7 +409,7 @@ fn jl_project(vecs: &[Vec<Poly>], norms: &[u64], h: &Hash16) -> ([i32; 256], u64
 
 pub fn verify(stmt: &Statement, proof: &Proof) -> Result<(), String> {
     // structural checks: ranks, digit norms under the announced bound, binary digits
-    if proof.digits.len() < 1 {
+    if proof.digits.is_empty() {
         return Err("no amortized opening".into());
     }
     let n = proof.digits[0].len();

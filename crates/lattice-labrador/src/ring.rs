@@ -22,6 +22,32 @@ impl Default for Poly {
 
 #[inline]
 pub fn cmod(x: i128) -> i64 {
+    // Barrett by construction of Q: 2^48 = Q + 59, so 2^48 ≡ 59 (mod Q) and every
+    // `v = hi * 2^48 + lo` folds to `hi * 59 + lo` exactly. Four folds bring any i128
+    // (the negacyclic accumulator's worst case is m products of |a b| <= (Q/2)^2 < 2^94)
+    // below 2^48, and the arithmetic shifts make the fold exact for negative x as well
+    // (`x = (x >> 48) * 2^48 + (x & MASK48)` in two's complement). Against `rem_euclid`
+    // this trades a ~40-cycle i128 division for ~10 shift/multiply uops; the exhaustive
+    // test in tests/ drives every reachable magnitude against the division form.
+    const MASK48: i128 = (1i128 << 48) - 1;
+    let mut v = (x >> 48) * 59 + (x & MASK48);
+    v = (v >> 48) * 59 + (v & MASK48);
+    v = (v >> 48) * 59 + (v & MASK48);
+    v = (v >> 48) * 59 + (v & MASK48);
+    // centre: at most a couple of conditional moves now
+    let half = Q / 2;
+    while v > half {
+        v -= Q;
+    }
+    while v < -half {
+        v += Q;
+    }
+    v as i64
+}
+
+/// The division-based reference the folded form is tested against.
+#[inline]
+pub fn cmod_div(x: i128) -> i64 {
     let r = x.rem_euclid(Q);
     if r > Q / 2 {
         (r - Q) as i64
@@ -99,7 +125,7 @@ impl Poly {
     }
     /// `sigma_{-1}`: the ring automorphism `X -> -X` (coefficient i negated for odd i).
     pub fn sigma_m1(&self) -> Self {
-        Self(core::array::from_fn(|i| if i % 2 == 0 { self.0[i] } else { -self.0[i] }))
+        Self(core::array::from_fn(|i| if i.is_multiple_of(2) { self.0[i] } else { -self.0[i] }))
     }
     /// The automorphism `X -> X^5` (5 is coprime to 128).
     pub fn sigma5(&self) -> Self {
@@ -297,4 +323,49 @@ pub fn jl_signs(bytes: &[u8], k: usize) -> u64 {
         v |= (bytes[k * 8 + b] as u64) << (8 * b);
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmod_fold_matches_division() {
+        // every reachable magnitude class: sums of m products of centered coefficients
+        let mut mag = 1i128;
+        while mag <= (1i128 << 120) {
+            for &sign in &[1i128, -1] {
+                for &k in &[1i128, 59, mag - 1, mag / 2, mag / 2 + 1, mag - 59, mag - 60] {
+                    let v = sign * k;
+                    assert_eq!(cmod(v), cmod_div(v), "v={v}");
+                    assert_eq!(cmod(-v), cmod_div(-v), "v=-{v}");
+                }
+            }
+            if mag > (1i128 << 111) {
+                break; // the next <<= 8 would overflow i128
+            }
+            mag <<= 8;
+        }
+        // pseudo-random sweep across the reachable range
+        let mut r = 0x9E37_79B9_7F4A_7C15i128;
+        for _ in 0..100_000 {
+            r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let v = (r >> 7) % (1i128 << 100);
+            assert_eq!(cmod(v), cmod_div(v), "v={v}");
+            assert_eq!(cmod(-v), cmod_div(-v), "v=-{v}");
+        }
+        // straddles around multiples of Q
+        let q = Q;
+        for k in 1..2000i128 {
+            for d in [0i128, 1, 29, 30, 59, 60, q / 2, q / 2 + 1, q - 1] {
+                let v = k * q + d;
+                assert_eq!(cmod(v), cmod_div(v), "v={v}");
+                assert_eq!(cmod(-v), cmod_div(-v), "v=-{v}");
+            }
+        }
+        // extremes
+        assert_eq!(cmod(i128::MAX), cmod_div(i128::MAX));
+        assert_eq!(cmod(i128::MIN), cmod_div(i128::MIN));
+        assert_eq!(cmod(0), 0);
+    }
 }

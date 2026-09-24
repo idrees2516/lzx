@@ -27,17 +27,23 @@
 //! (`crates/binius`, `crates/flock`) and the competitor harness (`crates/competitors`), which
 //! are external-dependency integration layers rather than protocol.
 
+// Upstream kernel structure: loops index with strides and table positions
+// (`batches[c * nr + i]`, `lut[3 * k + r]`), which the range-loop lint's iterator
+// suggestions cannot express. The patterns are verbatim from the ported reference.
+#![allow(clippy::needless_range_loop)]
 pub mod bd;
 pub mod binfield;
 pub mod challenge;
 pub mod eval;
 pub mod fold;
+pub mod hw;
 pub mod key;
 pub mod params;
 pub mod recursion;
 pub mod ring;
 pub mod scalar;
 pub mod scheme;
+pub mod simd;
 
 pub use binfield::{B128, F162};
 pub use challenge::{Transcript, DEFAULT_BOUND, DEFAULT_WEIGHT};

@@ -189,7 +189,7 @@ fn labrador_round_trip() {
         }).collect()
     }).collect();
     // b = <phi, s>
-    let polys: Vec<Poly> = s.chunks_exact(64).map(Poly::from_i16).collect();
+    let polys: Vec<Poly> = s.chunks(64).map(Poly::from_i16).collect();
     let b = Poly::sprod(&phi.iter().flatten().copied().collect::<Vec<_>>(), &polys);
     let stmt = Statement::new(
         vec![VectorSpec::norm_bounded(n, 1 << 20)],

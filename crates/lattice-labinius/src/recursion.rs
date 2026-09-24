@@ -28,13 +28,11 @@
 //! lifted binary chains (`recursion/binary.rs`). This port's constraint count is higher and
 //! its proofs correspondingly larger, which the benchmark matrix reports honestly.
 
-use crate::binfield::F162;
-use crate::challenge::{ShortChallenge, Transcript};
+use crate::challenge::ShortChallenge;
 use crate::key::CommitmentKey;
 use crate::params::N;
 use crate::scheme::{
-    Commitment, CommitmentOpening, EvaluationPoint, FoldedWitness, Params, PublicParameters,
-    RowEvaluation, Verifier,
+    CommitmentOpening, FoldedWitness, Params, PublicParameters, RowEvaluation,
 };
 use lattice_labrador::{Block, Constraint, Poly as LPoly, Statement, VectorSpec, Witness as LWitness};
 
@@ -70,7 +68,7 @@ pub fn prove_opening(
     // witness vectors: the folded witness coefficients (i16) and, per limb, the slacks m.
     let mut vectors: Vec<Vec<i16>> = Vec::new();
     let mut specs: Vec<VectorSpec> = Vec::new();
-    let fold_cap = params.fold_cap() as u64;
+    let fold_cap = params.fold_cap();
     let mut vflat: Vec<i16> = Vec::with_capacity(nr * N);
     for e in v.iter() {
         vflat.extend(e.iter().copied());
@@ -145,7 +143,7 @@ pub fn prove_opening(
         let q = key.prime(k);
         let q64 = q as i64;
         for i in 0..nr {
-            let vhat = &opening.aux.batches[i];
+            let _vhat = &opening.aux.batches[i];
             let arow = &key.a[k][i];
             let mut yhat_i = [0u64; N];
             for j in 0..opening.aux.chunks {
@@ -257,7 +255,7 @@ pub fn verify_opening(
 /// Caps for the witness vectors of one shape (the verifier's expectation).
 pub fn caps_for(params: &Params, key: &CommitmentKey) -> Vec<u64> {
     let nr = key.len_ring();
-    let fold_cap = params.fold_cap() as u64;
+    let fold_cap = params.fold_cap();
     let mut caps = vec![fold_cap];
     for _ in 0..key.limbs() {
         caps.push((nr * N) as u64 * 400);

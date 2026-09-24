@@ -3,26 +3,17 @@
 //! end (the lift of a stream of field elements into binary ring elements of `R_648`).
 //!
 //! Port of `labinius` `fields/scalar.rs` + `f162.rs`. Upstream multiplies with `PCLMULQDQ`;
-//! this port is dependency-free and uses a software carry-less product (byte-wise schoolbook),
-//! which is exact and portable.
+//! this port routes every carry-less product through [`crate::hw::clmul64`], which uses
+//! `PCLMULQDQ` when the CPU has it (one instruction) and the exact software product otherwise
+//! — same results, portable, no dependencies.
 
+// Field ops keep upstream's inherent-method names (`add`/`mul` by value, matching the
+// ported call sites); the std trait impls exist alongside.
+#![allow(clippy::should_implement_trait)]
+// B128 addition is carry-less (XOR) by definition of the field.
+#![allow(clippy::suspicious_arithmetic_impl)]
+use crate::hw::clmul64;
 use crate::params::N;
-
-/// 64x64 carry-less multiplication (software, byte-table free).
-#[inline]
-pub fn clmul64(a: u64, b: u64) -> u128 {
-    let mut acc: u128 = 0;
-    let mut b = b;
-    let mut i = 0u32;
-    while b != 0 {
-        if b & 1 != 0 {
-            acc ^= (a as u128) << i;
-        }
-        b >>= 1;
-        i += 1;
-    }
-    acc
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Hash)]
 pub struct B128(pub u128);
@@ -181,7 +172,7 @@ impl Rng {
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
     pub fn below(&mut self, n: u32) -> u32 {
-        ((self.next_u64() >> 32) * n as u64 >> 32) as u32
+        (((self.next_u64() >> 32) * n as u64) >> 32) as u32
     }
 }
 

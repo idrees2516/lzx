@@ -1,12 +1,19 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**24.5k lines of pure-`std` Rust. 20 crates. 240 tests. Zero external dependencies.**
+**24.5k lines of pure-`std` Rust. 20 crates. 256 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **eleven research papers** end-to-end (prover +
 verifier + exact algebraic identity tests), ports the **labinius** lattice PCS and the
 **LaBRADOR** proof system as native Rust, and assembles them into a proving zkVM for
 RV64IMAC programs with a bounded canonical proof envelope.
+
+The labinius PCS path runs **upstream's AVX-512 kernel designs natively** (runtime-detected,
+pure `std` intrinsics, exact scalar fallbacks): vertical batch-of-32 binary NTT kernels with
+`vpermb` lookup tables and lazy reduction, the `vpmaddwd` raw-accumulation commitment MAC with
+compile-time fold-back periods, `PCLMULQDQ` binary-field arithmetic — all verified bit-exact
+against the scalar reference. See **`PERFORMANCE.md`** for the full efficiency analysis:
+**commit 37x, fold 7x, evaluate 35x, reference round 17.5x end-to-end**.
 
 ```
 prove_program(RV64IMAC bytecode)  ->  Proof envelope  ->  verify_program(envelope) == Ok(())
@@ -92,31 +99,36 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 240 tests
-cargo clippy --workspace -- -D warnings
+cargo test --workspace      # 256 tests
+cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench          # 26-stage benchmark matrix
-cargo run --release -p lattice-labinius --example round_bench   # labinius reference round
+cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
+cargo run --release -p lattice-labinius --example backend_bench     # scalar vs AVX-512 backends
+cargo run --release -p lattice-labrador --example cmod_bench        # LaBRADOR reduction/products
 ```
 
 No external dependencies; builds with stable Rust (1.75+). Benchmarks are pure-`std`
-and reproducible (median-of-runs timing harness).
+and reproducible (median-of-runs timing harness). The AVX-512 / `PCLMULQDQ` backends are
+runtime-detected (`is_x86_feature_detected!`) with the exact scalar reference paths as
+fallback — the same binary runs unchanged on machines without the features.
 
 ## Performance snapshot
 
-Reference-round of the labinius PCS at sizem (2^18 GF(2^162) columns, 128 columns,
-3889+2917 moduli), pure-std Rust on 2 cores:
+Reference-round of the labinius PCS at sizem (2^18 GF(2^162) elements, 128 columns,
+3889+2917), pure-`std` Rust on 2 cores — **before → after** the AVX-512 backend:
 
-| Stage | Time |
-|-------|------|
-| commit | 3.13 s |
-| point eval | 2 ms |
-| evaluate | 327 ms |
-| challenge | 12 ms |
-| fold | 332 ms |
-| verify | 78 ms |
-| **clear-mode proof floor** | **915 KB** (commitment 249 KB + opening 664 KB + row eval 3 KB) |
+| Stage | scalar | AVX-512 backend | speedup |
+|-------|--------|-----------------|---------|
+| commit | 3134 ms | 84 ms | 37x |
+| evaluate | 327 ms | 9.4 ms | 35x |
+| fold | 332 ms | 48 ms | 7x |
+| challenge | 12 ms | 12.6 ms | — (hash-bound) |
+| verify | 78 ms | 67 ms | 1.2x |
+| **total round** | **3885 ms** | **222 ms** | **17.5x** |
 
-Full matrix: `cargo run --release -p lattice-bench` (writes `timings.csv` + `sizes.csv`).
+Kernel-level (batch of 32 ring elements): forward NTT **270x**, commitment MAC + finish
+**436x**, carry-less multiply **66x** (PCLMULQDQ). Full analysis, technique map and roadmap:
+`PERFORMANCE.md`.
 
 ## Security notes
 

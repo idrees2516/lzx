@@ -1,13 +1,24 @@
 //! The Ajtai commitment key and what a commitment leaves behind for the fold.
-//! Port of `labinius` `key.rs`, scalar path: `A` is one uniform row of `R_648` per modulus in
+//! Port of `labinius` `key.rs`: `A` is one uniform row of `R_648` per modulus in
 //! the NTT domain (centered i16, stored slot-major), and the commitment of one chunk is
 //! `y = sum_i A_i * NTT(w_i)` — a pointwise inner product per limb.
+//!
+//! Two backends produce bit-identical commitments:
+//! * the scalar reference path (the original port), and
+//! * the AVX-512 backend ([`crate::simd`]) when the CPU has the feature set and every limb is
+//!   one of `{3889, 9721, 2917, 4861, 12637}` (splitting primes above `2^14` and
+//!   non-multiple-of-128 chunk lengths fall back to scalar) — the vertical-layout `A`, the
+//!   batch-of-32 binary NTT kernels and the `vpmaddwd` raw-accumulation MAC of upstream,
+//!   verified against the scalar path by `tests/simd.rs`.
 
 use crate::binfield::{random_elems, F162};
 use crate::params::{quadratic_slots, N};
 use crate::ring::{components_of, Modulus, PowerOfThreeRing};
-use crate::scalar::{pointwise_mul, Coeffs};
+use crate::scalar::Coeffs;
+use crate::simd::{commit as mac, Batch32};
+use crate::simd::transpose::{slice_f162_into, BinaryIndex32};
 use crate::binfield::Rng;
+use std::sync::OnceLock;
 
 /// A `4 x r` matrix of `R_162` slot elements, one per modulus: the public commitment.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -35,9 +46,23 @@ impl CommitmentMatrix {
 #[derive(Clone)]
 pub struct CommitmentKey {
     pub(crate) a: Vec<Vec<[i16; N]>>,
+    /// The same rows in the vertical batch-of-32 layout the AVX-512 kernels consume
+    /// (`avx[k][b].v[j][p]` = slot `j` of `A_{32b+p}`), built once on first use.
+    vertical: OnceLock<Vec<Vec<Batch32>>>,
     base: Modulus,
     additional: Vec<Modulus>,
     len_f162: usize,
+}
+
+/// Which commitment backend to run.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Backend {
+    /// Dispatch on CPU features and the limb list (the default of [`CommitmentKey::commit`]).
+    Auto,
+    /// The exact scalar reference path.
+    Scalar,
+    /// The AVX-512 batch-of-32 kernels with the `vpmaddwd` raw-accumulation MAC.
+    Simd,
 }
 
 /// Everything a commitment leaves behind that the folding step needs: the witness's transform
@@ -45,8 +70,8 @@ pub struct CommitmentKey {
 #[derive(Clone)]
 pub struct AuxData {
     /// The transform modulo the base limb: `batches[i][u]` = slot u of ring element i, fully
-    /// reduced `u32` in `[0, q)`.
-    pub(crate) batches: Vec<Coeffs>,
+    /// reduced `u32` in `[0, q)`. Public for the backend-equality tests and benchmarks.
+    pub batches: Vec<Coeffs>,
     /// `raw[k][j]` = the 648-row commitment of chunk j for limb k, in `[0, q)`.
     pub raw: Vec<Vec<Coeffs>>,
     pub(crate) chunks: usize,
@@ -56,7 +81,7 @@ impl CommitmentKey {
     /// A uniformly random key for `len_f162` witness elements (a multiple of 4) over `base`
     /// and `additional`, deterministically from `seed` (upstream's xorshift64* `Rng`).
     pub fn random(len_f162: usize, seed: u64, base: Modulus, additional: &[Modulus]) -> Self {
-        assert!(len_f162 > 0 && len_f162 % 4 == 0, "len_f162 must be a multiple of 4");
+        assert!(len_f162 > 0 && len_f162.is_multiple_of(4), "len_f162 must be a multiple of 4");
         let mut seen = vec![base];
         for l in additional {
             assert!(!seen.contains(l), "the limb {l:?} is listed twice");
@@ -79,7 +104,7 @@ impl CommitmentKey {
                         // the NTT domain, which is slot-wise uniform.
                         let mut coeffs = [0u32; N];
                         for c in coeffs.iter_mut() {
-                            *c = rng.below(q as u32) as u32;
+                            *c = rng.below(q as u32);
                         }
                         let t = crate::ring::ntt_of(q, &coeffs);
                         let mut out = [0i16; N];
@@ -98,6 +123,7 @@ impl CommitmentKey {
             .collect();
         CommitmentKey {
             a,
+            vertical: OnceLock::new(),
             base,
             additional: additional.to_vec(),
             len_f162,
@@ -138,15 +164,217 @@ impl CommitmentKey {
         self.limbs() * self.len_ring() * 2 * N
     }
 
-    /// Commit to `witness` in `r` chunks under the same key. Chunk `c` is
-    /// `witness[c*len .. (c+1)*len]`, read as `len/4` binary ring elements, transformed once,
-    /// and multiplied into `y = sum_i A_i * NTT(w_i)` per limb (pointwise). Each limb's `y` is
-    /// decomposed into its four `R_162` components, which become column `c` of the matrix.
-    pub fn commit(
+    /// The vertical-layout `A` (built once, on first SIMD commitment).
+    fn vertical(&self) -> &Vec<Vec<Batch32>> {
+        self.vertical.get_or_init(|| {
+            let nr = self.len_ring();
+            let nb = nr / 32;
+            (0..self.limbs())
+                .map(|k| {
+                    let mut batches =
+                        vec![Batch32 { v: [[0i16; 32]; N] }; nb.max(1)];
+                    for b in 0..nb {
+                        for p in 0..32 {
+                            let row = &self.a[k][32 * b + p];
+                            for j in 0..N {
+                                batches[b].v[j][p] = row[j];
+                            }
+                        }
+                    }
+                    batches
+                })
+                .collect()
+        })
+    }
+
+    /// Can every limb run the AVX-512 backend? (Splitting primes above `2^14` are not ported.)
+    fn simd_limbs(&self) -> bool {
+        (0..self.limbs()).all(|k| {
+            let q = self.prime(k);
+            matches!(q, 3889 | 9721 | 2917 | 4861 | 12637)
+        })
+    }
+
+    /// Commit to `witness` in `r` chunks under the same key: AVX-512 backend when the CPU and
+    /// the limb list allow it, the exact scalar reference otherwise.
+    pub fn commit(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
+        let backend = if crate::simd::available() && self.simd_limbs() && self.len_f162.is_multiple_of(128) {
+            Backend::Simd
+        } else {
+            Backend::Scalar
+        };
+        self.commit_with(witness, r, backend)
+    }
+
+    /// Commit with an explicit backend: [`Backend::Scalar`] is always available, [`Backend::Simd`]
+    /// panics on unsupported limb lists (primes above `2^14`) or CPU feature sets and falls back
+    /// only for non-multiple-of-128 chunk lengths. Both produce bit-identical results
+    /// (`tests/simd.rs`); the explicit form exists for the benchmark harness.
+    pub fn commit_with(
         &self,
         witness: &[F162],
         r: usize,
+        backend: Backend,
     ) -> (CommitmentMatrix, AuxData) {
+        match backend {
+            Backend::Scalar => self.commit_scalar(witness, r),
+            Backend::Simd => {
+                assert!(
+                    crate::simd::available(),
+                    "the AVX-512 PCS feature set is not available on this machine"
+                );
+                assert!(self.simd_limbs(), "the AVX-512 backend does not cover this limb list");
+                if self.len_f162.is_multiple_of(128) {
+                    self.commit_simd(witness, r)
+                } else {
+                    self.commit_scalar(witness, r)
+                }
+            }
+            Backend::Auto => self.commit(witness, r),
+        }
+    }
+
+    /// The AVX-512 commitment: one slicing pass and one kernel pass per limb per batch of 32
+    /// ring elements (the index rows depend neither on `q` nor on the tree), each into the
+    /// chunk's own accumulator, with the fold-backs on the compile-time periods and the base
+    /// limb's materialised transform extracted for the fold.
+    fn commit_simd(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
+        assert!(r.is_power_of_two() && r >= 2, "r must be a power of two >= 2");
+        assert_eq!(witness.len(), r * self.len_f162);
+        let nr = self.len_ring();
+        let nb = nr / 32;
+        assert!(nb > 0, "AVX-512 commit needs >= 32 ring elements per chunk");
+        let mut aux = AuxData {
+            batches: vec![[0u32; N]; r * nr],
+            raw: (0..self.limbs()).map(|_| Vec::with_capacity(r)).collect(),
+            chunks: r,
+        };
+        let mut matrix = CommitmentMatrix {
+            primes: (0..self.limbs()).map(|k| self.prime(k)).collect(),
+            columns: r,
+            value: vec![vec![Vec::new(); r]; 4],
+        };
+        // per-limb accumulators, reused chunk to chunk (cleared, not reallocated)
+        enum LimbAcc {
+            Split(Box<mac::Acc>),
+            Quad(Box<mac::QuadAcc>),
+        }
+        let mut accs: Vec<LimbAcc> = (0..self.limbs())
+            .map(|k| {
+                if self.is_quadratic(k) {
+                    LimbAcc::Quad(mac::QuadAcc::zero())
+                } else {
+                    LimbAcc::Split(mac::Acc::zero())
+                }
+            })
+            .collect();
+        let vertical = self.vertical();
+        let mut idx = BinaryIndex32::zero();
+        let mut out = Batch32 { v: [[0i16; 32]; N] };
+
+        for c in 0..r {
+            for b in 0..nb {
+                let elems: &[F162; 128] = witness[c * self.len_f162 + 128 * b..]
+                    [..128]
+                    .try_into()
+                    .unwrap();
+                unsafe { slice_f162_into(elems, &mut idx) };
+                for k in 0..self.limbs() {
+                    let q = self.prime(k);
+                    let av = &vertical[k][b];
+                    let done = b + 1;
+                    let is_base = k == 0;
+                    // Safety: the AVX-512 PCS feature set was checked by `commit`.
+                    unsafe {
+                        match q {
+                            3889 => {
+                                const Q: u16 = 3889;
+                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
+                                if is_base {
+                                    mac::store_transform::<Q>(
+                                        out.v.as_ptr() as *const i16,
+                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
+                                    );
+                                }
+                            }
+                            9721 => {
+                                const Q: u16 = 9721;
+                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
+                                if is_base {
+                                    mac::store_transform::<Q>(
+                                        out.v.as_ptr() as *const i16,
+                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
+                                    );
+                                }
+                            }
+                            2917 => {
+                                const Q: u16 = 2917;
+                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
+                                if is_base {
+                                    mac::store_transform::<Q>(
+                                        out.v.as_ptr() as *const i16,
+                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
+                                    );
+                                }
+                            }
+                            4861 => {
+                                const Q: u16 = 4861;
+                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
+                                if is_base {
+                                    mac::store_transform::<Q>(
+                                        out.v.as_ptr() as *const i16,
+                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
+                                    );
+                                }
+                            }
+                            12637 => {
+                                const Q: u16 = 12637;
+                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
+                                if is_base {
+                                    mac::store_transform::<Q>(
+                                        out.v.as_ptr() as *const i16,
+                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
+                                    );
+                                }
+                            }
+                            _ => unreachable!("simd_limbs checked the prime list"),
+                        }
+                    }
+                }
+            }
+            // finish every limb of this chunk
+            for k in 0..self.limbs() {
+                let q = self.prime(k);
+                let yc = match (&mut accs[k], q) {
+                    (LimbAcc::Split(acc), 3889) => mac::finish::<3889>(acc),
+                    (LimbAcc::Split(acc), 9721) => mac::finish::<9721>(acc),
+                    (LimbAcc::Quad(acc), 2917) => mac::finish_quad::<2917>(acc),
+                    (LimbAcc::Quad(acc), 4861) => mac::finish_quad::<4861>(acc),
+                    (LimbAcc::Quad(acc), 12637) => mac::finish_quad::<12637>(acc),
+                    _ => unreachable!("simd_limbs checked the prime list"),
+                };
+                match &mut accs[k] {
+                    LimbAcc::Split(acc) => acc.clear(),
+                    LimbAcc::Quad(acc) => acc.clear(),
+                }
+                let comps = components_of(q, &yc);
+                for row in 0..4 {
+                    matrix.value[row][c].push(comps[row]);
+                }
+                aux.raw[k].push(yc);
+            }
+        }
+        (matrix, aux)
+    }
+
+    /// The scalar reference commitment (the original port's path, kept verbatim as the
+    /// specification the AVX-512 backend is verified against).
+    fn commit_scalar(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
         assert!(r.is_power_of_two() && r >= 2, "r must be a power of two >= 2");
         assert_eq!(witness.len(), r * self.len_f162);
         let nr = self.len_ring();

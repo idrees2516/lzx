@@ -94,17 +94,77 @@ pub const fn center(x: u64, q: u64) -> i16 {
     }
 }
 
+/// `q^-1 mod 2^16` for odd `q` (Newton iteration, doubling precision each round).
+pub const fn qinv16(q: u16) -> u16 {
+    let mut x = 1u16;
+    let mut i = 0;
+    while i < 4 {
+        x = x.wrapping_mul(2u16.wrapping_sub(q.wrapping_mul(x)));
+        i += 1;
+    }
+    x
+}
+
+/// `round(2^15 / q)`, the `vpmulhrsw` constant of [`barrett_i16`].
+pub const fn barrett_v(q: u16) -> i16 {
+    (((1u32 << 15) + (q as u32) / 2) / q as u32) as i16
+}
+
+/// Cheap partial reduction with `vpmulhrsw` semantics (2 multiply uops):
+/// `t = round(a * BARRETT_V / 2^15)`, `r = a - t*q`, guarantee only `|r| < q`.
+#[inline]
+pub fn barrett_i16(a: i16, q: u16) -> i16 {
+    let v = barrett_v(q) as i32;
+    let t = (((a as i32) * v * 2 + (1 << 15)) >> 16) as i16;
+    a.wrapping_sub(t.wrapping_mul(q as i16))
+}
+
+/// Barrett constant `m = floor(2^32 / q)` for a 16-bit prime.
+pub const fn barrett_m32(q: u16) -> u32 {
+    ((1u64 << 32) / q as u64) as u32
+}
+
+/// `v mod q` through one u64 mulhi and one conditional subtract, for `v < q^2 + q` (which every
+/// Horner step `acc * x + coeff` of values below `q` satisfies with room to spare: `q < 2^15`
+/// gives `v < 2^30`). Against `%` this trades a ~20-cycle division for ~6 cycles of multiply
+/// and shift; exhaustively checked per prime in `tests/` (see `tests/barrett.rs`).
+#[inline]
+pub fn barrett_mod_u64(v: u64, q: u16) -> u64 {
+    let m = barrett_m32(q) as u64;
+    let t = ((v * m) >> 32) * q as u64;
+    let r = v - t;
+    if r >= q as u64 {
+        r - q as u64
+    } else {
+        r
+    }
+}
+
+/// Signed Montgomery multiplication on 16-bit values, exactly what the SIMD kernels do lane-wise:
+/// returns `a * x mod q` in `(-q, q)` where `w = to_mont(x)`, `w_pre = mont_pre(w)`; `a` any i16.
+#[inline]
+pub fn mont_mul_i16(a: i16, w: i16, w_pre: i16, q: u16) -> i16 {
+    let m = a.wrapping_mul(w_pre);
+    let hi = ((a as i32 * w as i32) >> 16) as i16;
+    let t = ((m as i32 * q as i16 as i32) >> 16) as i16;
+    hi.wrapping_sub(t)
+}
+
 /// Per-prime constants: `Params::<3889>::PSI` etc.
 pub struct Params<const Q: u16>;
 
 impl<const Q: u16> Params<Q> {
     pub const Q: u16 = Q;
+    /// `q^-1 mod 2^16`.
+    pub const QINV: u16 = qinv16(Q);
     /// Smallest primitive 1944-th root of unity.
     pub const PSI: u16 = find_psi(Q as u64) as u16;
     /// Primitive cube root of unity, `omega = psi^648`.
     pub const OMEGA: u16 = pow_mod(Self::PSI as u64, 648, Q as u64) as u16;
     /// Primitive sixth root, `zeta6 = psi^324`; `zeta6^-1 = 1 - zeta6`.
     pub const ZETA6: u16 = pow_mod(Self::PSI as u64, 324, Q as u64) as u16;
+    /// `2^16 mod q`, the Montgomery constant the twiddle tables are built in.
+    pub const R: u16 = (65536u64 % Q as u64) as u16;
 
     pub const fn psi_pow(e: u32) -> u16 {
         pow_mod(Self::PSI as u64, e as u64, Q as u64) as u16
@@ -113,14 +173,54 @@ impl<const Q: u16> Params<Q> {
     pub const fn zeta(level: usize, k: usize) -> u16 {
         Self::psi_pow(twiddle_exp(level, k))
     }
+    /// `x * 2^16 mod q`, centered: the Montgomery form used by the SIMD kernels.
+    pub const fn to_mont(x: u16) -> i16 {
+        center(x as u64 * 65536u64, Q as u64)
+    }
+    /// `x * R mod q` (plain, not centered): the scaling applied to a kernel's tables or twiddles
+    /// to make its outputs come out in Montgomery form.
+    pub const fn scale_r(x: u16) -> u16 {
+        (x as u64 * Self::R as u64 % Q as u64) as u16
+    }
+    /// For a Montgomery-form constant `w`, the precomputed `w * q^-1 mod 2^16` (signed), so that
+    /// `mont(a, w, w') = a * x mod q` needs only mullo/mulhi/mulhi.
+    pub const fn mont_pre(w: i16) -> i16 {
+        w.wrapping_mul(Self::QINV as i16)
+    }
+    /// Table of plain twiddles for a whole level (`K = SUBRINGS[level]`).
+    pub const fn zetas<const K: usize>(level: usize) -> [u16; K] {
+        let mut t = [0u16; K];
+        let mut k = 0;
+        while k < K {
+            t[k] = Self::zeta(level, k);
+            k += 1;
+        }
+        t
+    }
+    pub const ZETA_L1: [u16; 2] = Self::zetas::<2>(1);
+    pub const ZETA_L2: [u16; 4] = Self::zetas::<4>(2);
+    pub const ZETA_L3: [u16; 8] = Self::zetas::<8>(3);
+    pub const ZETA_L4: [u16; 24] = Self::zetas::<24>(4);
+    pub const ZETA_L5: [u16; 72] = Self::zetas::<72>(5);
+    pub const ZETA_L6: [u16; 216] = Self::zetas::<216>(6);
 }
+
+const _: () = {
+    assert!((Params::<3889>::QINV as u32 * 3889u32) % 65536 == 1);
+    assert!((Params::<9721>::QINV as u32 * 9721u32) % 65536 == 1);
+    assert!((Params::<17497>::QINV as u32 * 17497u32) % 65536 == 1);
+    assert!((Params::<19441>::QINV as u32 * 19441u32) % 65536 == 1);
+    assert!((Params::<2917>::QINV as u32 * 2917u32) % 65536 == 1);
+    assert!((Params::<4861>::QINV as u32 * 4861u32) % 65536 == 1);
+    assert!((Params::<12637>::QINV as u32 * 12637u32) % 65536 == 1);
+};
 
 /// Every splitting prime is `1 mod 1944`.
 const _: () = {
     let mut i = 0;
     while i < 2 {
-        assert!((QS[i] as u32 - 1) % CONDUCTOR == 0 && QS[i] < 1 << 14);
-        assert!((QS_LARGE[i] as u32 - 1) % CONDUCTOR == 0 && QS_LARGE[i] > 1 << 14);
+        assert!((QS[i] as u32 - 1).is_multiple_of(CONDUCTOR) && QS[i] < 1 << 14);
+        assert!((QS_LARGE[i] as u32 - 1).is_multiple_of(CONDUCTOR) && QS_LARGE[i] > 1 << 14);
         i += 1;
     }
 };
@@ -138,7 +238,7 @@ pub const QUAD_SLOTS: usize = 324;
 
 /// Does `R_648` end in quadratic leaves modulo `q`?
 pub const fn quadratic_slots(q: u16) -> bool {
-    (q as u32 - 1) % CONDUCTOR_QUAD == 0 && (q as u32 - 1) % CONDUCTOR != 0
+    (q as u32 - 1).is_multiple_of(CONDUCTOR_QUAD) && !(q as u32 - 1).is_multiple_of(CONDUCTOR)
 }
 
 /// Radix of the split turning level `l` into `l+1` in the quadratic tree.
@@ -192,7 +292,7 @@ const _: () = {
     let mut j = 0;
     while j < QUAD_SLOTS {
         let u = QUAD_SLOT_EXP[j] as usize;
-        assert!(u % 2 == 1 && u % 3 != 0);
+        assert!(u % 2 == 1 && !u.is_multiple_of(3));
         assert!(!seen[u]);
         seen[u] = true;
         j += 1;
@@ -264,6 +364,21 @@ impl<const Q: u16> ParamsQ<Q> {
     pub const fn zeta(level: usize, k: usize) -> u16 {
         Self::psi_pow(twiddle_exp_quad(level, k))
     }
+    /// Table of plain twiddles for a whole level of the quadratic tree.
+    pub const fn zetas<const K: usize>(level: usize) -> [u16; K] {
+        let mut t = [0u16; K];
+        let mut k = 0;
+        while k < K {
+            t[k] = Self::zeta(level, k);
+            k += 1;
+        }
+        t
+    }
+    pub const ZETA_L1: [u16; 2] = Self::zetas::<2>(1);
+    pub const ZETA_L2: [u16; 4] = Self::zetas::<4>(2);
+    pub const ZETA_L3: [u16; 12] = Self::zetas::<12>(3);
+    pub const ZETA_L4: [u16; 36] = Self::zetas::<36>(4);
+    pub const ZETA_L5: [u16; 108] = Self::zetas::<108>(5);
     /// `LEAF_C[j] = psi'^QUAD_SLOT_EXP[j]`, the constant of leaf j.
     pub const LEAF_C: [u16; QUAD_SLOTS] = {
         let mut t = [0u16; QUAD_SLOTS];

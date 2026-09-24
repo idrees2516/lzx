@@ -6,8 +6,7 @@
 use crate::challenge::ShortChallenge;
 use crate::key::CommitmentKey;
 use crate::params::{inv_mod, N, QUAD_CLASS_SLOT, QUAD_POW3_CLASS};
-use crate::ring::{Modulus, PowerOfThreeRing, SLOT_648, N162};
-use crate::scalar::Coeffs;
+use crate::ring::{PowerOfThreeRing, SLOT_648, N162};
 
 pub const BD_CAP: f64 = 4.0;
 
@@ -76,7 +75,7 @@ fn columns_split<const Q: u16>(
         let e: [i64; 4] = core::array::from_fn(|t| {
             let mut acc = 0i64;
             for k in 0..4 {
-                let itk = crate::params::pow_mod(i_root as u64, ((t * k) % 4) as u64, q) as i64;
+                let itk = crate::params::pow_mod(i_root, ((t * k) % 4) as u64, q) as i64;
                 acc += y[k] * (itk * pv[k] % q as i64) % q as i64;
             }
             acc.rem_euclid(q as i64)

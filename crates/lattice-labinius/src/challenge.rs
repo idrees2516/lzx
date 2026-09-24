@@ -115,8 +115,8 @@ impl Transcript {
         let mut bytes = vec![0u8; 24 * n];
         self.fill(label, &mut bytes);
         bytes
-            .chunks_exact(24)
-            .map(|c| F162::from_le24(c))
+            .chunks(24)
+            .map(F162::from_le24)
             .collect()
     }
 }
@@ -262,7 +262,7 @@ pub fn units() -> [u16; N162] {
     let mut u = [0u16; N162];
     let mut n = 0;
     for x in 1..CONDUCTOR243 {
-        if x % 3 != 0 {
+        if !x.is_multiple_of(3) {
             u[n] = x as u16;
             n += 1;
         }
@@ -303,7 +303,7 @@ fn within(c: &ShortChallenge, bound_sq: f64) -> bool {
 
 /// One uniform weight-`w` position set, unsigned: a partial Fisher-Yates, then sorted.
 fn attempt(x: &mut Xof, weight: usize, perm: &mut [u8; N162]) -> ShortChallenge {
-    assert!(weight <= MAX_WEIGHT && weight <= N162);
+    assert!(weight <= MAX_WEIGHT); // MAX_WEIGHT <= N162 by construction
     for (i, p) in perm.iter_mut().enumerate() {
         *p = i as u8;
     }

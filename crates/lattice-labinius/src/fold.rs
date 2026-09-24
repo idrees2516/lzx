@@ -11,7 +11,7 @@
 use crate::challenge::ShortChallenge;
 use crate::key::AuxData;
 use crate::params::{quadratic_slots, N, QUAD_CLASS_SLOT};
-use crate::ring::{Modulus, PowerOfThreeRing, N162};
+use crate::ring::{PowerOfThreeRing, N162};
 use crate::scalar::Coeffs;
 
 /// Embed `c` as `c(-X^4)` into `R_648` coefficients (degree-162 multiples of 4 only).
@@ -20,7 +20,7 @@ fn embed(c: &ShortChallenge) -> [i64; N] {
     for i in 0..c.weight {
         let m = c.positions[i] as usize;
         let co = 1 - 2 * ((c.signs >> i) & 1) as i64;
-        out[4 * m] = if m % 2 == 0 { co } else { -co };
+        out[4 * m] = if m.is_multiple_of(2) { co } else { -co };
     }
     out
 }
@@ -93,6 +93,10 @@ pub fn challenge_slots(q: u16, c: &ShortChallenge) -> [i16; N] {
 /// witness. Slot-wise over the kept witness transform, then the base limb's inverse transform.
 /// A coefficient is a sum of `r * w` signed 0/1 terms (standard deviation `sqrt(r w / 2)`), two
 /// orders below `q/2`.
+///
+/// The challenges are converted to `[0, q)` **once** (they used to be re-centred inside the
+/// `nr * r * N` inner loop — 512 redundant `rem_euclid`s per challenge slot), and the
+/// accumulation runs through the AVX-512 u64-lane MAC when the CPU has it.
 pub fn fold_witness(
     aux: &AuxData,
     challenges: &[ShortChallenge],
@@ -100,21 +104,28 @@ pub fn fold_witness(
 ) -> Vec<[i16; N]> {
     assert_eq!(challenges.len(), aux.chunks, "one challenge per chunk");
     let nr = aux.batches.len() / aux.chunks;
-    let ch: Vec<[i16; N]> = challenges.iter().map(|c| challenge_slots(q, c)).collect();
+    let ch: Vec<[u32; N]> = challenges
+        .iter()
+        .map(|c| {
+            let t = challenge_slots(q, c);
+            let mut u = [0u32; N];
+            for (x, &v) in u.iter_mut().zip(t.iter()) {
+                *x = v.rem_euclid(q as i16) as u32;
+            }
+            u
+        })
+        .collect();
     let q64 = q as u64;
     let mut out = Vec::with_capacity(nr);
+    let mut acc = [0u64; N];
     for i in 0..nr {
-        let mut acc = [0u64; N];
+        acc.fill(0);
         for c in 0..aux.chunks {
-            let w = &aux.batches[c * nr + i];
-            let chrow = &ch[c];
-            for u in 0..N {
-                acc[u] += (chrow[u].rem_euclid(q as i16) as i64 as u64) * w[u] as u64;
-            }
+            crate::simd::commit::mac_row(&ch[c], &aux.batches[c * nr + i], &mut acc);
         }
         let mut coeffs = [0u32; N];
-        for u in 0..N {
-            coeffs[u] = (acc[u] % q64) as u32;
+        for (x, &a) in coeffs.iter_mut().zip(acc.iter()) {
+            *x = (a % q64) as u32;
         }
         let v = if quadratic_slots(q) {
             crate::ring::intt_quad_of(q, &coeffs)
@@ -137,19 +148,30 @@ pub fn fold_witness(
 
 /// `A v` for one limb from centered coefficient batches: forward-transform `v`, pointwise inner
 /// product against the key rows. Returns the 648-row raw commitment form.
+///
+/// The rows are converted to `[0, q)` once per call (the key's `A` used to be re-centred
+/// per element per slot inside the loop), and the accumulation runs through the AVX-512
+/// u64-lane MAC when the CPU has it.
 pub fn a_times_v(q: u16, a: &[[i16; N]], v: &[[i16; N]]) -> Coeffs {
     assert_eq!(a.len(), v.len());
     let q64 = q as u64;
+    let n = v.len();
+    let mut a_u32: Vec<[u32; N]> = Vec::with_capacity(n);
+    for row in a {
+        let mut r = [0u32; N];
+        for (x, &s) in r.iter_mut().zip(row.iter()) {
+            *x = s.rem_euclid(q as i16) as u32;
+        }
+        a_u32.push(r);
+    }
     let mut acc = [0u64; N];
-    for i in 0..v.len() {
+    for i in 0..n {
         let mut coeffs = [0u32; N];
-        for u in 0..N {
-            coeffs[u] = ((v[i][u].rem_euclid(q as i16) as i64 as u32) % q as u32);
+        for (x, &s) in coeffs.iter_mut().zip(v[i].iter()) {
+            *x = s.rem_euclid(q as i16) as u32;
         }
         let t = crate::ring::ntt_of(q, &coeffs);
-        for u in 0..N {
-            acc[u] += (a[i][u].rem_euclid(q as i16) as i64 as u64) * t[u] as u64;
-        }
+        crate::simd::commit::mac_row(&a_u32[i], &t, &mut acc);
     }
     let mut out = [0u32; N];
     for u in 0..N {
@@ -167,9 +189,16 @@ pub fn fold_commitment(
     columns: &[Vec<PowerOfThreeRing>],
 ) -> [PowerOfThreeRing; 4] {
     // columns[j][row] — the 4 components of column j (one modulus)
-    let ch: Vec<Vec<i16>> = challenges
+    // The challenge slots are converted to [0, q) once (they used to be re-centred per
+    // (row, slot, column) — 648 times per value).
+    let ch: Vec<Vec<u32>> = challenges
         .iter()
-        .map(|c| challenge_r162_slots(q, c).to_vec())
+        .map(|c| {
+            challenge_r162_slots(q, c)
+                .iter()
+                .map(|&s| s.rem_euclid(q as i16) as u32)
+                .collect()
+        })
         .collect();
     let q64 = q as u64;
     let half = (q as i64 - 1) / 2;
@@ -179,7 +208,7 @@ pub fn fold_commitment(
             let mut acc = 0u64;
             for (j, c) in columns.iter().enumerate() {
                 let a = (c[row].v[s] as i64).rem_euclid(q64 as i64) as u64;
-                acc += a * (ch[j][s].rem_euclid(q as i16) as i64 as u64);
+                acc += a * ch[j][s] as u64;
             }
             let r = (acc % q64) as i64;
             out[row].v[s] = if r > half { (r - q as i64) as i16 } else { r as i16 };
@@ -225,7 +254,9 @@ pub fn challenge_r162_slots(q: u16, c: &ShortChallenge) -> [i16; N162] {
         let x = crate::params::pow_mod(theta, v, q64);
         let mut acc = 0u64;
         for k in (0..N162).rev() {
-            acc = (acc * x + (coeffs[k].rem_euclid(q64 as i64) as u64)) % q64;
+            // Barrett for every Horner step: acc < q, x < q, so acc*x + coeff < q^2 + q,
+            // the range params::barrett_mod_u64 is exhaustively checked on.
+            acc = crate::params::barrett_mod_u64(acc * x + coeffs[k].rem_euclid(q64 as i64) as u64, q);
         }
         let r = acc as i64;
         out[s] = if r > half { (r - q as i64) as i16 } else { r as i16 };
@@ -265,7 +296,7 @@ pub fn a_times_v_of(q: u16, a: &[[i16; N]], v: &[[i16; N]]) -> Coeffs {
         for i in 0..v.len() {
             let mut coeffs = [0u32; N];
             for u in 0..N {
-                coeffs[u] = ((v[i][u].rem_euclid(q as i16) as i64 as u32) % q as u32);
+                coeffs[u] = (v[i][u].rem_euclid(q as i16) as i64 as u32) % q as u32;
             }
             let t = crate::ring::ntt_of(q, &coeffs);
             let mut acoef = [0u32; N];

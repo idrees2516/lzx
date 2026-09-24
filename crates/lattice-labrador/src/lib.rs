@@ -18,6 +18,10 @@
 //! aggregation (alpha/beta/gamma/delta), amortization into one short opening `z` with digit
 //! decomposition, and the full verifier.
 
+// Upstream kernel structure: loops index with strides and table positions
+// (`batches[c * nr + i]`, `lut[3 * k + r]`), which the range-loop lint's iterator
+// suggestions cannot express. The patterns are verbatim from the ported reference.
+#![allow(clippy::needless_range_loop)]
 pub mod core;
 pub mod ring;
 

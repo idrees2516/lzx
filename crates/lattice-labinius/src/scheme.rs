@@ -241,9 +241,9 @@ pub struct Witness {
 
 impl Witness {
     /// The trace lifted into `F162` bit for bit.
-    pub fn lifted(params: &Params, trace: &[B128]) -> Result<Witness, ()> {
+    pub fn lifted(params: &Params, trace: &[B128]) -> Result<Witness, &'static str> {
         if trace.len() != params.witness_len() {
-            return Err(());
+            return Err("witness length mismatch");
         }
         Ok(Witness {
             params: params.clone(),
@@ -251,9 +251,9 @@ impl Witness {
         })
     }
 
-    pub fn from_elements(params: &Params, elements: Vec<F162>) -> Result<Witness, ()> {
+    pub fn from_elements(params: &Params, elements: Vec<F162>) -> Result<Witness, &'static str> {
         if elements.len() != params.witness_len() {
-            return Err(());
+            return Err("witness length mismatch");
         }
         Ok(Witness {
             params: params.clone(),
