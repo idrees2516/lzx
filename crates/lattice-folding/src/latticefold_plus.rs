@@ -14,6 +14,7 @@
 //!    proofs short (the outer level absorbs norm growth).
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
+use lattice_core::norm_budget::NormBudget;
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_sumcheck::sumcheck::{self, SumcheckError};
@@ -219,8 +220,8 @@ pub struct FoldedDouble {
     pub commitment: DoubleCommitment,
     /// Ring-scalar challenge used (norm bookkeeping).
     pub challenge_balanced: i64,
-    /// Updated norm budget (additive growth, LatticeFold+ style).
-    pub norm_budget: u64,
+    /// Norm budget with the Wave-6.2 hard wraparound gate applied.
+    pub norm_budget: NormBudget,
 }
 
 pub fn fold_double(
@@ -229,6 +230,20 @@ pub fn fold_double(
     d2: &DoubleCommitment,
     norm1: u64,
     norm2: u64,
+) -> Result<FoldedDouble, LfPlusError> {
+    fold_double_bounded(pk, d1, d2, norm1, norm2, u64::MAX)
+}
+
+/// [`fold_double`] with an explicit β* gate: the fold refuses when
+/// `β + |r|·β_in ≥ min(q/2, β*)` (Wave 6.2 — wraparound destroys the SIS
+/// binding argument; refuse to fold instead).
+pub fn fold_double_bounded(
+    pk: &AjtaiPublicKey,
+    d1: &DoubleCommitment,
+    d2: &DoubleCommitment,
+    norm1: u64,
+    norm2: u64,
+    beta_star: u64,
 ) -> Result<FoldedDouble, LfPlusError> {
     let ring = &pk.params.ring;
     let q = ring.modulus;
@@ -272,10 +287,15 @@ pub fn fold_double(
     let inner = fold_rows(&d1.inner, &d2.inner)?;
     let outer = fold_rows(&d1.outer, &d2.outer)?;
     let r_abs = r_int.unsigned_abs();
+    // Wave 6.2: hard gate against min(q/2, β*).
+    let q_half = (q.q / 2) as u64;
+    let budget = NormBudget::fresh(norm1)
+        .fold_scalar(r_abs, norm2, q_half, beta_star)
+        .map_err(|_| LfPlusError::RangeProofFailed)?;
     Ok(FoldedDouble {
         commitment: DoubleCommitment { inner, outer },
         challenge_balanced: r_int,
-        norm_budget: norm1 + r_abs * norm2,
+        norm_budget: budget,
     })
 }
 
@@ -449,7 +469,7 @@ mod tests {
             .collect();
         assert!(pk.verify_opening(&folded.commitment.inner, &folded_w).is_ok());
         // Norm budget grows additively with the small factor.
-        assert!(folded.norm_budget <= 64 + (1 << 15) * 64);
+        assert!(folded.norm_budget.beta() <= 64 + (1 << 15) * 64);
     }
 
     #[test]

@@ -106,6 +106,9 @@ pub enum PikkuError {
     /// Norm concentration failure (should not happen for honest witnesses
     /// within the certified JL parameters).
     NormConcentration { projected: u64, bound: u64 },
+    /// Wave 6.2: the fold would exceed the hard norm gate
+    /// `min(q/2, β*)` — refused instead of wrapping mod q.
+    NormGateExceeded,
 }
 
 /// Certified JL-style bound: for the biased-ternary projection with target
@@ -178,7 +181,70 @@ pub fn fold(
     })
 }
 
+/// [`fold`] with the Wave-6.2 hard norm gate: the fold refuses when
+/// `β1 + |r|·β2 ≥ min(q/2, β*)` — wraparound mod q silently destroys the
+/// SIS binding argument, so refusing is the only sound behavior. Returns
+/// the folded step plus the symbolic budget for accumulator tracking.
+#[allow(clippy::too_many_arguments)] // gate parameters travel with the fold contract
+pub fn fold_bounded(
+    w1: &[RingElement],
+    w2: &[RingElement],
+    projection: &ProjectionMatrix,
+    commitment1: &[u8],
+    commitment2: &[u8],
+    beta1: u64,
+    beta2: u64,
+    q_half: u64,
+    beta_star: u64,
+) -> Result<(PikkuFoldStep, lattice_core::norm_budget::NormBudget), PikkuError> {
+    // Derive the challenge first (same transcript as `fold`).
+    if w1.len() != w2.len() {
+        return Err(PikkuError::DimensionMismatch {
+            expected: w1.len(),
+            got: w2.len(),
+        });
+    }
+    let mut transcript = Transcript::new_default(b"lzx-pikkufold");
+    transcript
+        .append_bytes(b"c1", commitment1)
+        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+    transcript
+        .append_bytes(b"c2", commitment2)
+        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+    let seed = transcript
+        .challenge_bytes(b"fold-r", 32)
+        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+    let bytes = Transcript::xof(b"pikku-chal", &seed, 8);
+    let mut arr = [0u8; 8];
+    arr.copy_from_slice(&bytes[..8]);
+    let raw = (u64::from_le_bytes(arr) & 0xFF) as i64;
+    let r = if raw >= 128 { raw - 256 } else { raw };
+    // Hard gate BEFORE folding.
+    let budget = lattice_core::norm_budget::NormBudget::fresh(beta1)
+        .fold_scalar(r.unsigned_abs(), beta2, q_half, beta_star)
+        .map_err(|_| PikkuError::NormGateExceeded)?;
+    let mut folded = Vec::with_capacity(w1.len());
+    for (a, b) in w1.iter().zip(w2.iter()) {
+        folded.push(a.add(&b.scale_i64(r)).map_err(PikkuError::Ring)?);
+    }
+    let image = projection.project(&folded)?;
+    Ok((
+        PikkuFoldStep {
+            challenge: r,
+            image,
+            binding: None,
+        },
+        budget,
+    ))
+}
+
 /// Full fold with the linear-relation binding proof (production shape).
+/// **Quarantined (Wave 6 research, P0-3)**: the response transmits `m` ring
+/// elements — ~10^5× the paper's entire fold at paper scale. The paper's
+/// contribution is *no in-protocol commitments*; use [`fold`] (the
+/// commitment-light path) for protocol work and this only for binding
+/// experiments. Test-only in spirit; retained because its linear-relation
+/// binding is the template for the Wave-7 RingSC layer.
 pub fn fold_with_binding(
     pk: &AjtaiPublicKey,
     w1: &[RingElement],
@@ -257,6 +323,35 @@ mod tests {
 
     fn small_w(ring: &RingConfig, tag: &[u8]) -> Vec<RingElement> {
         lattice_commitment::ajtai::sample_small_secret(ring, 4, 128, tag)
+    }
+
+    #[test]
+    fn bounded_fold_gate_fails_closed() {
+        // Wave 6.2: the bounded fold refuses norms past min(q/2, β*).
+        let (pk, ring) = setup(4, 4);
+        let w1 = small_w(&ring, b"bg-1");
+        let w2 = small_w(&ring, b"bg-2");
+        let pi = ProjectionMatrix::from_seed(4, 4, b"pi-bg");
+        let t1 = pk.commit(&w1).ok().unwrap();
+        let t2 = pk.commit(&w2).ok().unwrap();
+        let q_half = (ring.modulus.q / 2) as u64;
+        // Comfortable gate: fold succeeds and the budget tracks the law.
+        let (step, budget) =
+            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), 128, 128, q_half, 1 << 24)
+                .ok()
+                .unwrap();
+        assert_eq!(budget.beta(), 128 + step.challenge.unsigned_abs() * 128);
+        assert_eq!(budget.folds(), 1);
+        // Tight β*: β' ≥ 128 + 128 = 256 > 200 → refused.
+        assert!(matches!(
+            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), 128, 128, q_half, 200),
+            Err(PikkuError::NormGateExceeded)
+        ));
+        // q/2 dominance: β* huge but β + |r|·β_in past q/2 → refused.
+        assert!(matches!(
+            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), q_half - 2, 8, q_half, u64::MAX),
+            Err(PikkuError::NormGateExceeded)
+        ));
     }
 
     #[test]

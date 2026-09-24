@@ -112,3 +112,33 @@ test suite; "external" items require review beyond this codebase.
 4. `salsa::zk_sumcheck` (statement-derived masks) provides round-value
    randomization, **not** privacy against the verifier — the genuine
    ZK path is `lattice-zk::zk_sumcheck` (documented in both modules).
+5. **RESOLVED (Wave 6.5)**: `lattice-lookup::verify_lookup` previously
+   bound nothing (prover-supplied T/R/Q scalars). The committed protocol
+   (`prove_lookup_committed`/`verify_lookup_committed`) closes the hole:
+   Ajtai commitments to all three vectors, τ derived from the commitments,
+   SIS-checked openings, counting-map multiset verification, and
+   recomputed grand products. The scalar-only path remains documented as
+   NOT SOUND standalone (algebraic reference / accumulation experiments).
+6. **Folding modules (Wave 6.2)**: norm budgets are now HARD-GATED against
+   `min(q/2, beta*)` — a fold that would wrap the balanced representative
+   mod q is refused (wraparound silently destroys the SIS binding
+   argument). Remaining honest limitation: the fold cross-terms/outputs
+   of ProtogaLattice/Symphony/SuperNeo are still not verifier-bound
+   (per-module gap tables in `NEXT_STEPS.md` §3; the Wave 7 protocol work).
+7. **Challenge spaces (Wave 6.1)**: the shared short-challenge module now
+   provides paper-calibrated ring-element distributions with certified
+   operator-norm bounds (fixing the 8-17-bit scalar deficit family-wide);
+   the per-module swap of fold challenges to ring elements is staged with
+   the Wave 7 protocol completion (Cyclo's `fold_ring_challenge` is the
+   reference integration).
+8. **SIS security claims (Wave 6.9)**: `lattice-sis-estimator` prices
+   instances offline (ADPS16/BDGL16/LGSA, upstream golden tests
+   preserved). Honest scope: beta searched exhaustively at step 1 up to
+   min(m, 1024); zeta on a documented 64-point ladder; Matzov/GJ21 models
+   out of scope. Toy-parameter instances are priced in the toy band (< 64
+   bits) — production parameter selection (8.8) must gate on this
+   estimator.
+9. **Modulus50 (Wave 6.7)**: the ~2^50 prime (q = 2^50 - 2687, q = 129
+   mod 256, two-adicity 7 — RoKoko's own first modulus) hosts the exact
+   incomplete-NTT quadratic-slot arithmetic for n <= 128; larger n needs
+   the odd-conductor mixed-radix or RNS stack (Wave 8).

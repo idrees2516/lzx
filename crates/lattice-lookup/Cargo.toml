@@ -10,5 +10,6 @@ rust-version.workspace = true
 [dependencies]
 lattice-core = { workspace = true }
 lattice-commitment = { workspace = true }
+lattice-ring = { workspace = true }
 lattice-sumcheck = { workspace = true }
 lattice-relations = { workspace = true }

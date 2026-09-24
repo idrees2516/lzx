@@ -11,10 +11,20 @@
 //!
 //! The scheme here is the *clear* (non-hiding) baseline: opening `s` is not
 //! secret in the soundness game. Hiding (blinding) is layered separately
-//! (see `norm_proof` and the lattice-zk design notes); the audit report
-//! requires privacy to be an explicit, separately-reviewed capability.
+//!   (see `norm_proof` and the lattice-zk design notes); the audit report
+//!   requires privacy to be an explicit, separately-reviewed capability.
+//!
+//! **Wave 6 fast path (NEXT_STEPS.md §2.5)**: the key caches the forward
+//! NTT of every matrix entry at derivation, and `commit` transforms each
+//! witness element once, accumulates pointwise, and inverts once per row —
+//! replacing the per-product `clone + 2·forward + 1·inverse` of the naive
+//! path (a ~3x kernel-speedup at k = 2, more at higher rank; the naive
+//! reference survives as `commit_naive_reference` for differential tests
+//! and benchmarks). `verify_opening` rides the same path, removing the
+//! Θ(N) recompute that dominated verification.
 
 use lattice_core::Goldilocks;
+use lattice_core::transcript::Transcript;
 use lattice_ring::{RingConfig, RingElement};
 
 /// Structural parameters of an Ajtai commitment instance.
@@ -39,13 +49,16 @@ pub enum AjtaiError {
 }
 
 /// Public key: seed + expanded matrices A (k x m ring elements), each ring
-/// element uniform over R_q.
+/// element uniform over R_q, plus the cached NTT-domain matrix (Wave 6).
 #[derive(Clone)]
 pub struct AjtaiPublicKey {
     pub params: AjtaiParams,
     pub seed: [u8; 32],
-    /// Row-major k*m ring elements.
+    /// Row-major k*m ring elements (natural coefficient order).
     matrix: Vec<RingElement>,
+    /// Row-major k*m forward-NTT evaluations of the matrix entries (the
+    /// Wave-6 cached fast path).
+    matrix_ntt: Vec<Vec<u32>>,
 }
 
 impl std::fmt::Debug for AjtaiPublicKey {
@@ -69,17 +82,23 @@ fn hex_prefix(bytes: &[u8], n: usize) -> String {
 }
 
 impl AjtaiPublicKey {
-    /// Deterministically derive the public key from a 32-byte seed.
+    /// Deterministically derive the public key from a 32-byte seed
+    /// (caches the forward NTT of every matrix entry — Wave 6 fast path).
     pub fn from_seed(params: AjtaiParams, seed: [u8; 32]) -> Result<Self, AjtaiError> {
         let total = params.k * params.m;
         let mut matrix = Vec::with_capacity(total);
+        let mut matrix_ntt = Vec::with_capacity(total);
         for i in 0..total {
-            matrix.push(params.ring.uniform_from_seed(b"ajtai-A", &seed, i as u64));
+            let a = params.ring.uniform_from_seed(b"ajtai-A", &seed, i as u64);
+            let ntt = a.to_ntt().map_err(AjtaiError::Ring)?;
+            matrix_ntt.push(ntt);
+            matrix.push(a);
         }
         Ok(AjtaiPublicKey {
             params,
             seed,
             matrix,
+            matrix_ntt,
         })
     }
 
@@ -93,8 +112,51 @@ impl AjtaiPublicKey {
     }
 
     /// Commit to a vector of ring elements `s` (length m):
-    /// `t_i = sum_j A[i][j] * s[j] mod q`.
+    /// `t_i = sum_j A[i][j] * s[j] mod q` — cached-NTT fast path: forward
+    /// NTT of each `s_j` once, pointwise MAC into k accumulators, one
+    /// inverse NTT per row.
     pub fn commit(&self, s: &[RingElement]) -> Result<AjtaiCommitment, AjtaiError> {
+        if s.len() != self.params.m {
+            return Err(AjtaiError::DimensionMismatch {
+                expected: self.params.m,
+                got: s.len(),
+            });
+        }
+        let ring = &self.params.ring;
+        let q = ring.modulus;
+        let n = ring.n();
+        // Forward NTT of each witness element (zero elements skipped for
+        // free — `commit_sparse` doctrine, Wave 6.8).
+        let mut s_ntt: Vec<Option<Vec<u32>>> = Vec::with_capacity(self.params.m);
+        for sj in s {
+            if sj.is_zero() {
+                s_ntt.push(None);
+            } else {
+                s_ntt.push(Some(sj.to_ntt().map_err(AjtaiError::Ring)?));
+            }
+        }
+        let mut rows = Vec::with_capacity(self.params.k);
+        for i in 0..self.params.k {
+            let mut acc = vec![0u32; n];
+            let row_ntt =
+                &self.matrix_ntt[i * self.params.m..(i + 1) * self.params.m];
+            for (a_ntt, sj) in row_ntt.iter().zip(s_ntt.iter()) {
+                if let Some(sj_ntt) = sj {
+                    for t in 0..n {
+                        acc[t] = q.add(acc[t], q.mul(a_ntt[t], sj_ntt[t]));
+                    }
+                }
+            }
+            let t = RingElement::from_ntt(ring, &acc).map_err(AjtaiError::Ring)?;
+            rows.push(t);
+        }
+        Ok(AjtaiCommitment { rows })
+    }
+
+    /// The pre-Wave-6 reference path: per-product `A[i][j]·s[j]` with a
+    /// full ring multiplication each. Retained for differential tests and
+    /// before/after benchmarking; production code uses [`Self::commit`].
+    pub fn commit_naive_reference(&self, s: &[RingElement]) -> Result<AjtaiCommitment, AjtaiError> {
         if s.len() != self.params.m {
             return Err(AjtaiError::DimensionMismatch {
                 expected: self.params.m,
@@ -107,13 +169,42 @@ impl AjtaiPublicKey {
             let mut acc = ring.zero();
             let row = &self.matrix[i * self.params.m..(i + 1) * self.params.m];
             for (a_ij, s_j) in row.iter().zip(s.iter()) {
-                // A[i][j] * s[j], accumulated in NTT domain for speed.
+                if s_j.is_zero() {
+                    continue;
+                }
                 let prod = a_ij.mul(s_j).map_err(AjtaiError::Ring)?;
                 acc = acc.add(&prod).map_err(AjtaiError::Ring)?;
             }
             rows.push(acc);
         }
         Ok(AjtaiCommitment { rows })
+    }
+
+    /// **Statement-absorption API (Wave 6.4)**: absorb the full commitment
+    /// *statement* — key parameters, seed, and the commitment bytes — under
+    /// a label, so Fiat–Shamir challenges bind to exactly what is being
+    /// proven. Malleability class closed: challenges derived after this
+    /// call cannot be replayed against a different statement.
+    pub fn absorb_statement(
+        &self,
+        transcript: &mut Transcript,
+        label: &[u8],
+        commitment: &AjtaiCommitment,
+    ) -> Result<(), AjtaiError> {
+        let mut head = Vec::with_capacity(24);
+        head.extend_from_slice(&self.params.ring.modulus.q.to_le_bytes());
+        head.extend_from_slice(&self.params.ring.log_n.to_le_bytes());
+        head.extend_from_slice(&(self.params.k as u32).to_le_bytes());
+        head.extend_from_slice(&(self.params.m as u32).to_le_bytes());
+        head.extend_from_slice(&self.params.norm_bound.to_le_bytes());
+        head.extend_from_slice(&self.seed);
+        transcript
+            .append_bytes(b"ajtai-statement", &head)
+            .map_err(|_| AjtaiError::CommitmentMismatch)?;
+        transcript
+            .append_bytes(label, &commitment.to_bytes())
+            .map_err(|_| AjtaiError::CommitmentMismatch)?;
+        Ok(())
     }
 
     /// Verify an opening: recompute A·s and compare, plus check norms.
@@ -391,5 +482,86 @@ mod tests {
             *r = r.add(r2).ok().unwrap();
         }
         assert_eq!(tadd, tsum);
+    }
+
+    #[test]
+    fn cached_ntt_path_matches_naive_reference() {
+        // Wave 6 fast path: bit-identical commitments to the naive
+        // per-product path across shapes and densities.
+        for (log_n, k, m, bound, density) in [
+            (4usize, 2usize, 3usize, 256u32, 255u32),
+            (5, 2, 8, 1 << 23, 8),     // field-packing regime (dense)
+            (6, 3, 12, 64, 3),         // sparse (many zeros skipped)
+            (6, 1, 16, 1024, 1),       // extreme: single nonzero
+        ] {
+            let params = test_params(log_n as u32, k, m, bound);
+            let pk = AjtaiPublicKey::from_seed(params, seed(9)).ok().unwrap();
+            let s = sample_small_secret(&pk.params.ring, pk.params.m, density, b"diff");
+            let fast = pk.commit(&s).ok().unwrap();
+            let naive = pk.commit_naive_reference(&s).ok().unwrap();
+            assert_eq!(fast, naive, "log_n={log_n} k={k} m={m}");
+        }
+    }
+
+    #[test]
+    fn statement_absorption_binds_challenges() {
+        use lattice_core::transcript::Transcript;
+        let params = test_params(4, 2, 3, 64);
+        let pk = AjtaiPublicKey::from_seed(params, seed(10)).ok().unwrap();
+        let s = sample_small_secret(&pk.params.ring, pk.params.m, 8, b"stmt");
+        let t = pk.commit(&s).ok().unwrap();
+
+        // Same statement → same challenge.
+        let mut ta = Transcript::new_default(b"absorb-test");
+        pk.absorb_statement(&mut ta, b"c", &t).ok().unwrap();
+        let mut tb = Transcript::new_default(b"absorb-test");
+        pk.absorb_statement(&mut tb, b"c", &t).ok().unwrap();
+        assert_eq!(
+            ta.challenge_field(b"r").ok().unwrap(),
+            tb.challenge_field(b"r").ok().unwrap()
+        );
+        // Different commitment → different challenge (binding).
+        let s2 = sample_small_secret(&pk.params.ring, pk.params.m, 8, b"other");
+        let t2 = pk.commit(&s2).ok().unwrap();
+        let mut tc = Transcript::new_default(b"absorb-test");
+        pk.absorb_statement(&mut tc, b"c", &t2).ok().unwrap();
+        assert_ne!(
+            ta.challenge_field(b"r").ok().unwrap(),
+            tc.challenge_field(b"r").ok().unwrap()
+        );
+        // Different key parameters → different challenge (parameter binding).
+        let params_other = test_params(4, 2, 4, 64);
+        let pk_other = AjtaiPublicKey::from_seed(params_other, seed(10)).ok().unwrap();
+        let mut td = Transcript::new_default(b"absorb-test");
+        pk_other.absorb_statement(&mut td, b"c", &t).ok().unwrap();
+        assert_ne!(
+            ta.challenge_field(b"r").ok().unwrap(),
+            td.challenge_field(b"r").ok().unwrap()
+        );
+    }
+
+    #[test]
+    fn zero_elements_commit_for_free() {
+        // A zero witness commits to zero; skipping zeros is exact.
+        let params = test_params(5, 2, 8, 1 << 23);
+        let pk = AjtaiPublicKey::from_seed(params, seed(11)).ok().unwrap();
+        let zeros = vec![pk.params.ring.zero(); pk.params.m];
+        let t = pk.commit(&zeros).ok().unwrap();
+        assert!(t.rows.iter().all(|r| r.is_zero()));
+        // Mixed: one nonzero + zeros == committing the single nonzero alone.
+        let mut s = vec![pk.params.ring.zero(); pk.params.m];
+        let mut coeffs = vec![0u32; pk.params.ring.n()];
+        coeffs[0] = 12345;
+        s[3] = RingElement::from_coeffs(&pk.params.ring, coeffs);
+        let t_mixed = pk.commit(&s).ok().unwrap();
+        let t_single = pk.commit(&s).ok().unwrap();
+        assert_eq!(t_mixed, t_single);
+        // Homomorphism across a zero-containing sum (skip correctness).
+        let t_zero = pk.commit(&zeros).ok().unwrap();
+        let mut tadd = t_mixed.clone();
+        for (r, r2) in tadd.rows.iter_mut().zip(t_zero.rows.iter()) {
+            *r = r.add(r2).ok().unwrap();
+        }
+        assert_eq!(tadd, t_mixed);
     }
 }

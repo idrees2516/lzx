@@ -101,13 +101,205 @@ fn bench_commitment() -> Vec<Timing> {
     let s = lattice_commitment::ajtai::sample_small_secret(&pk.params.ring, pk.params.m, 32, b"bench");
     let t = pk.commit(&s).ok().unwrap();
     vec![
-        measure("ajtai-commit-m16-n256", || {
+        measure("ajtai-commit-cached-ntt-m16-n256", || {
             let _ = pk.commit(&s);
+        }, 1, 10),
+        measure("ajtai-commit-naive-m16-n256", || {
+            let _ = pk.commit_naive_reference(&s);
         }, 1, 10),
         measure("ajtai-verify-opening-m16", || {
             let _ = pk.verify_opening(&t, &s);
         }, 1, 10),
     ]
+}
+
+// ---------------------------------------------------------------------------
+// Wave 6 benchmark families: folding, lookup, salsa, short challenges,
+// the Modulus50 quadratic-slot kernel, and the SIS estimator.
+// ---------------------------------------------------------------------------
+
+fn bench_folding() -> Vec<Timing> {
+    use lattice_commitment::ajtai::{AjtaiParams, AjtaiPublicKey, sample_small_secret};
+    use lattice_folding::cyclo::{CycloAccumulator, MAX_FOLDS_BEFORE_REFRESH};
+    use lattice_folding::symphony::{fold_many_degree2, SymRelation};
+    use lattice_ring::{Modulus32, RingConfig};
+    let mut out = Vec::new();
+
+    // Cyclo fold + refresh at ring n = 256, m = 16.
+    let ring = RingConfig::new(Modulus32::Q_32, 8).ok().unwrap();
+    let params = AjtaiParams {
+        ring: ring.clone(),
+        k: 2,
+        m: 16,
+        norm_bound: 1 << 26,
+    };
+    let pk = AjtaiPublicKey::from_seed(params.clone(), [61u8; 32]).ok().unwrap();
+    let ext_params = AjtaiParams {
+        ring: ring.clone(),
+        k: 2,
+        m: 64,
+        norm_bound: 1 << 26,
+    };
+    let pk_ext = AjtaiPublicKey::from_seed(ext_params, [62u8; 32]).ok().unwrap();
+    let acc = CycloAccumulator::new(&pk, &sample_small_secret(&ring, 16, 256, b"b-acc"))
+        .ok()
+        .unwrap();
+    let input = sample_small_secret(&ring, 16, 256, b"b-in");
+    out.push(measure("cyclo-fold-m16-n256", || {
+        let _ = acc.fold(&pk, &input);
+    }, 1, 10));
+    {
+        let folded = acc.fold(&pk, &input).ok().unwrap();
+        out.push(measure("cyclo-refresh-ext-commit", || {
+            let _ = folded.accumulator.refresh(&pk_ext, 8);
+        }, 1, 5));
+    }
+    // The paper-faithful ring-challenge fold (short-challenge + Γ gate).
+    use lattice_core::short_challenge::{ShortChallengeFamily, ShortChallengeSpec};
+    let spec = ShortChallengeSpec {
+        n: ring.n(),
+        family: ShortChallengeFamily::BiasedTernary {
+            p_nonzero_permille: 500,
+        },
+    };
+    out.push(measure("cyclo-fold-ring-challenge", || {
+        let _ = acc.fold_ring_challenge(&pk, &input, &spec, 32);
+    }, 1, 10));
+
+    // Symphony μ-ary one-shot fold (μ = 4, degree 2).
+    let sym_params = AjtaiParams {
+        ring: ring.clone(),
+        k: 2,
+        m: 8,
+        norm_bound: 1 << 26,
+    };
+    let sym_pk = AjtaiPublicKey::from_seed(sym_params.clone(), [63u8; 32]).ok().unwrap();
+    let cross_pk = AjtaiPublicKey::from_seed(
+        AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: 16,
+            norm_bound: 1 << 26,
+        },
+        [64u8; 32],
+    )
+    .ok()
+    .unwrap();
+    let rel = SymRelation {
+        num_slots: 3,
+        terms: vec![(1, vec![0, 0]), (3, vec![1, 2])],
+    };
+    let witnesses: Vec<Vec<lattice_ring::RingElement>> = (0..4)
+        .map(|i| sample_small_secret(&ring, 8, 64, format!("b-w{i}").as_bytes()))
+        .collect();
+    let commitments: Vec<lattice_commitment::ajtai::AjtaiCommitment> = witnesses
+        .iter()
+        .map(|w| sym_pk.commit(w).ok().unwrap())
+        .collect();
+    out.push(measure("symphony-fold-mu4-d2", || {
+        let _ = fold_many_degree2(&sym_pk, &cross_pk, &rel, &witnesses, &commitments);
+    }, 1, 5));
+    let _ = MAX_FOLDS_BEFORE_REFRESH;
+    out
+}
+
+fn bench_lookup() -> Vec<Timing> {
+    use lattice_commitment::ajtai::{AjtaiParams, AjtaiPublicKey};
+    use lattice_core::transcript::Transcript;
+    use lattice_core::Goldilocks;
+    use lattice_lookup::{prove_lookup_committed, verify_lookup_committed};
+    use lattice_ring::{Modulus32, RingConfig};
+    let ring = RingConfig::new(Modulus32::Q_32, 8).ok().unwrap();
+    // Table of 128 values: 128·3 limbs = 384 coeffs → 1.5 elements at
+    // n=256; m = 4 covers the padding.
+    let params = AjtaiParams {
+        ring,
+        k: 2,
+        m: 4,
+        norm_bound: 1 << 23,
+    };
+    let pk = AjtaiPublicKey::from_seed(params, [71u8; 32]).ok().unwrap();
+    let table: Vec<Goldilocks> = (0..128u64).map(|i| Goldilocks::from_u64(i * 7 + 3)).collect();
+    // 16 distinct reads (indices 0, 7, 14, ... mod 128 are distinct).
+    let reads: Vec<Goldilocks> = (0..16usize).map(|i| table[i * 7 % 128]).collect();
+    let mut pt = Transcript::new_default(b"bench-lookup");
+    let proof = prove_lookup_committed(&pk, &table, &reads, &mut pt).ok().unwrap();
+    vec![
+        measure("lookup-committed-prove-n128", || {
+            let mut t = Transcript::new_default(b"bench-lookup");
+            let _ = prove_lookup_committed(&pk, &table, &reads, &mut t);
+        }, 1, 5),
+        measure("lookup-committed-verify-n128", || {
+            let mut t = Transcript::new_default(b"bench-lookup");
+            let _ = verify_lookup_committed(&pk, &proof, &mut t);
+        }, 1, 5),
+    ]
+}
+
+fn bench_salsa() -> Vec<Timing> {
+    use lattice_core::transcript::Transcript;
+    use lattice_core::DenseMle;
+    use lattice_salsa::{prove_norm, verify_norm};
+    let z = DenseMle::random(10, b"bench-salsa");
+    let mut pt = Transcript::new_default(b"bench-salsa");
+    let (proof, claim, point) = prove_norm(&z, &mut pt).ok().unwrap();
+    vec![
+        measure("salsa-norm-prove-10vars", || {
+            let mut t = Transcript::new_default(b"bench-salsa");
+            let _ = prove_norm(&z, &mut t);
+        }, 1, 5),
+        measure("salsa-norm-verify-10vars", || {
+            let mut t = Transcript::new_default(b"bench-salsa");
+            let _ = verify_norm(&proof, 10, claim, point.first().copied(), &mut t);
+        }, 1, 5),
+    ]
+}
+
+fn bench_wave6_substrate() -> Vec<Timing> {
+    use lattice_core::short_challenge::{pikkufold_spec, ShortChallengeFamily, ShortChallengeSpec};
+    use lattice_ring::modulus50::RingConfig50;
+    let mut out = Vec::new();
+    // Short-challenge sampling + Γ certification (PikkuFold profile).
+    let spec = pikkufold_spec();
+    out.push(measure("short-challenge-sample-fw256-w23", || {
+        let _ = spec.sample_with_gamma_cap(b"bench", 8, 16);
+    }, 1, 10));
+    // Fq2 extension-field multiplication.
+    use lattice_core::extension::challenge_fq2;
+    let mut t = lattice_core::transcript::Transcript::new_default(b"bench-fq2");
+    let z = challenge_fq2(&mut t, b"z").ok().unwrap();
+    out.push(measure("fq2-mul", || {
+        let _ = z.mul(&z);
+    }, 1, 10));
+    // Modulus50 quadratic-slot ring product at n = 128 (the paper's
+    // 64-quadratic-slot regime).
+    let ring50 = RingConfig50::new(7).ok().unwrap();
+    let a: Vec<u64> = (0..128u64).map(|i| (i * 2654435761) % ring50.modulus.q).collect();
+    let b: Vec<u64> = (0..128u64).map(|i| (i * 40503) % ring50.modulus.q).collect();
+    out.push(measure("modulus50-quad-slot-mul-n128", || {
+        let _ = ring50.mul(&a, &b);
+    }, 1, 10));
+    // SIS estimator: one full infinity-norm estimate (offline gating cost).
+    let params = lattice_sis_estimator::SisParameters {
+        n: 64,
+        q: (1u128 << 48) - 59,
+        m: 512,
+        length_bound: 2,
+        norm: lattice_sis_estimator::SisNorm::Infinity,
+    };
+    out.push(measure("sis-estimate-infinity", || {
+        let _ = lattice_sis_estimator::estimate(
+            &params,
+            lattice_sis_estimator::ReductionCostModel::Adps16 {
+                mode: lattice_sis_estimator::Adps16Mode::Classical,
+            },
+        );
+    }, 1, 3));
+    let _ = ShortChallengeSpec {
+        n: 8,
+        family: ShortChallengeFamily::FixedWeight { weight: 4, amplitude: 1 },
+    };
+    out
 }
 
 fn bench_sumcheck() -> Vec<Timing> {
@@ -354,6 +546,11 @@ fn main() {
     timings.extend(bench_zk());
     timings.extend(bench_akita());
     timings.extend(bench_zkvm());
+    // Wave 6 families.
+    timings.extend(bench_folding());
+    timings.extend(bench_lookup());
+    timings.extend(bench_salsa());
+    timings.extend(bench_wave6_substrate());
 
     println!("# LZX Benchmark Matrix\n");
     println!("| stage | median | min | reps |");

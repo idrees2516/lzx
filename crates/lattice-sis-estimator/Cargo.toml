@@ -1,0 +1,11 @@
+[package]
+name = "lattice-sis-estimator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+
+# Offline analysis crate: zero dependencies by policy (matches the workspace).
+[dependencies]

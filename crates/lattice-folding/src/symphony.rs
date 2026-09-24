@@ -34,6 +34,9 @@ pub enum SymphonyError {
     DegreeTooSmall { degree: usize },
     ShapeMismatch { expected: usize, got: usize },
     CrossTermIdentity,
+    /// Wave 6.2: the fold would exceed the hard norm gate `min(q/2, β*)`
+    /// (the paper's Eq-50 feasibility condition, enforced per fold).
+    NormGateExceeded { beta_after: u128, cap: u64 },
 }
 
 /// A degree-d relation over ring slots (same shape as ProtogaLattice's).
@@ -96,6 +99,9 @@ pub struct SymphonyFold {
     pub cross_terms: Vec<(u32, RingElement)>,
     /// Cross-term commitment (stacked, single shot).
     pub cross_commitment: AjtaiCommitment,
+    /// Wave 6.2: symbolic norm budget `β' ≤ Σ |r_i|·β_i` with the hard
+    /// gate against `min(q/2, β*)` (the Eq-50 feasibility accounting).
+    pub norm_budget: lattice_core::norm_budget::NormBudget,
 }
 
 /// Fold μ witnesses in one shot under degree-2 relations (the dominant
@@ -147,6 +153,26 @@ pub fn fold_many_degree2(
         // Balanced 16-bit challenges.
         let r = if raw >= 1 << 15 { raw - (1 << 16) } else { raw };
         challenges.push(r);
+    }
+
+    // Wave 6.2: hard norm gate — the folded witness bound
+    // β' = Σ |r_i|·β_i must stay below min(q/2, β*).
+    let q_half = (q.q / 2) as u64;
+    let mut budget = lattice_core::norm_budget::NormBudget::fresh(0);
+    for (i, w) in witnesses.iter().enumerate() {
+        let beta_i = w.iter().map(|e| e.infinity_norm()).max().unwrap_or(0) as u64;
+        budget = budget
+            .fold_scalar(
+                challenges[i].unsigned_abs(),
+                beta_i,
+                q_half,
+                pk.params.norm_bound as u64,
+            )
+            .map_err(|e| match e {
+                lattice_core::norm_budget::NormBudgetError::Wraparound { beta_after, cap } => {
+                    SymphonyError::NormGateExceeded { beta_after, cap }
+                }
+            })?;
     }
 
     // Folded witness and commitment.
@@ -241,12 +267,57 @@ pub fn fold_many_degree2(
         challenges,
         cross_terms,
         cross_commitment,
+        norm_budget: budget,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn norm_gate_enforced_eq50_feasibility() {
+        // Wave 6.2: with β* declared tight, a fold whose Σ|r_i|·β_i
+        // exceeds it is refused (fail closed, no wraparound).
+        let (pk, ring) = setup(4, 3);
+        let rel = quadratic_relation();
+        let witnesses: Vec<Vec<RingElement>> =
+            [b"g0", b"g1", b"g2", b"g3"].iter().map(|t| witness(&ring, *t)).collect();
+        let commitments: Vec<AjtaiCommitment> = witnesses
+            .iter()
+            .map(|w| pk.commit(w).ok().unwrap())
+            .collect();
+        let (_, ring_cross) = setup(4, 8);
+        let params_cross = AjtaiParams {
+            ring: ring_cross,
+            k: 2,
+            m: 8,
+            norm_bound: 1 << 22,
+        };
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [53u8; 32]).ok().unwrap();
+        let fold = fold_many_degree2(&pk, &pk_cross, &rel, &witnesses, &commitments)
+            .ok()
+            .unwrap();
+        // The budget tracks β' ≤ Σ|r_i|·β_i and the actual norm respects it.
+        let actual = fold
+            .folded_witness
+            .iter()
+            .map(|e| e.infinity_norm() as u64)
+            .max()
+            .unwrap_or(0);
+        assert!(actual <= fold.norm_budget.beta());
+        assert_eq!(fold.norm_budget.folds(), witnesses.len() as u64);
+
+        // Tight β*: β' is ≈ Σ|r_i|·64 ≥ 4·1·64 = 256 (each |r_i| ≥ 1 in
+        // practice); a cap of 64 must refuse the fold.
+        let mut tight_params = pk.params.clone();
+        tight_params.norm_bound = 64;
+        let tight_pk = AjtaiPublicKey::from_seed(tight_params, [51u8; 32]).ok().unwrap();
+        assert!(matches!(
+            fold_many_degree2(&tight_pk, &pk_cross, &rel, &witnesses, &commitments),
+            Err(SymphonyError::NormGateExceeded { .. })
+        ));
+    }
 
     fn setup(log_n: u32, m: usize) -> (AjtaiPublicKey, lattice_ring::RingConfig) {
         let ring = lattice_ring::RingConfig::new(lattice_ring::Modulus32::Q_32, log_n)

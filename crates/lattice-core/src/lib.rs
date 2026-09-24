@@ -9,6 +9,13 @@
 //!   commitments and folding schemes to control norm growth.
 //! * `challenge_set` — challenge sampling with rejection (audit report §6.4:
 //!   bounded, counted, domain-separated challenge generation).
+//! * `short_challenge` — paper-calibrated short **ring-element** challenge
+//!   distributions (fixed-weight ternary / biased ternary / small sets)
+//!   with certified operator-norm bounds Γ_C and rejection (Wave 6 §2.1).
+//! * `norm_budget` — symbolic folding norm budgets with hard wraparound
+//!   gates `β < min(q/2, β*)` (Wave 6 §2.4).
+//! * `extension` — F_{p²} arithmetic over Goldilocks with transcript
+//!   sampling (Wave 6 §2.3: the F_{q^e} sumcheck substrate).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -17,9 +24,12 @@
 
 pub mod challenge_set;
 pub mod decomposition;
+pub mod extension;
 pub mod field;
 pub mod keccak;
 pub mod mle;
+pub mod norm_budget;
+pub mod short_challenge;
 pub mod transcript;
 
 pub use field::Goldilocks;

@@ -18,6 +18,10 @@ lattice-akita = { workspace = true }
 lattice-vm = { workspace = true }
 lattice-zkvm = { workspace = true }
 lattice-memory = { workspace = true }
+lattice-folding = { workspace = true }
+lattice-lookup = { workspace = true }
+lattice-salsa = { workspace = true }
+lattice-sis-estimator = { workspace = true }
 
 [[bin]]
 name = "lattice-bench"

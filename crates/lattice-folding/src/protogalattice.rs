@@ -302,8 +302,10 @@ pub fn fold(
     }
     let _ = &challenge;
 
-    // Norm budget: ||w'||∞ ≤ ||w1||∞ + |r|·||w2||∞ (tracked conservatively
-    // in balanced-norm terms using the challenge's ring scalar).
+    // Norm budget: ||w'||∞ ≤ ||w1||∞ + |r|·||w2||∞ — tracked through the
+    // shared `NormBudget` type with the **hard gate** against
+    // `min(q/2, β*)` (Wave 6.2: the pre-Wave-6 gate checked β* only, so a
+    // wraparound-mod-q fold could pass whenever β* was declared large).
     let r_balanced = if r_scalar > q.q / 2 {
         q.q - r_scalar
     } else {
@@ -311,18 +313,27 @@ pub fn fold(
     };
     let norm1 = w1.iter().map(|e| e.infinity_norm()).max().unwrap_or(0) as u64;
     let norm2 = w2.iter().map(|e| e.infinity_norm()).max().unwrap_or(0) as u64;
-    let budget = norm1 + r_balanced as u64 * norm2;
-    if budget > pk.params.norm_bound as u64 {
-        return Err(PgError::NormBudgetExceeded {
-            budget: pk.params.norm_bound as u64,
-            got: budget,
-        });
-    }
+    let q_half = (q.q / 2) as u64;
+    let budget = lattice_core::norm_budget::NormBudget::fresh(norm1)
+        .fold_scalar(
+            r_balanced as u64,
+            norm2,
+            q_half,
+            pk.params.norm_bound as u64,
+        )
+        .map_err(|e| match e {
+            lattice_core::norm_budget::NormBudgetError::Wraparound { beta_after, cap } => {
+                PgError::NormBudgetExceeded {
+                    budget: cap,
+                    got: u64::try_from(beta_after).unwrap_or(u64::MAX),
+                }
+            }
+        })?;
 
     let instance = PgInstance {
         commitment: folded_commitment,
         u: u_folded,
-        norm_budget: budget,
+        norm_budget: budget.beta(),
     };
     Ok((instance, cross, challenge))
 }
