@@ -48,6 +48,7 @@ pub enum LfPlusError {
 /// sumcheck:
 /// * booleanity: Σ_x d_i(x)·(1 − d_i(x)) = 0 for every digit layer i;
 /// * reconstruction: Σ_x eq(r, x)·(c(x) + β − Σ_i 2^i d_i(x)) = 0.
+#[derive(Clone, Debug)]
 pub struct AlgebraicRangeProof {
     pub proof: lattice_sumcheck::SumcheckProof,
     /// Claimed digit-layer evaluations at the sumcheck challenge point
@@ -80,16 +81,27 @@ pub fn prove_range(
     let p = lattice_core::field::GOLDILOCKS_MODULUS;
 
     // Digit layers: d_i(x) for each digit position i, over the hypercube.
+    // Wave-7 fix: the padding entries (idx ≥ coeffs.len()) correspond to
+    // c = 0, hence v = 0 + β — their digits are the bits of β, NOT zero.
+    // Zero-padding the layers silently broke the reconstruction identity
+    // Σ_i 2^i d_i = c + β at padded positions (caught by the random-point
+    // check whenever coeffs.len() was not a power of two).
     let mut layers: Vec<Vec<Goldilocks>> = vec![vec![Goldilocks::ZERO; padded_len]; num_digits];
-    for (idx, c) in coeffs.iter().enumerate() {
-        // Balanced representative in [-β, β] maps to v = c + β in [0, 2β].
-        let raw = c.to_canonical_u64();
-        let balanced = if raw >= p / 2 {
-            raw as i128 - p as i128
+    for idx in 0..padded_len {
+        let v = if idx < coeffs.len() {
+            // Balanced representative in [-β, β] maps to v = c + β in
+            // [0, 2β].
+            let raw = coeffs[idx].to_canonical_u64();
+            let balanced = if raw >= p / 2 {
+                raw as i128 - p as i128
+            } else {
+                raw as i128
+            };
+            // in [0, 2β] if in range
+            (balanced + beta as i128) as u64
         } else {
-            raw as i128
+            beta
         };
-        let v = (balanced + beta as i128) as u64; // in [0, 2β] if in range
         for (i, layer) in layers.iter_mut().enumerate() {
             layer[idx] = Goldilocks::from_u64((v >> i) & 1);
         }
@@ -197,6 +209,8 @@ pub fn verify_range(
     }
     let expected_final = eq_at.mul(&poly_at);
     if verdict.final_claim != expected_final {
+        #[cfg(test)]
+        eprintln!("LF+ verify: booleanity final mismatch: got {:?} want {:?}", verdict.final_claim, expected_final);
         return Err(LfPlusError::RangeProofFailed);
     }
     // Reconstruction at the sumcheck point: Σ 2^i d_i(r_sc) == c(r_sc) + β
@@ -208,6 +222,8 @@ pub fn verify_range(
     }
     let expected = coeff_claim_at_point.add(&Goldilocks::from_u64(beta));
     if acc != expected {
+        #[cfg(test)]
+        eprintln!("LF+ verify: reconstruction mismatch: acc={:?} claim+beta={:?}", acc, expected);
         return Err(LfPlusError::RangeProofFailed);
     }
     Ok(())

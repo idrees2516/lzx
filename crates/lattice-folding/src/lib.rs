@@ -22,6 +22,7 @@
 
 pub mod cyclo;
 pub mod latticefold_plus;
+pub mod pgl;
 pub mod pikkufold;
 pub mod protogalattice;
 pub mod superneo;
