@@ -98,6 +98,7 @@ pub(crate) fn chunk_element(
 /// Recompose chunk elements back into the original element (exact inverse
 /// of `chunk_element`). (Library-visible for the test oracle and the
 /// Wave-7 Π^ext recomposition check.)
+#[allow(dead_code)] // utility path retained for the scale-up
 pub(crate) fn unchunk_elements(
     ring: &lattice_ring::RingConfig,
     chunks: &[RingElement],

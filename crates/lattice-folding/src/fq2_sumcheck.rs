@@ -138,6 +138,7 @@ fn sum_products(bound: &[Vec<Fq2>], terms: &[(Fq2, Vec<usize>)]) -> Fq2 {
             continue;
         }
         let pts = bound[ids[0]].len();
+        #[allow(clippy::needless_range_loop)]
         for p in 0..pts {
             let mut prod = *coeff;
             for fi in ids {

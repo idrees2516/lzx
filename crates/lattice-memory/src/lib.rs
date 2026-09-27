@@ -60,7 +60,7 @@ pub use onehot::OneHotLayout;
 pub use onehot_check::{verify_onehot, OneHotProof};
 pub use shout::{verify_shout, verify_shout_core_d1, ShoutProof};
 pub use sparse::{SparseOneHotFactor, SparseShoutInstance, SparseStats};
-pub use twist::{prove_twist, verify_twist, TwistMatrices, TwistProof, TwistWitness};
+pub use twist::{build_twist_matrices, prove_twist, verify_twist, TwistProof, TwistWitness};
 
 /// A memory access event (address, timestamp, value, is_write).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

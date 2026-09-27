@@ -83,6 +83,7 @@ pub(crate) fn range_product(t: Fq2, b: u64) -> Fq2 {
 /// Extract the signed digit layers of a ring element's coefficients:
 /// layer `i` holds every coefficient's `i`-th base-`2^chunk_log` digit
 /// (balanced, `|d| ≤ b = 2^{chunk_log−1}`).
+#[allow(dead_code)] // utility path retained for the scale-up
 pub(crate) fn digit_layers(
     ring: &lattice_ring::RingConfig,
     e: &RingElement,
@@ -497,6 +498,7 @@ pub fn ext_commit_rok(
 /// implies the challenge-batched row `⟨c, ((2b)^i ⊗ A)v⟩ = ⟨c, t⟩`) —
 /// against the supplied opening `v` (the decider model: the opening is
 /// PCS-authenticated upstream; tests supply the prover's `v`).
+#[allow(clippy::too_many_arguments)]
 pub fn verify_ext_fold(
     pk: &AjtaiPublicKey,
     pk_ext: &AjtaiPublicKey,

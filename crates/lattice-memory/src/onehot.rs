@@ -107,7 +107,7 @@ impl OneHotLayout {
     pub fn num_chunks(&self) -> usize {
         // ceil(T / 2^chunk_log_t), at least 1.
         let chunk = 1usize << self.chunk_log_t;
-        (self.t() + chunk - 1) / chunk
+        self.t().div_ceil(chunk)
     }
 
     /// Half-open cycle range `[lo, hi)` of chunk `idx`.
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(d1.committed_entries(), (1 << 16) * (1 << log_t));
         assert_eq!(d2.committed_entries(), 2 * (1 << 8) * (1 << log_t));
         assert_eq!(d4.committed_entries(), 4 * (1 << 4) * (1 << log_t));
-        assert_eq!(d8.committed_entries(), 8 * 2 * (1 << log_t));
+        assert_eq!(d8.committed_entries(), 8 * (1 << 2) * (1 << log_t));
         // Strictly decreasing (§2.5.3 commitment-key control).
         assert!(d2.committed_entries() < d1.committed_entries() / 100);
         assert!(d4.committed_entries() < d2.committed_entries());
@@ -373,7 +373,9 @@ mod tests {
         let l1 = OneHotLayout::new(2, 2, 1, u64::MAX as usize).ok().unwrap();
         let m = one_hot_dim_matrix(&[1u32, 0, 3, 2], 2, 2).ok().unwrap();
         assert_eq!(embed_dim(&m, &l1, 0).ok().unwrap(), m);
-        // Wrong arity rejected.
-        assert!(embed_dim(&m, &layout, 0).is_err());
+        // Wrong arity rejected: a (2^3 × 2^2) matrix does not fit the
+        // layout's (2^2 × 2^2) dimension slots.
+        let bad = one_hot_dim_matrix(&[1u32, 0, 3, 2], 3, 2).ok().unwrap();
+        assert!(embed_dim(&bad, &layout, 0).is_err());
     }
 }

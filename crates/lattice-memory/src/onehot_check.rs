@@ -125,7 +125,7 @@ pub fn prove_onehot(
 
     // 1. Booleanity per dimension.
     let mut booleanity = Vec::with_capacity(d);
-    for (i, matrix) in matrices.iter().enumerate() {
+    for matrix in matrices.iter() {
         let r_i = transcript.challenge_fields(b"onehot-bool-r", log_n)?;
         let mut point = r_i.clone();
         point.extend(r_prime.iter().copied());
@@ -144,7 +144,9 @@ pub fn prove_onehot(
     let eq_j = DenseMle::one(log_k).tensor(&DenseMle::eq_extension(&r_prime));
     let eq_idx = vp.add_factor(eq_j)?;
     // w(k) = int(k): the affine digit-weight polynomial.
-    let w_evals: Vec<Goldilocks> = (0..layout.k()).map(Goldilocks::from_u64).collect();
+    let w_evals: Vec<Goldilocks> = (0..layout.k())
+        .map(|k| Goldilocks::from_u64(k as u64))
+        .collect();
     let w_ext = DenseMle::new(w_evals)?.tensor(&DenseMle::one(log_t));
     let w_idx = vp.add_factor(w_ext)?;
     let mut ra_ids = Vec::with_capacity(d);
@@ -337,7 +339,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(&[matrix], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
     }
 
     /// Soundness (the weight check): an all-zero row is Boolean, so the
@@ -363,7 +365,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(&[bad], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
+        let proof = prove_onehot(&[bad.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
             .ok()
             .unwrap();
         let mut t2 = Transcript::new_default(b"onehot-test");
@@ -388,7 +390,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(&[matrix], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
     }
 
     /// Soundness: a resolver that answers with a DIFFERENT matrix than
@@ -407,7 +409,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(&[matrix], log_k, log_t, OneHotSide::Read, &prover_resolver, &mut t)
+        let proof = prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &prover_resolver, &mut t)
             .ok()
             .unwrap();
         // Cheating resolver: different matrix at the booleanity points.
@@ -434,7 +436,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let mut proof = prove_onehot(&[matrix], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
+        let mut proof = prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
             .ok()
             .unwrap();
         if let Some(round) = proof.raf.rounds.first_mut() {

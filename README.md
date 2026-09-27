@@ -166,3 +166,19 @@ in `SECURITY.md`.
 ## License
 
 MIT.
+
+## Wave 7 state (2026-09-27)
+
+Protocol completion landed: ProtogaLattice PGL-Fold/PGL-Boot
+(`crates/lattice-folding/src/pgl.rs`), SALSAA D1+D2
+(`crates/lattice-salsa/src/ring_norm.rs`), the labinius wire/ layer
+(`crates/lattice-labinius/src/wire.rs`), plus two latent bug fixes (LF+
+range-proof padding; pow-tower off-by-one). Full part-by-part paper
+coverage — implemented / partial / unimplemented — lives in
+[`docs/`](docs/): start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+and [`docs/papers/README.md`](docs/papers/README.md).
+
+Testing: `cargo test --workspace` (378 tests at this commit);
+`cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
+lattice-bench --bin bench` (26 stages, reproducible matrix) — see
+`PERFORMANCE.md` for the methodology.

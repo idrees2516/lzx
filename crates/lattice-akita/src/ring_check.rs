@@ -94,7 +94,7 @@ impl RingRow {
                 .add(&a.mul(w).map_err(RingCheckError::Ring)?)
                 .map_err(RingCheckError::Ring)?;
         }
-        Ok(acc.sub(&self.target).map_err(RingCheckError::Ring)?)
+        acc.sub(&self.target).map_err(RingCheckError::Ring)
     }
 }
 

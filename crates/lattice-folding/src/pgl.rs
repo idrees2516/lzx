@@ -794,7 +794,7 @@ pub fn fig2_fold(
     for (ab, _) in &quotients {
         transcript.append_bytes(
             b"pgl-k",
-            &format!("{:?}", ab.0).as_bytes(),
+            format!("{:?}", ab.0).as_bytes(),
         )?;
     }
     for (_, q) in &quotients {
@@ -919,7 +919,7 @@ pub fn fig2_verify(
     for (ab, _) in &proof.quotients {
         transcript.append_bytes(
             b"pgl-k",
-            &format!("{:?}", ab.0).as_bytes(),
+            format!("{:?}", ab.0).as_bytes(),
         )?;
     }
     for (_, q) in &proof.quotients {
@@ -1103,7 +1103,7 @@ pub fn fig3_boot(
         transcript.append_bytes(b"boot-e", &eb.to_bytes())?;
     }
     for (ab, _) in &quotients {
-        transcript.append_bytes(b"boot-k", &format!("{:?}", ab).as_bytes())?;
+        transcript.append_bytes(b"boot-k", format!("{:?}", ab).as_bytes())?;
     }
     let mut y = vec![ring.one()];
     for _ in 0..num_blocks.saturating_sub(1) {
@@ -1245,7 +1245,7 @@ pub fn fig3_boot_verify(
         transcript.append_bytes(b"boot-e", &eb.to_bytes())?;
     }
     for (ab, _) in &proof.quotients {
-        transcript.append_bytes(b"boot-k", &format!("{:?}", ab).as_bytes())?;
+        transcript.append_bytes(b"boot-k", format!("{:?}", ab).as_bytes())?;
     }
     let mut y = vec![ring.one()];
     for _ in 0..k_prime.saturating_sub(1) {

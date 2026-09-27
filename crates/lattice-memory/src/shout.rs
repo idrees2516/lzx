@@ -322,8 +322,10 @@ mod tests {
         let mut rv: Vec<Goldilocks> = reads.iter().map(|&(_, v)| fe(v)).collect();
         rv.resize(1 << log_t, Goldilocks::ZERO);
         let rv_col = DenseMle::new(rv).ok().unwrap();
+        let m0c = m0.clone();
+        let m1c = m1.clone();
         let resolver = WitnessResolver {
-            ra: vec![Some(&m0), Some(&m1)],
+            ra: vec![Some(&m0c), Some(&m1c)],
             read_values: Some(&rv_col),
             ..Default::default()
         };
@@ -350,10 +352,10 @@ mod tests {
         };
         let mut t = Transcript::new_default(b"shout-test");
         assert!(
-            prove_shout(&fx.table, &[matrix], fx.log_k, fx.log_t, &resolver, &mut t).is_err()
+            prove_shout(&fx.table, &[matrix.clone()], fx.log_k, fx.log_t, &resolver, &mut t).is_err()
         );
         let mut t2 = Transcript::new_default(b"shout-test");
-        let (m2, rv2, _, _) = build(&fx);
+        let (m2, rv2) = build(&fx);
         let res2 = WitnessResolver {
             ra: vec![Some(&m2)],
             read_values: Some(&rv2),
@@ -405,7 +407,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"shout-test");
-        let mut proof = prove_shout(&fx.table, &[matrix], fx.log_k, fx.log_t, &resolver, &mut t)
+        let mut proof = prove_shout(&fx.table, &[matrix.clone()], fx.log_k, fx.log_t, &resolver, &mut t)
             .ok()
             .unwrap();
         if let Some(round) = proof.read_checking.rounds.first_mut() {

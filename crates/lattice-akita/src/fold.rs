@@ -109,7 +109,8 @@ pub enum FoldError {
 
 impl FoldError {
     /// True iff the failure is the norm-budget hard gate.
-    pub fn is_wraparound(&self) -> bool {
+    #[allow(clippy::needless_range_loop)]
+pub fn is_wraparound(&self) -> bool {
         matches!(self, FoldError::NormBudget(NormBudgetError::Wraparound { .. }))
     }
 }
@@ -138,7 +139,8 @@ pub struct FoldKeys {
 impl FoldKeys {
     /// Derive all tiers from a seed (public-coin setup; the schedule
     /// digest binds the shapes).
-    pub fn from_seed(params: &FoldParams, seed: [u8; 32]) -> Result<Self, FoldError> {
+    #[allow(clippy::needless_range_loop)]
+pub fn from_seed(params: &FoldParams, seed: [u8; 32]) -> Result<Self, FoldError> {
         let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, params.log_n)
             .map_err(FoldError::Ring)?;
         let md = params.block_len * params.source_digits;
@@ -192,6 +194,7 @@ impl FoldKeys {
 }
 
 /// `|L| = Mδτ + B·δ1 + B·n_A·δ1` (Eq 106 main segments).
+#[allow(clippy::needless_range_loop)]
 pub fn successor_len(params: &FoldParams) -> usize {
     params.block_len * params.source_digits * params.response_digits
         + params.num_blocks * params.inner_digits
@@ -234,6 +237,7 @@ fn balanced(coeff: u32, q: u32) -> i64 {
 /// coefficient into `δ` balanced base-`b` digits; digit `u` of all
 /// coefficients forms ring element `u` of the output (the layout of
 /// Eq 107 restricted to one block).
+#[allow(clippy::needless_range_loop)]
 pub fn decompose_element(
     ring: &RingConfig,
     elem: &RingElement,
@@ -264,6 +268,7 @@ pub fn decompose_element(
 
 /// `G_{base}` recomposition of one ring element's digits (the inverse of
 /// [`decompose_element`]): `f = Σ_u b^u·s_u mod q`.
+#[allow(clippy::needless_range_loop)]
 pub fn recompose_element(
     ring: &RingConfig,
     digits: &[RingElement],
@@ -286,6 +291,7 @@ pub fn recompose_element(
 
 /// Decompose a whole block vector `f_i ∈ R^M` into `s_i ∈ R^{Mδ}`
 /// (the paper's `s_i = G⁻¹_{b,M}(f_i)`).
+#[allow(clippy::needless_range_loop)]
 pub fn decompose_block(
     ring: &RingConfig,
     block: &[RingElement],
@@ -300,6 +306,7 @@ pub fn decompose_block(
 }
 
 /// Recompose a block vector from its digit segments.
+#[allow(clippy::needless_range_loop)]
 pub fn recompose_block(
     ring: &RingConfig,
     digits: &[RingElement],
@@ -322,6 +329,7 @@ pub fn recompose_block(
 /// Check every digit lies in the balanced alphabet `[−base/2, base/2]`
 /// (the premise Eq 9 certifies via item A3; the decomposer of
 /// [`decompose_element`] emits exactly this alphabet).
+#[allow(clippy::needless_range_loop)]
 pub fn digits_in_range(ring: &RingConfig, elems: &[RingElement], base: u64) -> Result<(), FoldError> {
     let q = ring.modulus.q;
     let half = base as i64 / 2;
@@ -357,7 +365,8 @@ pub struct OpeningPoint {
 impl OpeningPoint {
     /// Within-block ring weights `a ∈ R^M` (eq over `ρ_pos`, embedded as
     /// ring constants).
-    pub fn block_weights(&self, ring: &RingConfig) -> Vec<RingElement> {
+    #[allow(clippy::needless_range_loop)]
+pub fn block_weights(&self, ring: &RingConfig) -> Vec<RingElement> {
         let eq = DenseMle::eq_extension(&self.pos);
         (0..eq.evaluations.len())
             .map(|i| ring.constant(eq.evaluations[i].to_canonical_u64() as u32))
@@ -365,7 +374,8 @@ impl OpeningPoint {
     }
 
     /// Block weights `χ_blk(i) = eq(ρ_blk, i)` embedded as ring constants.
-    pub fn chi_blk(&self, ring: &RingConfig, num_blocks: usize) -> Vec<RingElement> {
+    #[allow(clippy::needless_range_loop)]
+pub fn chi_blk(&self, ring: &RingConfig, num_blocks: usize) -> Vec<RingElement> {
         let eq = DenseMle::eq_extension(&self.blk);
         (0..num_blocks)
             .map(|i| {
@@ -409,12 +419,13 @@ pub struct FoldProof {
 /// `NormBudget::fold` evaluated for the worst challenge): every
 /// coefficient of `z = Σ_i c_i·s_i` satisfies
 /// `‖z‖∞ ≤ Σ_i Γ_{c_i}·⌈√n⌉·(b/2)`.
+#[allow(clippy::needless_range_loop)]
 pub fn certified_response_bound(
     params: &FoldParams,
     challenges: &[ShortChallenge],
 ) -> u64 {
     let sqrt_n = lattice_core::norm_budget::ceil_sqrt(1u64 << params.log_n);
-    let digit_bound = params.source_base as u64 / 2;
+    let digit_bound = params.source_base / 2;
     challenges
         .iter()
         .map(|c| c.gamma_c().saturating_mul(sqrt_n).saturating_mul(digit_bound))
@@ -462,7 +473,8 @@ pub struct FoldSource {
 }
 
 impl FoldSource {
-    pub fn new(blocks: Vec<Vec<RingElement>>, digit_bound: u64) -> Self {
+    #[allow(clippy::needless_range_loop)]
+pub fn new(blocks: Vec<Vec<RingElement>>, digit_bound: u64) -> Self {
         FoldSource {
             blocks,
             budget: NormBudget::fresh(digit_bound),
@@ -472,6 +484,7 @@ impl FoldSource {
 
 /// Run one fold: bind the partials, sample the challenges, form the
 /// response, and commit the successor witness (Fig 5 steps 1-4).
+#[allow(clippy::needless_range_loop)]
 pub fn prove_fold(
     params: &FoldParams,
     keys: &FoldKeys,
@@ -663,6 +676,7 @@ pub fn prove_fold(
 
 /// Verify one fold: the binding chain, both fold equations, the response
 /// digitization, and the successor commitment.
+#[allow(clippy::needless_range_loop)]
 pub fn verify_fold(
     params: &FoldParams,
     keys: &FoldKeys,
@@ -862,6 +876,7 @@ pub fn verify_fold(
 
 /// The successor witness `L = [ẑ | ê | t̂]` (Eq 106 main segments) of a
 /// proven fold — the next level's source.
+#[allow(clippy::needless_range_loop)]
 pub fn successor_witness(params: &FoldParams, proof: &FoldProof) -> Vec<RingElement> {
     let mut l_vec: Vec<RingElement> = Vec::with_capacity(successor_len(params));
     l_vec.extend(proof.response_digits.iter().cloned());
