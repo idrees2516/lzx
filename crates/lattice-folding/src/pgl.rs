@@ -415,7 +415,7 @@ impl MPoly {
                     continue;
                 }
                 if let Some(slot) = out.terms.iter_mut().find(|(e3, _)| *e3 == e) {
-                    slot.1 = slot.1.add(c)?;
+                    slot.1 = slot.1.add(&c)?;
                 } else {
                     out.terms.push((e, c));
                 }

@@ -3,29 +3,64 @@
 //! Twist & Shout (Chen–Palm–Yeo–Zhang 2025, ePrint 2025/105): faster
 //! memory checking arguments via one-hot addressing and increments.
 //!
-//! The two arguments:
-//! * **Shout** (read-only memory / bytecode): every read must come from
-//!   the committed table — verified via the multiset (grand-product)
-//!   fingerprint over read addresses: `Π_reads (a − r) = Π_table (a − r)`
-//!   at a random challenge r, with multiplicities tracked by the counter
-//!   deltas (one-hot addressing: each table entry has a one-hot selector
-//!   column; reads increment the entry's counter).
-//! * **Twist** (read-write memory / RAM): each address's read/write
-//!   timeline must be consistent — the value read at time t equals the
-//!   last value written before t. The "twist" trick: prove
-//!   `V_read(a, t) − V_write(a, t)` vanishings through counter
-//!   increments: with one-hot addressing per (address, timestamp), the
-//!   read/write check reduces to per-address final-state equalities.
+//! Two layers:
 //!
-//! Implementation: the deterministic checker (ground truth oracle) plus
-//! the random-fingerprint polynomial identity the sumcheck layer proves.
+//! * **Deterministic ground truth** (this module): `shout_check` /
+//!   `twist_check` replay the memory semantics directly; the random
+//!   fingerprints (`shout_fingerprint`, `twist_fingerprint`) are the
+//!   pre-PIOP statements. `twist_fingerprint` checks final-state
+//!   consistency only — it is NOT sound as a memory-checking statement (a
+//!   stale read with a consistent final state passes); the PIOP layer
+//!   below is the sound replacement.
+//! * **The real PIOPs** (Wave 7, P0-1..P0-3):
+//!   - [`onehot`] — the d-dimensional one-hot layout + chunking policy
+//!     (§2.5.3, §2.8, §3.7; commitment-key size control).
+//!   - [`onehot_check`] — the one-hot constraint PIOP (Figs 6/8):
+//!     Booleanity + Hamming-weight-one (the 2^-1 point trick, valid on
+//!     Goldilocks since char != 2) + the raf-evaluation sumcheck.
+//!   - [`shout`] — the core Shout read-checking sumchecks (Figs 5/7) for
+//!     read-only memories / lookup tables.
+//!   - [`twist`] — the Twist increment commitment (Fig 9):
+//!     `Inc(k,j) = wa(k,j)·(wv(j) − Val(k,j))` with the read-checking,
+//!     write-checking, and Val-evaluation sumchecks; virtual `Val` via the
+//!     less-than extension (LT, [STW24 App. G]; see
+//!     `lattice_core::mle::lt_extension`).
+//!   - [`sparse`] — the sparse one-hot sumcheck prover (§2.9.2, §7): the
+//!     prover materializes only the nonzero indicator entries ("0s are
+//!     free") — O(K + T·(d+2)) field operations instead of O(K·T).
+//!
+//! ## Layout conventions (shared by every PIOP here)
+//!
+//! * Factors live on the boolean hypercube in `lattice_core::DenseMle`
+//!   canonical order: variable 0 is the most significant index bit, and
+//!   the sumcheck engine binds variables head-first.
+//! * A combined (address, cycle) factor stores the address bits FIRST
+//!   (most significant) and the cycle bits last, so the engine binds the
+//!   address block first — matching Figs 7–9 ("raddress over the first
+//!   log K rounds, rcycle over the final log T rounds").
+//! * Per-dimension one-hot matrices (`ra_i`, `wa_i`) use their own
+//!   `(k_i, j)` layout; [`onehot::embed_dim`] materializes the dense
+//!   full-space embedding for the generic engine (kernel scale — the
+//!   production route is the sparse prover).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use lattice_core::transcript::{Transcript, TranscriptError};
-use lattice_core::Goldilocks;
+use lattice_core::{DenseMle, Goldilocks};
+
+pub mod onehot;
+pub mod onehot_check;
+pub mod shout;
+pub mod sparse;
+pub mod twist;
+
+pub use onehot::OneHotLayout;
+pub use onehot_check::{verify_onehot, OneHotProof};
+pub use shout::{verify_shout, verify_shout_core_d1, ShoutProof};
+pub use sparse::{SparseOneHotFactor, SparseShoutInstance, SparseStats};
+pub use twist::{prove_twist, verify_twist, TwistMatrices, TwistProof, TwistWitness};
 
 /// A memory access event (address, timestamp, value, is_write).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +78,153 @@ pub enum MemoryError {
     FingerprintFailed,
     /// Timeline consistency failed.
     TimelineFailed,
+}
+
+/// Identifies a committed (or public-table) factor of the Twist & Shout
+/// PIOPs. The commitment layer resolves these to evaluations.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FactorId {
+    /// The i-th read one-hot matrix (per-dimension layout `(k_i, j)`).
+    Ra(usize),
+    /// The i-th write one-hot matrix (per-dimension layout `(k_i, j)`).
+    Wa(usize),
+    /// The increment matrix `Inc` over the full `(k, j)` space.
+    Inc,
+    /// The dense materialized `Val` over `(k, j)` (prover-side only; the
+    /// verifier-side Val is virtual, carried by the Twist proof's
+    /// Val-evaluation claims).
+    Val,
+    /// The read-value column `rv` (log T variables).
+    ReadValues,
+    /// The write-value column `wv` (log T variables).
+    WriteValues,
+    /// The read-address column `raf` (log T variables; one field element
+    /// per cycle — the zkVM-natural encoding, virtual per §2.2).
+    ReadAddr,
+    /// The write-address column `waf` (log T variables).
+    WriteAddr,
+    /// The read-only lookup table (log K variables; public/structured).
+    Table,
+}
+
+impl FactorId {
+    /// Stable discriminant for transcript absorption.
+    pub fn discriminant(self) -> u64 {
+        match self {
+            FactorId::Ra(i) => 1 + i as u64,
+            FactorId::Wa(i) => 33 + i as u64,
+            FactorId::Inc => 65,
+            FactorId::Val => 66,
+            FactorId::ReadValues => 67,
+            FactorId::WriteValues => 68,
+            FactorId::ReadAddr => 69,
+            FactorId::WriteAddr => 70,
+            FactorId::Table => 71,
+        }
+    }
+}
+
+/// Supplies factor evaluations at arbitrary points.
+///
+/// The prover resolves against its witness; the verifier resolves against
+/// the authenticated (committed + opened) columns. The PIOP verifiers below
+/// treat resolver values as *claimed factor evaluations* whose binding is
+/// the commitment layer's job — exactly the "claims returned to the caller
+/// for PCS binding" contract of the lattice-sumcheck engine.
+pub trait FactorResolver {
+    fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError>;
+}
+
+/// A resolver over dense witness material (prover-side and test-side).
+#[derive(Default)]
+pub struct WitnessResolver<'a> {
+    pub ra: Vec<Option<&'a DenseMle>>,
+    pub wa: Vec<Option<&'a DenseMle>>,
+    pub inc: Option<&'a DenseMle>,
+    pub val: Option<&'a DenseMle>,
+    pub read_values: Option<&'a DenseMle>,
+    pub write_values: Option<&'a DenseMle>,
+    pub read_addr: Option<&'a DenseMle>,
+    pub write_addr: Option<&'a DenseMle>,
+    pub table: Option<&'a DenseMle>,
+}
+
+impl<'a> WitnessResolver<'a> {
+    fn lookup_opt(
+        slots: &[Option<&'a DenseMle>],
+        idx: usize,
+        factor: FactorId,
+    ) -> Result<&'a DenseMle, PiopError> {
+        slots.get(idx).copied().flatten().ok_or(PiopError::MissingFactor {
+            factor,
+        })
+    }
+}
+
+impl<'a> FactorResolver for WitnessResolver<'a> {
+    fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
+        let mle = match factor {
+            FactorId::Ra(i) => Self::lookup_opt(&self.ra, i, factor)?,
+            FactorId::Wa(i) => Self::lookup_opt(&self.wa, i, factor)?,
+            FactorId::Inc => self.inc.ok_or(PiopError::MissingFactor { factor })?,
+            FactorId::Val => self.val.ok_or(PiopError::MissingFactor { factor })?,
+            FactorId::ReadValues => {
+                self.read_values.ok_or(PiopError::MissingFactor { factor })?
+            }
+            FactorId::WriteValues => {
+                self.write_values.ok_or(PiopError::MissingFactor { factor })?
+            }
+            FactorId::ReadAddr => self.read_addr.ok_or(PiopError::MissingFactor { factor })?,
+            FactorId::WriteAddr => self.write_addr.ok_or(PiopError::MissingFactor { factor })?,
+            FactorId::Table => self.table.ok_or(PiopError::MissingFactor { factor })?,
+        };
+        Ok(mle.evaluate(point)?)
+    }
+}
+
+/// Errors of the Twist & Shout PIOP layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PiopError {
+    Transcript(TranscriptError),
+    Sumcheck(lattice_sumcheck::SumcheckError),
+    Mle(lattice_core::mle::MleError),
+    Virtual(lattice_sumcheck::VirtualPolyError),
+    /// Instance shape mismatch (layout vs factor arity).
+    Shape { expected: usize, got: usize },
+    /// Layout parameters inconsistent (e.g. log_k not divisible by d).
+    BadLayout { log_k: usize, d: usize },
+    /// Address out of range for the layout.
+    AddressOutOfRange { address: u64, k: usize },
+    /// Prover-side fail-closed: the witness violates the statement
+    /// (stale read, inconsistent increments, wrong final state...).
+    WitnessInconsistent(&'static str),
+    /// Verifier-side: a terminal identity failed.
+    FinalCheckFailed(&'static str),
+    /// A factor the protocol needed was not supplied to the resolver.
+    MissingFactor { factor: FactorId },
+    /// The 2^-1 point trick is unavailable (field of characteristic 2).
+    InverseOfTwo,
+}
+
+impl From<TranscriptError> for PiopError {
+    fn from(e: TranscriptError) -> Self {
+        PiopError::Transcript(e)
+    }
+}
+impl From<lattice_sumcheck::SumcheckError> for PiopError {
+    fn from(e: lattice_sumcheck::SumcheckError) -> Self {
+        PiopError::Sumcheck(e)
+    }
+}
+impl From<lattice_core::mle::MleError> for PiopError {
+    fn from(e: lattice_core::mle::MleError) -> Self {
+        PiopError::Mle(e)
+    }
+}
+impl From<lattice_sumcheck::VirtualPolyError> for PiopError {
+    fn from(e: lattice_sumcheck::VirtualPolyError) -> Self {
+        PiopError::Virtual(e)
+    }
 }
 
 /// Shout: check a read-only table — every read address appears in the

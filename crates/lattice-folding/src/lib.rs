@@ -21,9 +21,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod cyclo;
+pub mod cyclo_protocols;
+pub mod fq2_sumcheck;
 pub mod latticefold_plus;
+pub mod lfplus_mon;
 pub mod pgl;
 pub mod pikkufold;
+pub mod pikku_layers;
 pub mod protogalattice;
 pub mod superneo;
 pub mod symphony;
+pub mod symphony_had;

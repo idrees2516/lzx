@@ -23,7 +23,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod fold;
 pub mod pcs;
+pub mod ring_check;
 pub mod schedule;
 
 pub use pcs::{

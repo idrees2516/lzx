@@ -55,7 +55,10 @@ pub enum CycloError {
 /// coefficient c (balanced) = Σ_i 2^{i·chunk_log} · d_i with
 /// |d_i| ≤ 2^{chunk_log-1}. Extraction is the exact iterative borrow
 /// algorithm (same discipline as gadget decomposition, over signed values).
-fn chunk_element(
+///
+/// Wave 7.6: crate-visible — `cyclo_protocols` reuses this digit machinery
+/// for the Π^range statement (the chunk layers are the digit MLE layers).
+pub(crate) fn chunk_element(
     ring: &lattice_ring::RingConfig,
     e: &RingElement,
     chunk_log: u32,
@@ -93,9 +96,9 @@ fn chunk_element(
 }
 
 /// Recompose chunk elements back into the original element (exact inverse
-/// of `chunk_element`). (Library-visible for the test oracle.)
-#[allow(dead_code)]
-fn unchunk_elements(
+/// of `chunk_element`). (Library-visible for the test oracle and the
+/// Wave-7 Π^ext recomposition check.)
+pub(crate) fn unchunk_elements(
     ring: &lattice_ring::RingConfig,
     chunks: &[RingElement],
     chunk_log: u32,

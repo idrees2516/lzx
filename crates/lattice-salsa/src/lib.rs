@@ -17,6 +17,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod ring_norm;
+
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_sumcheck::sumcheck::{self, SumcheckError};

@@ -270,6 +270,135 @@ impl DenseMle {
             evaluations: evals,
         }
     }
+
+    /// Bind the LEAST-significant variables (the suffix of a full point) to
+    /// `tail`, returning the shrunken MLE over the remaining head variables.
+    ///
+    /// This is the transpose-side companion of [`Self::fix_variables`]:
+    /// `f.fix_last_variables(&point[a..])` followed by evaluating the head
+    /// at `point[..a]` equals `f.evaluate(point)`. Twist & Shout's
+    /// cycle-indexed factors (e.g. the d = 1 core Shout PIOP, Fig 5 of
+    /// ePrint 2025/105) need the cycle variables bound while the address
+    /// variables stay free, which the head-first `fix_variables` cannot do.
+    pub fn fix_last_variables(&self, tail: &[Goldilocks]) -> Result<DenseMle, MleError> {
+        if tail.len() > self.num_vars {
+            return Err(MleError::PointLengthMismatch {
+                expected: self.num_vars,
+                got: tail.len(),
+            });
+        }
+        let mut cur = self.evaluations.clone();
+        // Bind from the least-significant variable up: each binding folds
+        // ADJACENT index pairs (variable `num_vars-1` is the index LSB).
+        for p in tail.iter().rev() {
+            let half = cur.len() / 2;
+            for i in 0..half {
+                let a = cur[2 * i];
+                let b = cur[2 * i + 1];
+                cur[i] = a.add(&b.sub(&a).mul(p));
+            }
+            cur.truncate(half);
+        }
+        Ok(DenseMle {
+            num_vars: self.num_vars - tail.len(),
+            evaluations: cur,
+        })
+    }
+
+    /// Evaluate the multilinear `eq` indicator at arbitrary field points:
+    /// `prod_i [ a_i·b_i + (1-a_i)(1-b_i) ]` in O(len) field operations.
+    ///
+    /// This is the verifier-side companion of [`Self::eq_extension`] (the
+    /// dense materialization); sumcheck verifiers need `eq(r, rho)` at the
+    /// terminal randomness without building the full array.
+    pub fn eq_eval(a: &[Goldilocks], b: &[Goldilocks]) -> Result<Goldilocks, MleError> {
+        if a.len() != b.len() {
+            return Err(MleError::PointLengthMismatch {
+                expected: a.len(),
+                got: b.len(),
+            });
+        }
+        let mut acc = Goldilocks::ONE;
+        for (x, y) in a.iter().zip(b.iter()) {
+            let same = x.mul(y).add(&Goldilocks::ONE.sub(x).mul(&Goldilocks::ONE.sub(y)));
+            acc = acc.mul(&same);
+        }
+        Ok(acc)
+    }
+
+    /// The **less-than multilinear extension** gadget (Twist & Shout
+    /// ePrint 2025/105 §3.2; formula from [STW24, App. G]): `LT(x, y)` is
+    /// the unique multilinear polynomial that is 1 exactly when
+    /// `int(x) < int(y)` over boolean inputs (variable 0 = most significant
+    /// bit, matching this crate's index convention):
+    ///
+    /// `LT(x, y) = sum_i ( prod_{j<i} eq(x_j, y_j) ) · (1 - x_i) · y_i`
+    ///
+    /// Evaluates in O(log T) field operations — the verifier-side gadget
+    /// behind Twist's Val-evaluation sumcheck (Fig 9, Eq 11). Requires
+    /// `x.len() == y.len()`.
+    pub fn lt_extension(x: &[Goldilocks], y: &[Goldilocks]) -> Result<Goldilocks, MleError> {
+        if x.len() != y.len() {
+            return Err(MleError::PointLengthMismatch {
+                expected: x.len(),
+                got: y.len(),
+            });
+        }
+        let mut acc = Goldilocks::ZERO;
+        let mut prefix = Goldilocks::ONE;
+        for (a, b) in x.iter().zip(y.iter()) {
+            // The "x_i = 0, y_i = 1" indicator at the first differing bit.
+            let term = Goldilocks::ONE.sub(a).mul(b);
+            acc = acc.add(&prefix.mul(&term));
+            prefix = prefix.mul(&Self::eq_eval(
+                core::slice::from_ref(a),
+                core::slice::from_ref(b),
+            )?);
+        }
+        Ok(acc)
+    }
+
+    /// Dense `2t`-variate materialization of the less-than function over
+    /// `(j', j)` (variable block `j'` first, block `j` last). O(4^t) — the
+    /// kernel-scale PROVER-side table for Twist's read/write-checking
+    /// sumchecks; production provers evaluate LT analytically (§8.2 of the
+    /// paper never materializes it) while verifiers use [`Self::lt_extension`].
+    pub fn lt_mle(t: usize) -> DenseMle {
+        let n = 1usize << t;
+        let mut evals = Vec::with_capacity(n * n);
+        for xi in 0..n {
+            for yi in 0..n {
+                evals.push(if xi < yi {
+                    Goldilocks::ONE
+                } else {
+                    Goldilocks::ZERO
+                });
+            }
+        }
+        DenseMle {
+            num_vars: 2 * t,
+            evaluations: evals,
+        }
+    }
+
+    /// The affine extension of `k -> int(k)` (the digit-weight polynomial
+    /// `w` of the raf-evaluation sumcheck, Figs 6/8 of ePrint 2025/105):
+    /// `sum_i 2^(m-1-i) · point[i]`. Valid for `m <= 63` (field-reduced
+    /// weights; the register-file setting uses m = 5).
+    pub fn int_extension(point: &[Goldilocks]) -> Result<Goldilocks, MleError> {
+        if point.len() >= 64 {
+            return Err(MleError::PointLengthMismatch {
+                expected: 63,
+                got: point.len(),
+            });
+        }
+        let mut acc = Goldilocks::ZERO;
+        for (i, p) in point.iter().enumerate() {
+            let shift = point.len() - 1 - i;
+            acc = acc.add(&p.mul(&Goldilocks::from_u64(1u64 << shift)));
+        }
+        Ok(acc)
+    }
 }
 
 #[cfg(test)]
@@ -346,5 +475,91 @@ mod tests {
         for (a, b) in s.evaluations.iter().zip(f.evaluations.iter()) {
             assert_eq!(*a, b.mul(&fe(5)));
         }
+    }
+
+    #[test]
+    fn fix_last_variables_matches_direct_evaluate() {
+        for (a, b) in [(3usize, 2usize), (5, 1), (0, 4), (4, 0), (2, 5)] {
+            let f = DenseMle::random(a + b, b"fix-last");
+            let tail: Vec<Goldilocks> = (1..=b).map(|i| fe((i * 29 % 101) as u64)).collect();
+            let head: Vec<Goldilocks> = (1..=a).map(|i| fe((i * 37 % 97) as u64)).collect();
+            let bound = f.fix_last_variables(&tail).ok().unwrap();
+            assert_eq!(bound.num_vars, a);
+            let staged = bound.evaluate(&head).ok().unwrap();
+            let mut full = head.clone();
+            full.extend(tail.iter().copied());
+            let direct = f.evaluate(&full).ok().unwrap();
+            assert_eq!(staged, direct, "a={a} b={b}");
+        }
+    }
+
+    #[test]
+    fn fix_last_variables_rejects_oversized_tail() {
+        let f = DenseMle::random(3, b"fix-last-err");
+        assert!(f.fix_last_variables(&[fe(1), fe(2), fe(3), fe(4)]).is_err());
+        // Zero-length tail is the identity.
+        assert_eq!(f.fix_last_variables(&[]).ok().unwrap(), f);
+    }
+
+    #[test]
+    fn eq_eval_matches_eq_extension() {
+        for m in [1usize, 2, 5] {
+            let r: Vec<Goldilocks> = (1..=m).map(|i| fe((i * 13 % 101) as u64)).collect();
+            let x: Vec<Goldilocks> = (1..=m).map(|i| fe((i * 7 % 103) as u64)).collect();
+            let dense = DenseMle::eq_extension(&r).evaluate(&x).ok().unwrap();
+            let closed = DenseMle::eq_eval(&r, &x).ok().unwrap();
+            assert_eq!(dense, closed, "m={m}");
+        }
+    }
+
+    #[test]
+    fn lt_extension_agrees_with_dense_materialization() {
+        for t in [1usize, 2, 3, 4] {
+            let dense = DenseMle::lt_mle(t);
+            for trial in 0..8 {
+                let x: Vec<Goldilocks> = (0..t)
+                    .map(|i| fe(((trial * 31 + i * 17) % 101) as u64))
+                    .collect();
+                let y: Vec<Goldilocks> = (0..t)
+                    .map(|i| fe(((trial * 43 + i * 29) % 97) as u64))
+                    .collect();
+                let mut point = x.clone();
+                point.extend(y.iter().copied());
+                let dense_val = dense.evaluate(&point).ok().unwrap();
+                let closed = DenseMle::lt_extension(&x, &y).ok().unwrap();
+                assert_eq!(dense_val, closed, "t={t} trial={trial}");
+            }
+        }
+    }
+
+    #[test]
+    fn lt_extension_boolean_semantics() {
+        // At boolean points LT(x, y) = [int(x) < int(y)], MSB first.
+        let t = 3;
+        for xi in 0..8u64 {
+            for yi in 0..8u64 {
+                let x: Vec<Goldilocks> = (0..t).map(|i| fe((xi >> (t - 1 - i)) & 1)).collect();
+                let y: Vec<Goldilocks> = (0..t).map(|i| fe((yi >> (t - 1 - i)) & 1)).collect();
+                let v = DenseMle::lt_extension(&x, &y).ok().unwrap();
+                let expected = if xi < yi { fe(1) } else { fe(0) };
+                assert_eq!(v, expected, "x={xi} y={yi}");
+            }
+        }
+    }
+
+    #[test]
+    fn int_extension_matches_hypercube_values() {
+        for m in [1usize, 3, 5] {
+            let mut evals = Vec::with_capacity(1 << m);
+            for k in 0..(1u64 << m) {
+                evals.push(fe(k));
+            }
+            let w = DenseMle::new(evals).ok().unwrap();
+            let pt: Vec<Goldilocks> = (1..=m).map(|i| fe((i * 19 % 89) as u64)).collect();
+            let dense = w.evaluate(&pt).ok().unwrap();
+            let closed = DenseMle::int_extension(&pt).ok().unwrap();
+            assert_eq!(dense, closed, "m={m}");
+        }
+        assert!(DenseMle::int_extension(&[fe(1); 64]).is_err());
     }
 }
