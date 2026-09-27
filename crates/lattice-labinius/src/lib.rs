@@ -40,6 +40,7 @@ pub mod hw;
 pub mod key;
 pub mod params;
 pub mod recursion;
+pub mod wire;
 pub mod ring;
 pub mod scalar;
 pub mod scheme;
