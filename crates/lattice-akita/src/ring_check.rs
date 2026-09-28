@@ -803,7 +803,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(weights.row_weights[0 * n + 3], expect_w);
+        assert_eq!(weights.row_weights[3], expect_w);
     }
 
     #[test]

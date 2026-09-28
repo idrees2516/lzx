@@ -25,6 +25,7 @@
 
 pub mod fold;
 pub mod pcs;
+pub mod salsa_response;
 pub mod ring_check;
 pub mod schedule;
 

@@ -10,6 +10,7 @@ dependencies = [
  "lattice-core",
  "lattice-embeddings",
  "lattice-ring",
+ "lattice-salsa",
  "lattice-sumcheck",
 ]
 
