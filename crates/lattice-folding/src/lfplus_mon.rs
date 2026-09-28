@@ -685,6 +685,7 @@ pub fn verify_psi_range(
 /// (constants), `cm_mτ` opens `m_τ`, and `[τ, m_τ]ᵀ tensor(r) = (a, b)` at
 /// the **verifier-derived** Π^mon output point (soundness: `r` comes from
 /// the transcript-bound verification, never from the prover).
+#[allow(clippy::too_many_arguments)] // decider surface: opening + point + claims
 pub fn verify_psi_opening(
     pk: &AjtaiPublicKey,
     ring: &lattice_ring::RingConfig,
@@ -711,7 +712,7 @@ pub fn verify_psi_opening(
     let r = &output.r;
     let mut a = Fq2::ZERO;
     for (i, &t) in tau.iter().enumerate() {
-        a = a.add(&Fq2::from_base(fe_i64(t)).mul(&tensor_at(&r, i)));
+        a = a.add(&Fq2::from_base(fe_i64(t)).mul(&tensor_at(r, i)));
     }
     if a != proof.a {
         return Err(LfPlusMonError::PsiRangeFailed);
@@ -724,7 +725,7 @@ pub fn verify_psi_opening(
         },
         0,
         d,
-        &r,
+        r,
     )?;
     if e != proof.mon.e[0] {
         return Err(LfPlusMonError::OnAddConsistency);
