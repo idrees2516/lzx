@@ -20,3 +20,23 @@ AVX-512 backend bit-exact, reference round 17.5x — see PERFORMANCE.md).
 * gen_*/bin_large kernel families (2.6k + 910 upstream LOC; Wave 8.1/8.4),
   chunked-chain recursion encoding (8.9), cross-field switch machinery,
   LANES=64 interleaved rANS streams (constant-factor throughput).
+
+
+## Wave 7.5: the Recursive opening mode, wired
+
+`scheme.rs` now exposes `Prover::prove_recursive` and
+`Verifier::verify_opening_recursive`; `tests/recursive.rs` runs the
+end-to-end round (two suites): commit → point → row → challenges → the
+LaBRADOR proof of the folded-opening relation → the claim identity +
+statement-rebuild verification. The prover encodes real A-row
+constraints over the per-limb transforms (LaBRADOR rejects a wrong
+witness at prove time — the round-trip test pins this), the b-vectors
+are transmitted and digest-pinned (`statement_digest_with_b`), and the
+verifier rebuilds the statement (specs from the announced caps, phis
+from the public key, b from the transmitted values) before running the
+LaBRADOR verifier. Two honest gaps are documented in the module header:
+the b-vectors' alignment with the public folded commitment (the
+`components_of` recomposition is not an inverse on the quadratic limbs;
+upstream's chunked S-chains unported), and the port's LaBRADOR
+`verify` being structural (the amortized relation check is prove-side
+only). Both are on the Wave-8 ledger.

@@ -541,6 +541,23 @@ impl Prover {
         let elements = crate::fold::fold_witness(&opening.aux, &challenges.challenges, self.key.prime(0));
         FoldedWitness { elements }
     }
+
+    /// The recursive opening (Wave 7.5): prove the folded-opening
+    /// relation as one LaBRADOR proof — the folded witness `v`, its
+    /// per-limb transforms and the slack vectors never travel.
+    pub fn prove_recursive(
+        &self,
+        pp: &PublicParameters,
+        opening: &CommitmentOpening,
+        row: &RowEvaluation,
+        challenges: &FoldingChallenges,
+    ) -> Result<crate::recursion::OpeningProof, String> {
+        let folded = self.fold(
+            CommitmentOpening { aux: opening.aux.clone() },
+            challenges,
+        );
+        crate::recursion::prove_opening(pp, opening, &folded, row, &challenges.challenges)
+    }
 }
 
 impl Verifier {
@@ -722,6 +739,33 @@ impl Verifier {
         } else {
             Err(VerificationError::Rejected)
         }
+    }
+
+    /// The recursive opening check (Wave 7.5): the row-evaluation claim
+    /// plus the LaBRADOR proof of the folded-opening relation, verified
+    /// against the statement rebuilt from public data (specs from the
+    /// announced caps, phis from the key, b-vectors pinned by the digest).
+    pub fn verify_opening_recursive(
+        &self,
+        point: &EvaluationPoint,
+        claimed_value: &F162,
+        row_evaluation: &RowEvaluation,
+        challenges: &FoldingChallenges,
+        proof: &crate::recursion::OpeningProof,
+    ) -> Result<(), VerificationError> {
+        // The claim identity `u . eq(p1) == t` — checked directly.
+        self.verify_evaluation(point, claimed_value, row_evaluation)?;
+        // The LaBRADOR relation.
+        let caps = crate::recursion::caps_for(&self.params, &self.key);
+        crate::recursion::verify_opening(
+            &self.params,
+            &self.key,
+            row_evaluation,
+            &challenges.challenges,
+            proof,
+            &caps,
+        )
+        .map_err(|_| VerificationError::Rejected)
     }
 
     /// The bit-dropped opening check.
