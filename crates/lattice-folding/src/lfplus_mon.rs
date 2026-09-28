@@ -293,6 +293,14 @@ pub struct PiMonStatement {
 pub struct PiMonProof {
     /// Round polynomials (4 values per round — degree 3).
     pub rounds: Vec<Vec<Fq2>>,
+    /// The challenge point `r` (the prover's view). The verifier derives
+    /// its own point from the transcript and MUST NOT trust this field —
+    /// it exists so protocol layers wrapping Π^mon (Construction 4.3) can
+    /// compute point-dependent claims (`a = ⟨τ, tensor(r)⟩`) without
+    /// transcript replay: the surrounding protocol absorbs its statement
+    /// BEFORE Π^mon's challenges, so a fresh-transcript replay would
+    /// desynchronize and round-check-fail.
+    pub r: Vec<Fq2>,
     /// `e_j` per column: `d` Fq2 coefficients each (the paper sends one
     /// `R_q` element per column; the `R_q ⊗ C` realization carries the
     /// challenge-field coefficients).
@@ -379,6 +387,7 @@ pub fn prove_mon(
     }
     Ok(PiMonProof {
         rounds: out.proof.rounds,
+        r: out.challenges.clone(),
         e: e_cols,
     })
 }
@@ -590,9 +599,9 @@ pub fn prove_psi_range(
         .append_bytes(b"lfplus-psi-cm-mtau", &cm_mtau.to_bytes())
         .map_err(|_| LfPlusMonError::TranscriptFailure)?;
     let mon = prove_mon(&statement, &matrix, std::slice::from_ref(cm_mtau), transcript)?;
-    // Replay-derive the challenge point r (the verifier's view) — the
-    // prover needs it for a = ⟨τ, tensor(r)⟩.
-    let r = derive_mon_point(&statement, std::slice::from_ref(cm_mtau), &mon)?;
+    // The prover's view of the challenge point r (identical to the
+    // verifier's transcript-derived point — the rounds bind them).
+    let r = mon.r.clone();
     // a = Σ_i τ_i · tensor(r)_i over the challenge field.
     let mut a = Fq2::ZERO;
     for (i, &t) in tau.iter().enumerate() {
@@ -673,7 +682,9 @@ pub fn verify_psi_range(
 }
 
 /// Decider-side ψ range check (the `R'` output relation): `cm_τ` opens τ
-/// (constants), `cm_mτ` opens `m_τ`, and `[τ, m_τ]ᵀ tensor(r) = (a, b)`.
+/// (constants), `cm_mτ` opens `m_τ`, and `[τ, m_τ]ᵀ tensor(r) = (a, b)` at
+/// the **verifier-derived** Π^mon output point (soundness: `r` comes from
+/// the transcript-bound verification, never from the prover).
 pub fn verify_psi_opening(
     pk: &AjtaiPublicKey,
     ring: &lattice_ring::RingConfig,
@@ -682,6 +693,7 @@ pub fn verify_psi_opening(
     mtau_codes: &[u32],
     cm_mtau: &AjtaiCommitment,
     proof: &PsiRangeProof,
+    output: &PiMonOutput,
 ) -> Result<(), LfPlusMonError> {
     let d = ring.n();
     // Commitments open the witnesses.
@@ -695,17 +707,8 @@ pub fn verify_psi_opening(
         mtau_codes.iter().map(|&c| monomial_ring(ring, c)).collect();
     let padded_mtau = pk.pad_to_m(&mtau_elems)?;
     pk.verify_opening(cm_mtau, &padded_mtau)?;
-    // Linear output relation at the Π^mon point r.
-    let statement = PiMonStatement {
-        n_rows: tau.len(),
-        m_cols: 1,
-        ring_dim: d,
-    };
-    let r = derive_mon_point(
-        &statement,
-        std::slice::from_ref(cm_mtau),
-        &proof.mon,
-    )?;
+    // Linear output relation at the VERIFIER-derived Π^mon point r.
+    let r = &output.r;
     let mut a = Fq2::ZERO;
     for (i, &t) in tau.iter().enumerate() {
         a = a.add(&Fq2::from_base(fe_i64(t)).mul(&tensor_at(&r, i)));
@@ -735,9 +738,9 @@ pub fn verify_psi_opening(
 
 /// Gadget decomposition of one coefficient into `ℓ` balanced base-`d'`
 /// digits (the `G^{-1}_{d',ℓ}` of Construction 4.1; digits in
-/// `(-d'/2, d'/2] ⊂ (−d', d')`).
+/// `[-d'/2+1, d'/2] ⊂ (−d', d')` — base `d'`, the paper's digit radix).
 fn split_coefficient(c: i64, dprime: u32, ell: usize) -> Vec<i64> {
-    let base = 1i64 << dprime;
+    let base = dprime as i64;
     let mut out = Vec::with_capacity(ell);
     let mut rem = c;
     for _ in 0..ell {
@@ -798,7 +801,7 @@ pub fn pow(
             got: tau.len(),
         });
     }
-    let base: i128 = 1i128 << dprime;
+    let base: i128 = dprime as i128;
     let mut out = Vec::with_capacity(k * m_cols);
     // Column-major entry order: entry = col * k + row.
     for entry in 0..k * m_cols {
@@ -843,8 +846,10 @@ pub fn dcom_commit(
             got: tau.len(),
         });
     }
-    // Hard digit-norm gate: ∥τ∥∞ < d' (the (−d', d') opening precondition).
-    let bound = (1u64 << dprime) - 1;
+    // Hard digit-norm gate: ∥τ∥∞ ≤ d'/2 (the balanced base-d' digit
+    // invariant of G^{-1}_{d',ℓ}; digits live in (−d'/2, d'/2] ⊂ (−d', d'),
+    // Lemma 2.2's opening precondition).
+    let bound = (dprime / 2) as u64;
     for &t in &tau {
         if t.unsigned_abs() > bound {
             return Err(LfPlusMonError::TauOutOfRange {
@@ -889,30 +894,6 @@ fn absorb_mon_statement(
     Ok(())
 }
 
-/// Replay the Π^mon challenges to recover the sumcheck point `r` (the
-/// prover's view of the verifier's derivation — used for caller-side
-/// claims; the proof-of-possession of the same transcript discipline).
-fn derive_mon_point(
-    statement: &PiMonStatement,
-    commitments: &[AjtaiCommitment],
-    proof: &PiMonProof,
-) -> Result<Vec<Fq2>, LfPlusMonError> {
-    let mut rp = Transcript::new_default(b"lfplus-mon-replay");
-    absorb_mon_statement(&mut rp, statement, commitments)?;
-    let num_vars = statement.n_rows.trailing_zeros() as usize;
-    let _c = challenge_fq2_vec(&mut rp, b"lfplus-mon-c", num_vars)
-        .map_err(|_| LfPlusMonError::TranscriptFailure)?;
-    let _beta = challenge_fq2(&mut rp, b"lfplus-mon-beta")
-        .map_err(|_| LfPlusMonError::TranscriptFailure)?;
-    let _alpha = challenge_fq2(&mut rp, b"lfplus-mon-alpha")
-        .map_err(|_| LfPlusMonError::TranscriptFailure)?;
-    let fq_proof = fq2_sumcheck::Fq2SumcheckProof {
-        rounds: proof.rounds.clone(),
-    };
-    let verdict = fq_proof.verify(num_vars, 3, Fq2::ZERO, &mut rp, None)?;
-    Ok(verdict.point)
-}
-
 /// eq(X; η) evaluations over the boolean hypercube (MSB-first variables).
 fn eq_table_fq2(eta: &[Fq2]) -> Vec<Fq2> {
     let mut evals = vec![Fq2::ONE; 1usize << eta.len()];
@@ -940,7 +921,7 @@ fn eq_point_fq2(eta: &[Fq2], u: &[Fq2]) -> Fq2 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lattice_commitment::ajtai::{sample_small_secret, AjtaiParams};
+    use lattice_commitment::ajtai::AjtaiParams;
     use lattice_ring::{Modulus32, RingConfig};
 
     fn fe(x: i64) -> Fq2 {
@@ -997,7 +978,6 @@ mod tests {
     // ---- Lemma 2.2: ct(ψ·b) = a iff a ∈ (−d', d') and b ∈ EXP(a) ----
 
     #[test]
-    #[ignore = "Wave 7.7 partial: the monomial/psi layer landed with open defects (psi iff boundary, split/pow digit bounds) — tracked in docs/papers/partially-implemented/latticefold-plus.md"]
     fn lemma_2_2_psi_iff() {
         let (_, ring) = setup(4, 4);
         let d = ring.n() as i64;
@@ -1012,7 +992,7 @@ mod tests {
         assert_eq!(psi_ct_of_code(&ring, dp as u32 + 1), 0); // b = X^{d'}
         // Converse: monomial b ∉ EXP(a) fails — e.g. ct(ψ·X^k) = k ≠ a for
         // a < k < d', and the negated variants.
-        assert_ne!(psi_ct_of_code(&ring, 5), 4); // X^4 vs a=5? ct(X^4·ψ)=4
+        assert_ne!(psi_ct_of_code(&ring, 5), 5); // X^4: ct(X^4·ψ)=4 ≠ a=5
         assert_ne!(psi_ct_of_code(&ring, 3), 4);
         assert_ne!(psi_ct_of_code(&ring, dp as u32 + 2), 0); // X^{d'+1}: ct = -d'+1 ≠ 0
         // ψ itself has zero constant term.
@@ -1123,7 +1103,6 @@ mod tests {
     // ---- Construction 4.3: ψ range protocol ----
 
     #[test]
-    #[ignore = "Wave 7.7 partial: the monomial/psi layer landed with open defects (psi iff boundary, split/pow digit bounds) — tracked in docs/papers/partially-implemented/latticefold-plus.md"]
     fn psi_range_happy_path() {
         let (pk, ring) = setup(4, 16);
         let tau: Vec<i64> = [-7i64, 6, -1, 0, 3, -5, 2, 1].to_vec();
@@ -1140,19 +1119,19 @@ mod tests {
         let mut t = Transcript::new_default(b"lfplus-psi-test");
         let proof = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t).ok().unwrap();
         let mut vt = Transcript::new_default(b"lfplus-psi-test");
-        assert!(
+        let output =
             verify_psi_range(&ring, tau.len(), &cm_tau, &cm_mtau, &proof, &mut vt)
-                .is_ok()
-        );
-        // Decider: openings + the linear output relation.
+                .ok()
+                .unwrap();
+        // Decider: openings + the linear output relation at the
+        // verifier-derived point.
         assert!(
-            verify_psi_opening(&pk, &ring, &tau, &cm_tau, &codes, &cm_mtau, &proof)
+            verify_psi_opening(&pk, &ring, &tau, &cm_tau, &codes, &cm_mtau, &proof, &output)
                 .is_ok()
         );
     }
 
     #[test]
-    #[ignore = "Wave 7.7 partial: the monomial/psi layer landed with open defects (psi iff boundary, split/pow digit bounds) — tracked in docs/papers/partially-implemented/latticefold-plus.md"]
     fn psi_range_out_of_range_and_tamper() {
         let (pk, ring) = setup(4, 16);
         // τ with an entry outside (−d', d'): the honest prover refuses.
@@ -1194,7 +1173,6 @@ mod tests {
     // ---- Construction 4.1: split/pow double commitments ----
 
     #[test]
-    #[ignore = "Wave 7.7 partial: the monomial/psi layer landed with open defects (psi iff boundary, split/pow digit bounds) — tracked in docs/papers/partially-implemented/latticefold-plus.md"]
     fn double_commitment_pow_identity_and_binding() {
         // d = 16, d' = 8, ℓ = 11 digits, k = 2, m = 1 column:
         // τ length = 2·1·16·11 = 352 → padded to n = 512.
@@ -1262,11 +1240,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Wave 7.7 partial: the monomial/psi layer landed with open defects (psi iff boundary, split/pow digit bounds) — tracked in docs/papers/partially-implemented/latticefold-plus.md"]
     fn split_covers_all_coefficients() {
         // The gadget with d' = 8, ℓ = 11 covers every balanced coefficient
         // in (−q/2, q/2] (q ≈ 2^31 < 4·(8^11−1)/7 ≈ 2^32.2).
-        let (_, ring) = setup(4, 4);
         for c in [0i64, 1, -1, 4, -4, 100, -1000, 1 << 20, -(1 << 29), (1 << 30) - 1] {
             let digits = split_coefficient(c, 8, 11);
             let base: i128 = 8;
