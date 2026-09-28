@@ -365,7 +365,8 @@ pub fn verify_had(
     let num_vars = log2(params.m);
     let max_degree = 3;
     let claim = ring.zero();
-    let point = ring_sc_verify(ring, num_vars, max_degree, &claim, &proof.sumcheck, transcript)?;
+    let verdict = ring_sc_verify(ring, num_vars, max_degree, &claim, &proof.sumcheck, transcript)?;
+    let point = verdict.point;
     // Eq 25 terminal cross-check, merged over instances (Eq 45 weights):
     // Σ_ℓ Σ_j α^{(ℓ−1)d+j−1}·eq(s, r)·(U₁^ℓ,j·U₂^ℓ,j − U₃^ℓ,j) = terminal.
     // eq(s, r) = Π_k (s_k·r_k + (1−s_k)(1−r_k)) — the Figure-1 Eq-25 factor.

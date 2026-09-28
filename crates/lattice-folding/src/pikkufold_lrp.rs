@@ -722,8 +722,18 @@ pub fn ring_sc_prove(
     Ok(RingScOutput { proof: RingScProof { rounds, terminal }, point, factor_claims })
 }
 
+/// Verifier-side RingSC verdict: the challenge point and the derived
+/// final claim `G(r)` (the interpolated terminal value — protocol layers
+/// use it for derived quantities, e.g. Quasar's `e = G(τ)/eq(τ, r_y)`).
+#[derive(Clone, Debug)]
+pub struct RingScVerdict {
+    pub point: Vec<u32>,
+    pub final_claim: u32,
+}
+
 /// Verifier side of RingSC: replay the rounds, check the round sums and
-/// the `Φ_δ(terminal)` identity. Returns the challenge point.
+/// the `Φ_δ(terminal)` identity. Returns the challenge point and the
+/// final claim.
 pub fn ring_sc_verify(
     ring: &RingConfig,
     num_vars: usize,
@@ -731,7 +741,7 @@ pub fn ring_sc_verify(
     claim_ring: &RingElement,
     proof: &RingScProof,
     transcript: &mut Transcript,
-) -> Result<Vec<u32>, LrpError> {
+) -> Result<RingScVerdict, LrpError> {
     let q = ring.modulus.q;
     if proof.rounds.len() != num_vars {
         return Err(LrpError::Sumcheck("round count"));
@@ -763,7 +773,7 @@ pub fn ring_sc_verify(
     if phi_delta(ring, &delta, &proof.terminal) != current {
         return Err(LrpError::Sumcheck("final check"));
     }
-    Ok(point)
+    Ok(RingScVerdict { point, final_claim: current })
 }
 
 // ---------------------------------------------------------------------------
@@ -1163,8 +1173,9 @@ pub fn verify_fold(
     }
     let num_vars = fold_num_vars(cfg);
     let max_degree = 4;
-    let point =
+    let verdict =
         ring_sc_verify(ring, num_vars, max_degree, &claim_ring, &proof.sumcheck, transcript)?;
+    let point = verdict.point;
 
     // t' claims.
     let (_r_b, r_a) = split_point(&point, cfg);
@@ -1912,7 +1923,10 @@ mod tests {
         };
         let mut vt = Transcript::new_default(b"rsc-test");
         assert_eq!(
-            ring_sc_verify(&ring, num_vars, vp.max_degree(), &claim, &out.proof, &mut vt).ok().unwrap(),
+            ring_sc_verify(&ring, num_vars, vp.max_degree(), &claim, &out.proof, &mut vt)
+                .ok()
+                .unwrap()
+                .point,
             out.point
         );
         // Tampered round rejected.

@@ -519,6 +519,8 @@ pub fn accumulate_partial_evaluation(
     ))
 }
 
+pub mod quasar_acc;
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -86,6 +86,7 @@ version = "0.2.0"
 dependencies = [
  "lattice-commitment",
  "lattice-core",
+ "lattice-folding",
  "lattice-relations",
  "lattice-ring",
  "lattice-sumcheck",
