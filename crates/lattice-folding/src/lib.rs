@@ -30,5 +30,6 @@ pub mod pikkufold;
 pub mod pikkufold_lrp;
 pub mod protogalattice;
 pub mod superneo;
+pub mod superneo_committed;
 pub mod symphony;
 pub mod symphony_protocols;
