@@ -16,7 +16,7 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Paper | Crate | Wave-7 items | Status | Tests |
 |---|---|---|---|---|
 | ProtogaLattice (2026/1317) | lattice-folding/pgl.rs | 7.1, 7.14 | **implemented** (PGL-Fold + PGL-Boot + range attach) | 11 |
-| SALSAA (2025/2124) | lattice-salsa/ring_norm.rs | 7.2 | **implemented** (D1+D2; D3/D4-D7 open) | 8 |
+| SALSAA (2025/2124) | lattice-salsa/ring_norm.rs + lattice-akita/salsa_response.rs | 7.2, 7.3 | **implemented** (D1+D2 + the D4 response-layer swap consumed by the Akita PCS) | 12 |
 | labinius (upstream PCS) | lattice-labinius | 7.16 | **implemented** (wire/); 7.5 Recursive partial | 9 wire |
 | Cyclo (2026/359) | lattice-folding/cyclo.rs | 7.6 | partial (Π^range/Π^ext designs; kernel fold exists) | — |
 | LatticeFold+ (2025/247) | lattice-folding/latticefold_plus.rs | 7.7 | partial (monomial/ψ layer open; range proof + padding fix landed) | — |
