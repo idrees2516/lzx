@@ -22,6 +22,11 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod columns;
+pub mod memory;
+pub mod constraints;
+pub mod memproof;
+pub mod ledger;
 pub mod envelope;
 pub mod prove;
 

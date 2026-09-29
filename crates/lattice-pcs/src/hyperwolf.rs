@@ -63,6 +63,9 @@
 
 use lattice_core::short_challenge::{hyperwolf_spec, ShortChallengeSpec};
 use lattice_core::transcript::{Transcript, TranscriptError};
+use lattice_core::{DenseMle, Goldilocks};
+
+use crate::{OpeningClaim, PcsBackend, PcsFeatureError};
 
 /// The lab prime: `q = 2^61 − 259 ≡ 5 (mod 8)` (Lemma-1 invertibility).
 pub const HW_Q61: u64 = 2_305_843_009_213_693_693;
@@ -919,11 +922,20 @@ pub enum HwError {
     /// A verifier check failed (evaluation identity / JL norm / binding /
     /// projection consistency / final pinning).
     VerificationFailed,
+    /// An optional PCS trait feature (H7 multi-claim batching) is
+    /// unsupported by this backend.
+    Feature(PcsFeatureError),
 }
 
 impl From<TranscriptError> for HwError {
     fn from(e: TranscriptError) -> Self {
         HwError::Transcript(e)
+    }
+}
+
+impl From<PcsFeatureError> for HwError {
+    fn from(e: PcsFeatureError) -> Self {
+        HwError::Feature(e)
     }
 }
 
@@ -936,6 +948,7 @@ impl std::fmt::Display for HwError {
                 write!(f, "shape mismatch: expected {}, got {}", expected, got)
             }
             HwError::VerificationFailed => write!(f, "verification failed"),
+            HwError::Feature(e) => write!(f, "unsupported PCS feature: {}", e),
         }
     }
 }
@@ -1046,12 +1059,12 @@ impl HyperWolfFull {
     }
 
     // -------------------------------------------------------------- helpers #
-    fn a0_ext_conj(&self, a0_ints: &[u64]) -> Vec<HwElt> {
+    pub(crate) fn a0_ext_conj(&self, a0_ints: &[u64]) -> Vec<HwElt> {
         let a0_ext = expand_a0(&self.ring, a0_ints, self.params.delta, self.params.iota());
         a0_ext.iter().map(|e| self.ring.conj(e)).collect()
     }
 
-    fn jl(&self, transcript: &mut Transcript) -> Result<JlMatrix, HwError> {
+    pub(crate) fn jl(&self, transcript: &mut Transcript) -> Result<JlMatrix, HwError> {
         let seed = transcript.challenge_bytes(b"hw:jl-seed", 32)?;
         Ok(JlMatrix::new(
             &seed,
@@ -1079,7 +1092,11 @@ impl HyperWolfFull {
         Ok(())
     }
 
-    fn draw_challenges(&self, transcript: &mut Transcript, level: usize) -> Result<Vec<HwElt>, HwError> {
+    pub(crate) fn draw_challenges(
+        &self,
+        transcript: &mut Transcript,
+        level: usize,
+    ) -> Result<Vec<HwElt>, HwError> {
         let label = format!("hw:chal:L{}", level);
         let mut out = Vec::with_capacity(self.params.b);
         for i in 0..self.params.b {
@@ -1359,6 +1376,160 @@ impl HyperWolfFull {
                     .rem_euclid(i128::from(ring.q));
             }
             acc as u64
+        }
+    }
+
+    /// Lab-scale parameters for an MLE with `num_vars` variables:
+    /// d = 8, b = 2, k = `num_vars` − 3, so `N = b^k·d = 2^{num_vars}`.
+    /// Requires `num_vars ≥ 5` (Protocol 1 needs k ≥ 2: at least one
+    /// folding round before the final opening).
+    pub fn for_mle(num_vars: usize, jl_rows: usize, seed: &[u8]) -> Result<Self, HwError> {
+        if num_vars < 5 {
+            return Err(HwError::Shape {
+                expected: 5,
+                got: num_vars,
+            });
+        }
+        let params = HwParams::new(8, 2, num_vars - 3, jl_rows);
+        Ok(HyperWolfFull::new(params, seed))
+    }
+
+    /// Map an MLE's Goldilocks evaluations into the Hw ring: canonical
+    /// representatives reduced mod q (every residue fits i64 since
+    /// q < 2^61).
+    fn mle_to_ints(&self, mle: &DenseMle) -> Result<Vec<i64>, HwError> {
+        if mle.evaluations.len() != self.params.n_coeffs() {
+            return Err(HwError::Shape {
+                expected: self.params.n_coeffs(),
+                got: mle.evaluations.len(),
+            });
+        }
+        Ok(mle
+            .evaluations
+            .iter()
+            .map(|g| (g.to_canonical_u64() % self.ring.q) as i64)
+            .collect())
+    }
+
+    /// Claim point → Hw-ring evaluation point (canonical representatives
+    /// reduced mod q).
+    fn hw_point(&self, claim: &OpeningClaim) -> Vec<u64> {
+        claim
+            .point
+            .iter()
+            .map(|g| g.to_canonical_u64() % self.ring.q)
+            .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// H8: the PcsBackend trait surface for the FULL protocol
+// ---------------------------------------------------------------------------
+
+/// Trait-facing commitment: the outer Ajtai commitment `cm_out` plus the
+/// committed MLE shape.
+#[derive(Clone, Debug)]
+pub struct HwFullCommitment {
+    pub cm: Vec<HwElt>,
+    pub num_vars: usize,
+}
+
+/// Trait-facing opening: the full-protocol proof plus the claim it was
+/// produced under. The a-vectors are *public* functions of the claim's
+/// point, so the verifier recomputes them instead of trusting the proof.
+#[derive(Clone, Debug)]
+pub struct HwFullOpening {
+    pub proof: HwProof,
+    pub claim: OpeningClaim,
+}
+
+/// H8: `HyperWolfFull` behind the generic [`PcsBackend`] boundary.
+///
+/// # Claim semantics (honest, load-bearing)
+///
+/// The backend interprets the MLE over the **integers**: Goldilocks
+/// evaluations are taken as their canonical representatives and reduced
+/// mod q; the claim value is the multilinear evaluation of that integer
+/// polynomial **over the Hw ring** (`Σ c_idx·Π factors mod q`), carried
+/// losslessly in a Goldilocks lane (q < 2^61 < p_Goldilocks). It equals
+/// the Goldilocks-field evaluation whenever the integer evaluation does
+/// not wrap either modulus; the caller must not conflate the two rings in
+/// general.
+///
+/// # H7 batching
+///
+/// The default (single-claim delegation / `BatchingUnsupported` error) is
+/// inherited: the paper's modes 2/3 need an eq/sumcheck layer over R_q
+/// (Appendix B), which this backend does not carry; mode 1 composes above
+/// the trait by RLC-ing MLEs before commitment.
+impl PcsBackend for HyperWolfFull {
+    type Commitment = HwFullCommitment;
+    type OpeningProof = HwFullOpening;
+    type Error = HwError;
+
+    fn commit(&self, mle: &DenseMle) -> Result<Self::Commitment, Self::Error> {
+        let f_ints = self.mle_to_ints(mle)?;
+        let (cm, _) = HyperWolfFull::commit(self, &f_ints)?;
+        Ok(HwFullCommitment {
+            cm,
+            num_vars: mle.num_vars,
+        })
+    }
+
+    fn prove(
+        &self,
+        mle: &DenseMle,
+        claim: &OpeningClaim,
+        transcript: &mut Transcript,
+    ) -> Result<Self::OpeningProof, Self::Error> {
+        let f_ints = self.mle_to_ints(mle)?;
+        let point = self.hw_point(claim);
+        // Honest prover: refuse a claim whose value is not the mod-q
+        // multilinear evaluation of the committed integer polynomial.
+        let y = self.evaluate_direct(&f_ints, &point, true);
+        if Goldilocks::from_u64(y) != claim.value {
+            return Err(HwError::VerificationFailed);
+        }
+        let (_cm, state) = HyperWolfFull::commit(self, &f_ints)?;
+        let ((_a0, _a_list), proof) = self.eval(&state, &point, true, transcript)?;
+        Ok(HwFullOpening {
+            proof,
+            claim: claim.clone(),
+        })
+    }
+
+    fn verify(
+        &self,
+        commitment: &HwFullCommitment,
+        claim: &OpeningClaim,
+        proof: &HwFullOpening,
+        transcript: &mut Transcript,
+    ) -> Result<(), Self::Error> {
+        // The proof must be about exactly this claim (point and value).
+        if proof.claim.point != claim.point || proof.claim.value != claim.value {
+            return Err(HwError::VerificationFailed);
+        }
+        if commitment.num_vars != claim.point.len() {
+            return Err(HwError::Shape {
+                expected: commitment.num_vars,
+                got: claim.point.len(),
+            });
+        }
+        // a-vectors are public functions of the point — recompute them.
+        let point = self.hw_point(claim);
+        let (a0, a_list) = build_a_multilinear(
+            &self.ring,
+            &point,
+            self.params.k,
+            self.params.b,
+            self.params.d,
+        )?;
+        let y = claim.value.to_canonical_u64() % self.ring.q;
+        let ok = self.eval_verify(&commitment.cm, &a0, &a_list, y, &proof.proof, transcript)?;
+        if ok {
+            Ok(())
+        } else {
+            Err(HwError::VerificationFailed)
         }
     }
 }
@@ -1682,5 +1853,137 @@ mod tests {
         let mut f2 = f_ints.clone();
         f2[0] += 1;
         assert!(!hw.open(&cm, &f2).ok().unwrap());
+    }
+
+    // ------------------------------------------------- H8 trait surface #
+
+    fn hw_claim(hw: &HyperWolfFull, mle: &DenseMle, salt: u64) -> OpeningClaim {
+        let point: Vec<Goldilocks> = (0..mle.num_vars)
+            .map(|i| Goldilocks::from_u64(salt * 6151 + i as u64 * 37))
+            .collect();
+        let f_ints: Vec<i64> = mle
+            .evaluations
+            .iter()
+            .map(|g| (g.to_canonical_u64() % hw.ring.q) as i64)
+            .collect();
+        let pt: Vec<u64> = point.iter().map(|g| g.to_canonical_u64() % hw.ring.q).collect();
+        let y = hw.evaluate_direct(&f_ints, &pt, true);
+        OpeningClaim {
+            point,
+            value: Goldilocks::from_u64(y),
+        }
+    }
+
+    #[test]
+    fn hyperwolf_full_trait_backend_roundtrip_and_tamper() {
+        for num_vars in [5usize, 6] {
+            let hw = HyperWolfFull::for_mle(num_vars, 64, b"hw-trait-seed")
+                .ok()
+                .unwrap();
+            let mle = DenseMle::random(num_vars, b"hw-trait-mle");
+            let claim = hw_claim(&hw, &mle, 1);
+
+            // Generic dispatch: HyperWolfFull as a trait object.
+            let backend: &dyn PcsBackend<
+                Commitment = HwFullCommitment,
+                OpeningProof = HwFullOpening,
+                Error = HwError,
+            > = &hw;
+            let commitment = backend.commit(&mle).ok().unwrap();
+            let mut t = Transcript::new_default(b"hw-full-trait");
+            let proof = backend.prove(&mle, &claim, &mut t).ok().unwrap();
+            let mut vt = Transcript::new_default(b"hw-full-trait");
+            assert!(
+                backend.verify(&commitment, &claim, &proof, &mut vt).is_ok(),
+                "num_vars {} roundtrip",
+                num_vars
+            );
+
+            // Wrong claim value: the honest prover refuses outright.
+            let bad_claim = OpeningClaim {
+                point: claim.point.clone(),
+                value: claim.value.add(&Goldilocks::ONE),
+            };
+            let mut t2 = Transcript::new_default(b"hw-full-trait");
+            assert!(backend.prove(&mle, &bad_claim, &mut t2).is_err());
+
+            // Tampered final witness rejected.
+            let mut tp = proof.clone();
+            let s0 = tp.proof.s_final[0].clone();
+            tp.proof.s_final[0] = hw.ring.add(&s0, &hw.ring.one());
+            let mut vt2 = Transcript::new_default(b"hw-full-trait");
+            assert!(backend.verify(&commitment, &claim, &tp, &mut vt2).is_err());
+
+            // Tampered commitment rejected (round-0 binding).
+            let mut tc = commitment.clone();
+            let c0 = tc.cm[0].clone();
+            tc.cm[0] = hw.ring.add(&c0, &hw.ring.one());
+            let mut vt3 = Transcript::new_default(b"hw-full-trait");
+            assert!(backend.verify(&tc, &claim, &proof, &mut vt3).is_err());
+
+            // Proof/claim mismatch rejected.
+            let other_claim = hw_claim(&hw, &mle, 2);
+            let mut vt4 = Transcript::new_default(b"hw-full-trait");
+            assert!(backend.verify(&commitment, &other_claim, &proof, &mut vt4).is_err());
+
+            // H7 defaults: one claim delegates, two claims error honestly.
+            let mut t5 = Transcript::new_default(b"hw-full-trait");
+            assert!(
+                backend
+                    .prove_evaluations(&mle, &[claim.clone()], &mut t5)
+                    .is_ok()
+            );
+            let mut t6 = Transcript::new_default(b"hw-full-trait");
+            let err = backend
+                .prove_evaluations(&mle, &[claim.clone(), other_claim], &mut t6)
+                .err()
+                .unwrap();
+            assert!(matches!(err, HwError::Feature(crate::PcsFeatureError::BatchingUnsupported)));
+        }
+
+        // for_mle rejects MLE sizes below the k ≥ 2 protocol floor.
+        assert!(HyperWolfFull::for_mle(4, 64, b"s").is_err());
+    }
+
+    #[test]
+    fn hyperwolf_full_claim_semantics_small_integers() {
+        // The H8 trait path evaluates the MLE in the Hw ring (mod q):
+        // evaluate_direct must equal the exact integer evaluation of the
+        // multilinear extension, reduced mod q.
+        let num_vars = 5usize;
+        let hw = HyperWolfFull::for_mle(num_vars, 64, b"hw-sem-seed")
+            .ok()
+            .unwrap();
+        let evals: Vec<Goldilocks> = (0..(1usize << num_vars))
+            .map(|i| Goldilocks::from_u64((i % 7) as u64))
+            .collect();
+        let mle = DenseMle {
+            num_vars,
+            evaluations: evals,
+        };
+        let point: Vec<Goldilocks> = (0..num_vars)
+            .map(|i| Goldilocks::from_u64((i + 2) as u64))
+            .collect();
+        let f_ints: Vec<i64> = mle
+            .evaluations
+            .iter()
+            .map(|g| (g.to_canonical_u64() % hw.ring.q) as i64)
+            .collect();
+        let pt: Vec<u64> = point.iter().map(|g| g.to_canonical_u64() % hw.ring.q).collect();
+        let y_hw = hw.evaluate_direct(&f_ints, &pt, true);
+        // Exact integer MLE evaluation: Σ_x eq(pt, bin(x))·f[x], with the
+        // eq factors computed over the integers.
+        let mut exact: i128 = 0;
+        for (x, f) in f_ints.iter().enumerate() {
+            let mut eqw: i128 = 1;
+            for (b, p) in pt.iter().enumerate() {
+                let xb = ((x >> b) & 1) as i128;
+                let pb = *p as i128;
+                eqw *= pb * xb + (1 - pb) * (1 - xb);
+            }
+            exact += eqw * (*f as i128);
+        }
+        let expect = exact.rem_euclid(hw.ring.q as i128) as u64;
+        assert_eq!(y_hw, expect);
     }
 }

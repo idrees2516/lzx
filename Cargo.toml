@@ -22,6 +22,7 @@ members = [
     "crates/lattice-labrador",
     "crates/lattice-labinius",
     "crates/lattice-sis-estimator",
+    "crates/lattice-guest",
 ]
 
 [workspace.package]
@@ -50,6 +51,7 @@ lattice-zk = { path = "crates/lattice-zk" }
 lattice-qrom = { path = "crates/lattice-qrom" }
 lattice-bench = { path = "crates/lattice-bench" }
 lattice-sis-estimator = { path = "crates/lattice-sis-estimator" }
+lattice-guest = { path = "crates/lattice-guest" }
 
 [profile.release]
 lto = "thin"
