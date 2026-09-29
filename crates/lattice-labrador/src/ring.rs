@@ -95,8 +95,15 @@ impl Poly {
     pub fn sub_assign(&mut self, o: &Self) {
         *self = self.sub(o);
     }
-    /// Negacyclic product `a * b mod (X^64 + 1, Q)`, exact i128 accumulation.
+    /// Negacyclic product `a * b mod (X^64 + 1, Q)`, exact i128 accumulation — dispatched
+    /// through the AVX-512 split-2^24 convolution ([`crate::conv::negacyclic_mul`]) when the
+    /// CPU has the feature set; bit-identical either way.
     pub fn mul(&self, o: &Self) -> Self {
+        crate::conv::negacyclic_mul(self, o)
+    }
+    /// The scalar i128 schoolbook reference (the specification the vectorized convolution
+    /// is verified against).
+    pub fn mul_schoolbook(&self, o: &Self) -> Self {
         let mut acc = [0i128; N];
         for i in 0..N {
             if self.0[i] == 0 {
@@ -152,8 +159,14 @@ impl Poly {
         }
         Self(out)
     }
-    /// The inner product `sum_i a_i b_i` (negacyclic product then constant term shortcut).
+    /// The inner product `sum_i a_i b_i` (negacyclic product then constant term shortcut) —
+    /// dispatched through the AVX-512 split convolution when available; bit-identical.
     pub fn sprod(a: &[Poly], b: &[Poly]) -> Poly {
+        crate::conv::negacyclic_sprod(a, b)
+    }
+
+    /// The scalar i128 schoolbook sprod reference.
+    pub fn sprod_schoolbook(a: &[Poly], b: &[Poly]) -> Poly {
         let mut acc = [0i128; N];
         for k in 0..a.len() {
             for i in 0..N {

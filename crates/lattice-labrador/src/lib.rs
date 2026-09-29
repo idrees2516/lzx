@@ -22,6 +22,7 @@
 // (`batches[c * nr + i]`, `lut[3 * k + r]`), which the range-loop lint's iterator
 // suggestions cannot express. The patterns are verbatim from the ported reference.
 #![allow(clippy::needless_range_loop)]
+pub mod conv;
 pub mod core;
 pub mod ring;
 pub mod serval;
