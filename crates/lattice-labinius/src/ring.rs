@@ -190,6 +190,10 @@ const fn pow3_consts<const Q: u16>() -> ([u16; CONDUCTOR as usize], [[u16; N162]
 
 /// The four `R_162` components of a splitting-limb ring element, from its 648-slot transform:
 /// `Y_k(v_s) = 4^-1 psi^{-v_s k} sum_t i^{-tk} y(psi^{v_s + 486 t})`, centered.
+///
+/// Every reduction runs through `barrett_mod_u64` (one u64 mulhi + conditional subtract) —
+/// the `%`-per-slot i64 divisions this used to run (6 per slot) cost ~30 cycles each and this
+/// decomposition runs once per (limb, chunk) of every commitment.
 pub fn decompose_components<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing; 4] {
     let q = Q as u64;
     let (psi_pow, tw) = pow3_consts::<Q>();
@@ -198,18 +202,33 @@ pub fn decompose_components<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing; 4] {
     for s in 0..N162 {
         let e: [i64; 4] = core::array::from_fn(|t| {
             let j = SLOT_648[t][s] as usize;
-            (y[j] as i64).rem_euclid(q as i64)
+            let v = y[j] as u64;
+            // the raw commitment is in [0, q); the conditional subtract guards the invariant
+            if v >= q {
+                (v % q) as i64
+            } else {
+                v as i64
+            }
         });
-        // length-4 inverse DFT with i^2 = -1
+        // length-4 inverse DFT with i^2 = -1 (all intermediates non-negative, < 4 q)
         let a = e[0] + e[2];
         let d0 = e[0] + q as i64 - e[2];
         let c = e[1] + e[3];
         let d1 = e[1] + q as i64 - e[3];
-        let id = (d1 * i_root).rem_euclid(q as i64);
+        // d1 < 2q and i_root < q: reduce d1 first (Barrett's valid range is v < q^2 + q,
+        // and 2q * q exceeds it), then the product of two sub-q values
+        let id = crate::params::barrett_mod_u64(
+            crate::params::barrett_mod_u64(d1 as u64, Q) * (i_root as u64),
+            Q,
+        ) as i64;
         let m = [a + c, d0 + q as i64 - id, a + 2 * q as i64 - c, d0 + id];
         for k in 0..4 {
-            let t = tw[k][s] as i64;
-            let r = (m[k] % q as i64 * t % q as i64).rem_euclid(q as i64);
+            let t = tw[k][s] as u64;
+            // m[k] < 4 q (non-negative), t < q: two Barrett passes replace the two `%`s
+            let r = crate::params::barrett_mod_u64(
+                crate::params::barrett_mod_u64(m[k] as u64, Q) * t,
+                Q,
+            ) as i64;
             out[k].v[s] = if r > (q as i64 - 1) / 2 {
                 (r - q as i64) as i16
             } else {
@@ -236,12 +255,16 @@ const fn quad_consts<const Q: u16>() -> [u16; N162] {
 /// The four components for a quadratic-slot limb: one 2-point butterfly per class over the two
 /// leaves that share it — `Y_0 = (E^+ + E^-)/2`, `Y_2 = (E^+ - E^-)/(2 psi'^v)` and likewise
 /// for the X rows — in `POW3_SLOT_EXP` order, centered.
+///
+/// Barrett-reduced throughout (`%`-per-slot i64 divisions replaced; this runs once per
+/// (limb, chunk) of every commitment).
 pub fn decompose_components_quad<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing; 4] {
     let q = Q as u64;
     let half = (Q as i64 - 1) / 2;
     let tw = quad_consts::<Q>();
-    let ctr = |x: i64| -> i16 {
-        let r = x.rem_euclid(q as i64);
+    let inv2 = inv_mod(2, q) as u64;
+    // center a Barrett result already in [0, q)
+    let ctr = |r: i64| -> i16 {
         if r > half {
             (r - q as i64) as i16
         } else {
@@ -252,12 +275,34 @@ pub fn decompose_components_quad<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing;
     for s in 0..N162 {
         let jp = QUAD_CLASS_SLOT[0][s] as usize;
         let jm = QUAD_CLASS_SLOT[1][s] as usize;
-        let tws = tw[s] as i64;
+        let tws = tw[s] as u64;
         for k in 0..2 {
-            let ep = (y[2 * jp + k] as i64).rem_euclid(q as i64);
-            let em = (y[2 * jm + k] as i64).rem_euclid(q as i64);
-            out[k].v[s] = ctr((ep + em) * (inv_mod(2, q) as i64) % q as i64);
-            out[k + 2].v[s] = ctr((ep + q as i64 - em) * tws % q as i64);
+            // the raw rows are in [0, q); the conditional keeps a defensive reduction without
+            // paying a division per slot on the honest path
+            let red = |x: u32| -> u64 {
+                let v = x as u64;
+                if v >= q {
+                    v % q
+                } else {
+                    v
+                }
+            };
+            let ep = red(y[2 * jp + k]);
+            let em = red(y[2 * jm + k]);
+            // reduce the 2q-range sums first (Barrett's valid range is v < q^2 + q), then the
+            // sub-q products
+            out[k].v[s] = ctr(
+                crate::params::barrett_mod_u64(
+                    crate::params::barrett_mod_u64(ep + em, Q) * inv2,
+                    Q,
+                ) as i64,
+            );
+            out[k + 2].v[s] = ctr(
+                crate::params::barrett_mod_u64(
+                    crate::params::barrett_mod_u64(ep + q - em, Q) * tws,
+                    Q,
+                ) as i64,
+            );
         }
     }
     out

@@ -27,14 +27,16 @@
 //!
 //! Not ported from upstream's SIMD layer (documented gaps, mapped in the crate README):
 //! `bin_asm` (hand-scheduled `asm!` transform — the pure-intrinsics reference here is the same
-//! tree at a less aggressive schedule), `bin_large` (the `> 2^14` splitting primes run scalar),
-//! `gen_*` (the general non-binary transforms for the fold path), `slots`/`bd`/`norm` SIMD
-//! helpers, and the block-sink fusion (this port materialises each batch's transform and then
-//! multiplies it, instead of consuming each 27-slot block mid-transform).
+//! tree at a less aggressive schedule) and the `bd`/`norm` SIMD helpers.
 
 pub mod commit;
+pub mod gen_large;
+pub mod gen_quad;
+pub mod gen_small;
+pub mod ntt_large;
 pub mod ntt_quad;
 pub mod ntt_small;
+pub mod slots;
 pub mod transpose;
 
 use crate::params::N;

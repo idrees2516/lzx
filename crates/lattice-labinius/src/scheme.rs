@@ -727,7 +727,7 @@ impl Verifier {
         }
         for k in 0..self.key.limbs() {
             let q = self.key.prime(k);
-            let comps = crate::fold::a_times_v_components(q, &self.key.a[k], v);
+            let comps = crate::ring::components_of(q, &self.key.a_times_v_limb(k, v));
             for (row, c) in comps.iter().enumerate() {
                 if *c != folded_commitment.rows[row][k] {
                     return Err(VerificationError::Rejected);
