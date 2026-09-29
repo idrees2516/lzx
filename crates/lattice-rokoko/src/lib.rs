@@ -19,10 +19,21 @@
 //!   binding the verifier checks directly.
 //! * `sumcheck_hook` — the modular sumcheck interface the projections
 //!   plug into (linear-map identity as a virtual polynomial).
+//! * `com` — the recursive Ajtai commitment COM (paper Fig. 1, Wave 7
+//!   item 7.13 component 3): G^{-1} gadget recursion with power-of-two
+//!   padding and the b0/b1/b2 verification gates.
+//! * `protocol` — the committed-linear relation Ξ^lin_COM, Π^fold-split
+//!   (Fig. 4), the sumcheckify constraint system (Fig. 5), Π^lin
+//!   (Fig. 6) and the round driver with the terminal opening (items
+//!   4+5), over the lattice-salsa ring sumcheck engine.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::too_many_arguments, clippy::type_complexity)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+pub mod com;
+pub mod protocol;
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::{Transcript, TranscriptError};

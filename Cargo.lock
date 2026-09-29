@@ -53,6 +53,7 @@ version = "0.2.0"
 dependencies = [
  "lattice-core",
  "lattice-ring",
+ "lattice-salsa",
 ]
 
 [[package]]
@@ -143,6 +144,7 @@ dependencies = [
  "lattice-commitment",
  "lattice-core",
  "lattice-ring",
+ "lattice-salsa",
  "lattice-sumcheck",
 ]
 

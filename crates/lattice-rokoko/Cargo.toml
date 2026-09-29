@@ -12,3 +12,4 @@ lattice-core = { workspace = true }
 lattice-ring = { workspace = true }
 lattice-commitment = { workspace = true }
 lattice-sumcheck = { workspace = true }
+lattice-salsa = { workspace = true }

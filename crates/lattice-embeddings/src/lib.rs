@@ -17,6 +17,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod ring_switch;
+
 use lattice_ring::{Modulus32, RingConfig, RingElement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -559,7 +559,7 @@ mod tests {
         // Skewed distribution: entropy coding must roundtrip exactly.
         let symbols: Vec<u32> = (0..1000)
             .map(|i| match i % 8 {
-                0 | 1 | 2 | 3 => 0,
+                0..=3 => 0,
                 4 | 5 => 1,
                 6 => 2,
                 _ => 3,
@@ -611,7 +611,7 @@ mod tests {
     fn wire_artifact_roundtrip() {
         let art = WireArtifact {
             params_digest: digest(1),
-            small_fields: vec![(0b1010_1, 5), (12345, 17), (1, 1)],
+            small_fields: vec![(0b1_0101, 5), (12345, 17), (1, 1)],
             coefficients: vec![3, 1, 0, 0, 2, 0, 1, 3, 0, 0, 0, 1],
             blobs: vec![vec![9u8; 64], vec![0xAB; 32]],
         };

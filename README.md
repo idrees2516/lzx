@@ -167,18 +167,29 @@ in `SECURITY.md`.
 
 MIT.
 
-## Wave 7 state (2026-09-27)
+## Wave 7 state (2026-09-29)
 
 Protocol completion landed: ProtogaLattice PGL-Fold/PGL-Boot
-(`crates/lattice-folding/src/pgl.rs`), SALSAA D1+D2
-(`crates/lattice-salsa/src/ring_norm.rs`), the labinius wire/ layer
-(`crates/lattice-labinius/src/wire.rs`), plus two latent bug fixes (LF+
-range-proof padding; pow-tower off-by-one). Full part-by-part paper
-coverage — implemented / partial / unimplemented — lives in
-[`docs/`](docs/): start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-and [`docs/papers/README.md`](docs/papers/README.md).
+(`crates/lattice-folding/src/pgl.rs`), SALSAA D1+D2 + **the A2–A5
+stack** (`crates/lattice-salsa/src/{ring_sc,salsaa,air}.rs`: Π_norm+,
+Π_bin, the staircase RoK, the VDF binary staircase, committed-AIR +
+folding), **the full HyperWolf Protocols 1/2/3**
+(`crates/lattice-pcs/src/hyperwolf.rs` — ring mapping + balanced
+gadget + leveled commitment, the guarded recursive evaluation, k-round
+folding, the certified challenge space, own u64 ring at q ≡ 5 mod 8),
+**the RoKoko committed-refinement core**
+(`crates/lattice-rokoko/src/{com,protocol}.rs` — recursive COM Fig 1,
+Ξ^lin_COM, Π^fold-split, sumcheckify, Π^lin, the round driver), the
+labinius wire/ + Recursive layers, **Serval** (the slack-free
+split-and-fold IPA, `crates/lattice-labrador/src/serval.rs`), and the
+**Hachi ring-switch** (`crates/lattice-embeddings/src/ring_switch.rs`)
+— all ported from the lattice-zk-lab reference implementation to this
+workspace's pure-std conventions. Full part-by-part paper coverage —
+implemented / partial / unimplemented — lives in [`docs/`](docs/):
+start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
+[`docs/papers/README.md`](docs/papers/README.md).
 
-Testing: `cargo test --workspace` (378 tests at this commit);
+Testing: `cargo test --workspace` (519 tests at this commit);
 `cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
 lattice-bench --bin bench` (26 stages, reproducible matrix) — see
 `PERFORMANCE.md` for the methodology.

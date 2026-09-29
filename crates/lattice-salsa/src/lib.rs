@@ -18,6 +18,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod ring_norm;
+pub mod ring_sc;
+pub mod salsaa;
+pub mod air;
 
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_core::{DenseMle, Goldilocks};

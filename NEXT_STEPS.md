@@ -761,8 +761,8 @@ discipline level (S ≲ 1-2 d, M ≈ 3-7 d, L ≈ 1-3 wk).
 | 7.9 | Symphony tensor ring + Π_had + O(μ) shared-randomness fold (delete pairwise E_ij) | Symphony | L |
 | 7.10 | Quasar Q2+Q3: NIR_multicast + 2-to-1 fold + decider | Quasar | L |
 | 7.11 | Akita A1-A5: fold core → ring checks → range sumcheck → tensor reduction → terminal/recursion | Akita | L |
-| 7.12 | HyperWolf H1-H5: leveled commitment + guarded IPA + eval folding + challenge space | HyperWolf | L |
-| 7.13 | RoKoko 2-5: Π^proj-c + recursive COM + Π^fold-split + sumcheckify + Π^lin | RoKoko | L |
+| 7.12 | ~~HyperWolf H1-H5~~ LANDED 2026-09-29: full Protocols 1/2/3 in `lattice-pcs/hyperwolf.rs` (own u64 ring at q ≡ 5 mod 8, certified fixed-weight challenges; H6 compaction + H8 trait unification remain) | HyperWolf | done |
+| 7.13 | ~~RoKoko 3-5~~ LANDED 2026-09-29: recursive COM + Ξ^lin + Π^fold-split + sumcheckify + Π^lin in `lattice-rokoko/{com,protocol}.rs` (items 6-8: Π^proj-f, norm schedule, PCS front end remain) | RoKoko | done |
 | 7.14 | ProtogaLattice bootstrapping + range-proof attachment | PG | M |
 | 7.15 | SuperNeo committed instances + pay-per-bit sparse commit | SuperNeo | M |
 | 7.16 | labinius wire/ (bit-packing + rANS) | labinius | M |

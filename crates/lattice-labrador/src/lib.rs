@@ -24,6 +24,7 @@
 #![allow(clippy::needless_range_loop)]
 pub mod core;
 pub mod ring;
+pub mod serval;
 
 pub use ring::{Poly, Q, Q_INV, N};
 

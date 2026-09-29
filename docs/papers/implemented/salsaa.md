@@ -1,26 +1,37 @@
-# SALSAA (ePrint 2025/2124) — D1+D2 IMPLEMENTED
+# SALSAA (ePrint 2025/2124) — IMPLEMENTED (kernel scale)
 
-Crate: `lattice-salsa/src/ring_norm.rs` (Wave 7.2) alongside the four
-Wave-6 gadgets in `lib.rs` (field-level norm sumcheck, LDE tensor,
-structured matrices, zk round-masking).
+Crates: `lattice-salsa` (`ring_sc.rs` + `salsaa.rs` + `air.rs` +
+`ring_norm.rs` D1+D2) and `lattice-akita/salsa_response.rs` (the D4
+response-layer swap).
 
-## Implemented
+The paper's protocol stack over the shared ring-sumcheck engine
+(`ring_sc.rs`: ring-valued product-claim sumchecks with explicit
+combiners, evaluation-form round messages `[g(0), …, g(deg)]`, Z_q
+round challenges, the σ⁻¹ conjugation, conjugate inner products, and
+balanced traces):
 
-| Paper part | Realization | Tests |
-|---|---|---|
-| D1 Π^norm ∘ Π^sum over R_q: trace identity ‖x‖² = Trace(⟨x, x̄⟩), conjugation, CRT-slot final check | `prove_ring_norm`/`verify_ring_norm` with the F_{q²} terminal (`challenge_fq2`, embedded norm identity) | `ring_norm_honest_roundtrip` |
-| Lemma-4 no-wraparound condition (B'^ρ < q/2 family) | `wraparound_gate` — enforced at prove AND verify, fail-closed | `ring_norm_wraparound_gate_fails_closed` |
-| Integer norm bound (not a modular identity) | claimed-norm reconstruction + bound envelope | `ring_norm_rejects_out_of_bound`, `ring_norm_tampered_claim_rejected` |
-| Authenticated z(r) opening contract | `z_opening` parameter (caller's PCS layer) | `ring_norm_wrong_opening_rejected` |
-| D2 Π^lde-⊗ linearization: row-tensor F, zero extra communication | `LinRelation` — `row_at` verifier-side eq-tensor rows; `prove_lde`/`verify_lde` | `lin_relation_lde_roundtrip`, `lin_relation_rejects_non_lde` |
-| Composed response-layer chain | `prove_norm_chain`/`verify_norm_chain` (Π^norm ∘ Π^sum + LDE leg) | `norm_chain_composes` |
+* **A2 — Π_norm/Π_norm+ (Fig 4)**: the O(m) direct-norm trick, the
+  c-power row-batching ladder, the combined degree-2 sumcheck, the
+  Π_mle eq-row append producing the reduced instance, the balanced-trace
+  integer gate.
+* **A3 — Π_bin (Fig 5) + the staircase RoK (Fig 6)**: binariness
+  `t = ⟨w, 1° − w⟩` with the `Tr(t) = 0` gate (Lemma 4.11); Ξ^stair
+  `A W_0 = Y0; B W_{j−1} + A W_j = 0; B W_{K−1} = Y1` folded into the
+  single degree-3 claim with the c-power row batching and the
+  geometric p/s derivation shared by prover and verifier.
+* **A4 — the VDF (§6)**: the delay chain `y_{i+1} = A·G^{−1}(−y_i)`
+  proved as the binary staircase `G W_0 = −y0; A W_{j−1} + G W_j = 0;
+  A W_{K−1} = yT` (full-coverage gadget, L = 32 layers) composed with
+  Π_bin over the flat witness (`Π_as = Π_staircase ∘ Π_bin`).
+* **A5 — committed-AIR (Fig 7) + folding (§7)**: the transition /
+  shift / boundary claim families in ONE combined degree-3 sumcheck
+  with the (η, α, θ) public tables and the column-opening terminal;
+  the Lova-style linear fold with commitment homomorphism and norm
+  growth.
 
-## Open (Wave 7/8 roadmap)
-
-* D3 batching into `lattice-sumcheck::batch`; **D4 the Akita/zkVM
-  response-layer swap** (Θ(N)→polylog, disclosure removed) — the
-  composed chain API is the integration point; D5 fold/split/join
-  protocol set; D6 engine constant-factor pass (Wave 8.5 overlaps);
-  D7 truth-in-advertising QROM registration.
-* The paper's 10.61 s @ 2^28 performance posture needs IFMA/HEXL-class
-  kernels + parallelism (Wave 8.2).
+Tests (26 across the crate): the engine (automorphism, norm
+constant-term, MLE-vs-direct, honest/tampered sumchecks, multi-claim
+combiners, eq-table), A2 honest/tampered, Π_bin honest/non-binary
+rejection, the staircase honest/tampered, the VDF e2e with wrong-output
+and tamper rejections, the AIR e2e with dishonest-trace and tamper
+rejections, and the folding completeness.

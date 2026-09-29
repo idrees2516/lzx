@@ -17,8 +17,11 @@
 //! commit/prove/verify surface without changing VM semantics.
 
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::type_complexity)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+pub mod hyperwolf;
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_commitment::norm_proof::{NormProof, NormProofError};
