@@ -73,10 +73,13 @@ pub const fn r16(q: u16) -> i32 {
 }
 
 /// Bound on one lane of the transform's output: the split kernel's 7.5 q (3889) and 2.294 q
-/// (9721), the quad kernel's declared bound (2917 / 4861 / 12637).
+/// (9721), the large-prime kernel's declared bound (17497 / 19441), the quad kernel's declared
+/// bound (2917 / 4861 / 12637).
 pub const fn w_bound(q: u16) -> i64 {
     if quadratic_slots(q) {
         ntt_quad::output_bound(q) as i64
+    } else if crate::simd::ntt_large::is_large(q) {
+        crate::simd::ntt_large::output_bound(q) as i64
     } else {
         (ntt_small::output_bound_milli_q(q) as i64 * q as i64) / 1000
     }
@@ -123,6 +126,13 @@ const _: () = {
     }
 };
 const _: () = assert!(red_period(3889) == 8 && red_period(9721) == 4);
+const _: () = {
+    let mut i = 0;
+    while i < 2 {
+        assert!(fits(QS_LARGE[i]) && red_period(QS_LARGE[i]) >= 1);
+        i += 1;
+    }
+};
 
 /// The exact fold-back, lane-wise (the scalar model of `reduce_vec`).
 ///
@@ -650,6 +660,36 @@ pub unsafe fn store_transform<const Q: u16>(src: *const i16, dst: *mut u32) {
     }
 }
 
+/// Copy one finished batch into the kept vertical transform with non-temporal stores
+/// (upstream's `MacKeep` write-out): the 41.5 KB per batch leaves no cache footprint — the
+/// write-combining buffers absorb it while the next batch's transform runs. The caller fences
+/// once after the whole commitment ([`sfence`]).
+///
+/// # Safety
+/// AVX-512 F; `src`/`dst` 64-byte aligned, valid `Batch32`.
+#[target_feature(enable = "avx512f")]
+pub unsafe fn stream_copy_batch32(dst: *mut Batch32, src: *const Batch32) {
+    let s = (*src).v.as_ptr() as *const __m512i;
+    let d = (*dst).v.as_mut_ptr() as *mut __m512i;
+    for j in 0..N {
+        _mm512_stream_si512(d.add(j) as *mut __m512i, _mm512_load_si512(s.add(j) as *const __m512i));
+    }
+}
+
+/// The fence the non-temporal kept-transform stores must be followed by before anyone reads
+/// them back (once per commitment, not per batch).
+///
+/// # Safety
+/// none (x86-64).
+#[inline(always)]
+pub fn sfence() {
+    #[cfg(target_arch = "x86_64")]
+    // Safety: sfence is safe on any x86-64 CPU.
+    unsafe {
+        _mm_sfence();
+    }
+}
+
 // =============================================================================================
 // per-batch entry points (runtime q dispatch)
 // =============================================================================================
@@ -668,6 +708,30 @@ pub unsafe fn split_batch<const Q: u16>(
     done: usize,
 ) {
     ntt_small::ntt_bin_batch32::<Q>(idx, out);
+    mac_batch(
+        out.v.as_ptr() as *const i16,
+        a.v.as_ptr() as *const i16,
+        acc.v.as_mut_ptr() as *mut i32,
+    );
+    if done.is_multiple_of(red_period(Q)) {
+        reduce_acc::<Q>(acc.v.as_mut_ptr() as *mut i32);
+    }
+}
+
+/// One *large*-prime split limb's batch (`17497`/`19441`): the `ntt_large` binary kernel, the
+/// same MAC, fold-back on the large primes' own (narrower) period.
+///
+/// # Safety
+/// AVX-512 PCS feature set; `idx`/`a`/`out`/`acc` per the kernels' contracts.
+#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+pub unsafe fn split_large_batch<const Q: u16>(
+    idx: &BinaryIndex32,
+    a: &Batch32,
+    out: &mut Batch32,
+    acc: &mut Acc,
+    done: usize,
+) {
+    crate::simd::ntt_large::ntt_bin_batch32::<Q>(idx, out);
     mac_batch(
         out.v.as_ptr() as *const i16,
         a.v.as_ptr() as *const i16,

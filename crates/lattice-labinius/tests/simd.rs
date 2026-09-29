@@ -290,7 +290,8 @@ fn mac_2917_matches_scalar() {
 }
 
 /// The full commitment: `commit_with(Scalar)` vs `commit_with(Simd)`, bit-identical matrix,
-/// raw commitments and kept transforms.
+/// raw commitments and kept transforms (the SIMD backend keeps the base-limb transform
+/// vertical — no `store_transform` scatter — so it is compared element-major, reduced mod q).
 fn test_commit_backend_pair(base: Modulus, additional: &[Modulus], seed: u64) {
     if !gate() {
         return;
@@ -303,7 +304,21 @@ fn test_commit_backend_pair(base: Modulus, additional: &[Modulus], seed: u64) {
     let (m_simd, aux_simd) = key.commit_with(&witness, r, Backend::Simd);
     assert_eq!(m_scalar, m_simd, "commitment matrices differ");
     assert_eq!(aux_scalar.raw, aux_simd.raw, "raw commitments differ");
-    assert_eq!(aux_scalar.batches, aux_simd.batches, "kept transforms differ");
+    assert!(aux_simd.batches.is_empty(), "the SIMD backend no longer scatters");
+    let nr = len_f162 / 4;
+    let nb = nr / 32;
+    assert_eq!(aux_simd.vertical.len(), r * nb, "kept vertical batches");
+    let qi = key.prime(0) as i32;
+    for c in 0..r {
+        for p in 0..nr {
+            let want = &aux_scalar.batches[c * nr + p];
+            let vert = &aux_simd.vertical[c * nb + p / 32];
+            for j in 0..N {
+                let got = (vert.v[j][p % 32] as i32).rem_euclid(qi) as u32;
+                assert_eq!(got, want[j], "kept transform differs at c={c} p={p} j={j}");
+            }
+        }
+    }
 }
 
 #[test]

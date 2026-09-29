@@ -69,9 +69,16 @@ pub enum Backend {
 /// modulo the base limb, and the raw 648-row commitments of the `r` chunks per limb.
 #[derive(Clone)]
 pub struct AuxData {
-    /// The transform modulo the base limb: `batches[i][u]` = slot u of ring element i, fully
-    /// reduced `u32` in `[0, q)`. Public for the backend-equality tests and benchmarks.
+    /// The transform modulo the base limb, element-major: `batches[i][u]` = slot u of ring
+    /// element i, fully reduced `u32` in `[0, q)`. Filled by the scalar backend; the AVX-512
+    /// backend keeps the transform vertical instead (below). Public for the backend-equality
+    /// tests and benchmarks.
     pub batches: Vec<Coeffs>,
+    /// The transform modulo the base limb in the vertical `Batch32` layout the kernels
+    /// produce — `vertical[c * bpc + b]` is batch `b` of chunk `c`, lanes at the binary
+    /// kernel's declared output bound. Filled by the AVX-512 backend (no `store_transform`
+    /// scatter); empty in the scalar backend.
+    pub vertical: Vec<Batch32>,
     /// `raw[k][j]` = the 648-row commitment of chunk j for limb k, in `[0, q)`.
     pub raw: Vec<Vec<Coeffs>>,
     pub(crate) chunks: usize,
@@ -187,12 +194,26 @@ impl CommitmentKey {
         })
     }
 
-    /// Can every limb run the AVX-512 backend? (Splitting primes above `2^14` are not ported.)
+    /// Can every limb run the AVX-512 backend? (All seven limb primes are ported.)
     fn simd_limbs(&self) -> bool {
         (0..self.limbs()).all(|k| {
             let q = self.prime(k);
-            matches!(q, 3889 | 9721 | 2917 | 4861 | 12637)
+            matches!(q, 3889 | 9721 | 17497 | 19441 | 2917 | 4861 | 12637)
         })
+    }
+
+    /// `A v` for limb `k` from centered coefficient batches (the verifier's recomputation):
+    /// the vertical fast path (generic-input forward transform + packed-accumulator MAC against
+    /// the vertical `A`) when the CPU has the feature set and the chunk length allows batches,
+    /// the scalar reference otherwise.
+    pub(crate) fn a_times_v_limb(&self, k: usize, v: &[[i16; N]]) -> Coeffs {
+        let q = self.prime(k);
+        if crate::simd::available() && self.len_f162.is_multiple_of(128) {
+            let vert = &self.vertical()[k];
+            crate::fold::a_times_v_forward(q, vert, v)
+        } else {
+            crate::fold::a_times_v_of(q, &self.a[k], v)
+        }
     }
 
     /// Commit to `witness` in `r` chunks under the same key: AVX-512 backend when the CPU and
@@ -236,8 +257,9 @@ impl CommitmentKey {
 
     /// The AVX-512 commitment: one slicing pass and one kernel pass per limb per batch of 32
     /// ring elements (the index rows depend neither on `q` nor on the tree), each into the
-    /// chunk's own accumulator, with the fold-backs on the compile-time periods and the base
-    /// limb's materialised transform extracted for the fold.
+    /// chunk's own accumulator, with the fold-backs on the compile-time periods. The base
+    /// limb's transform is kept **vertical** (`aux.vertical`, the layout the kernels wrote —
+    /// no `store_transform` scatter, non-temporal stores): the fold consumes it in place.
     fn commit_simd(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
         assert!(r.is_power_of_two() && r >= 2, "r must be a power of two >= 2");
         assert_eq!(witness.len(), r * self.len_f162);
@@ -245,7 +267,8 @@ impl CommitmentKey {
         let nb = nr / 32;
         assert!(nb > 0, "AVX-512 commit needs >= 32 ring elements per chunk");
         let mut aux = AuxData {
-            batches: vec![[0u32; N]; r * nr],
+            batches: Vec::new(),
+            vertical: vec![Batch32 { v: [[0i16; 32]; N] }; r * nb],
             raw: (0..self.limbs()).map(|_| Vec::with_capacity(r)).collect(),
             chunks: r,
         };
@@ -291,58 +314,44 @@ impl CommitmentKey {
                                 const Q: u16 = 3889;
                                 let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
                                 mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
-                                if is_base {
-                                    mac::store_transform::<Q>(
-                                        out.v.as_ptr() as *const i16,
-                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
-                                    );
-                                }
                             }
                             9721 => {
                                 const Q: u16 = 9721;
                                 let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
                                 mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
-                                if is_base {
-                                    mac::store_transform::<Q>(
-                                        out.v.as_ptr() as *const i16,
-                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
-                                    );
-                                }
+                            }
+                            17497 => {
+                                const Q: u16 = 17497;
+                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                mac::split_large_batch::<Q>(&idx, av, &mut out, acc, done);
+                            }
+                            19441 => {
+                                const Q: u16 = 19441;
+                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                mac::split_large_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             2917 => {
                                 const Q: u16 = 2917;
                                 let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
-                                if is_base {
-                                    mac::store_transform::<Q>(
-                                        out.v.as_ptr() as *const i16,
-                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
-                                    );
-                                }
                             }
                             4861 => {
                                 const Q: u16 = 4861;
                                 let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
-                                if is_base {
-                                    mac::store_transform::<Q>(
-                                        out.v.as_ptr() as *const i16,
-                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
-                                    );
-                                }
                             }
                             12637 => {
                                 const Q: u16 = 12637;
                                 let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
-                                if is_base {
-                                    mac::store_transform::<Q>(
-                                        out.v.as_ptr() as *const i16,
-                                        aux.batches[c * nr + 32 * b].as_mut_ptr(),
-                                    );
-                                }
                             }
                             _ => unreachable!("simd_limbs checked the prime list"),
+                        }
+                        if is_base {
+                            // keep the transform vertical for the fold — no scatter, and the
+                            // 41.5 KB per batch leaves through non-temporal stores (fenced
+                            // once after the whole commitment)
+                            mac::stream_copy_batch32(&mut aux.vertical[c * nb + b], &out);
                         }
                     }
                 }
@@ -353,6 +362,8 @@ impl CommitmentKey {
                 let yc = match (&mut accs[k], q) {
                     (LimbAcc::Split(acc), 3889) => mac::finish::<3889>(acc),
                     (LimbAcc::Split(acc), 9721) => mac::finish::<9721>(acc),
+                    (LimbAcc::Split(acc), 17497) => mac::finish::<17497>(acc),
+                    (LimbAcc::Split(acc), 19441) => mac::finish::<19441>(acc),
                     (LimbAcc::Quad(acc), 2917) => mac::finish_quad::<2917>(acc),
                     (LimbAcc::Quad(acc), 4861) => mac::finish_quad::<4861>(acc),
                     (LimbAcc::Quad(acc), 12637) => mac::finish_quad::<12637>(acc),
@@ -369,6 +380,8 @@ impl CommitmentKey {
                 aux.raw[k].push(yc);
             }
         }
+        // the kept transform's non-temporal stores must be fenced before anyone reads them
+        mac::sfence();
         (matrix, aux)
     }
 
@@ -380,6 +393,7 @@ impl CommitmentKey {
         let nr = self.len_ring();
         let mut aux = AuxData {
             batches: vec![[0u32; N]; r * nr],
+            vertical: Vec::new(),
             raw: (0..self.limbs()).map(|_| Vec::with_capacity(r)).collect(),
             chunks: r,
         };
