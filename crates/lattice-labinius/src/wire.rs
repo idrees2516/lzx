@@ -181,10 +181,13 @@ pub enum WireError {
 impl RansCoder {
     /// Build from exact symbol counts over the data to encode. Symbols
     /// with zero count get frequency ≥ 1 so the decoder can never land
-    /// in an empty slot (frequencies sum exactly to 2^M).
+    /// in an empty slot (frequencies sum exactly to 2^M). The alphabet is
+    /// capped at 256 — `slot_sym` stores symbols as u8 lanes, so a larger
+    /// table would silently alias (upstream's escape-symbol discipline
+    /// keeps every user inside the cap).
     pub fn from_counts(counts: &[u64]) -> Result<Self, WireError> {
         let total: u64 = counts.iter().sum();
-        if total == 0 || counts.len() > 1024 || counts.len() < 2 {
+        if total == 0 || counts.len() > 256 || counts.len() < 2 {
             return Err(WireError::BadHistogram);
         }
         let scale = 1u64 << RANS_M;
@@ -244,7 +247,7 @@ impl RansCoder {
 
     /// Reconstruct from transmitted histogram bytes.
     pub fn from_histogram_bytes(bytes: &[u8], alphabet: usize) -> Result<Self, WireError> {
-        if bytes.len() != alphabet * 4 || !(2..=1024).contains(&alphabet) {
+        if bytes.len() != alphabet * 4 || !(2..=256).contains(&alphabet) {
             return Err(WireError::BadHistogram);
         }
         let mut freqs = Vec::with_capacity(alphabet);
@@ -384,7 +387,7 @@ impl WireArtifact {
             .iter()
             .copied()
             .max()
-            .map(|m| m + 1)
+            .map(|m| (m + 1).max(2))
             .unwrap_or(2) as usize;
         let mut counts = vec![0u64; alphabet];
         for &s in &self.coefficients {

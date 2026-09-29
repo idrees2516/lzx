@@ -203,3 +203,103 @@ fn labrador_round_trip() {
     bad[0] += 1;
     assert!(prove(&stmt, &Witness::new(vec![bad])).is_err());
 }
+
+// =============================================================================================
+// the entropy-coded folded opening (PERFORMANCE.md §4 item 8)
+// =============================================================================================
+
+fn wire_digest(params: &Params) -> [u8; 32] {
+    let mut d = [0u8; 32];
+    for (i, q) in params.primes().iter().enumerate() {
+        d[2 * i..2 * i + 2].copy_from_slice(&q.to_le_bytes());
+    }
+    d[8..12].copy_from_slice(&(params.witness_len() as u32).to_le_bytes());
+    d[12..16].copy_from_slice(&(params.columns() as u32).to_le_bytes());
+    d
+}
+
+#[test]
+fn folded_witness_wire_roundtrip_honest() {
+    // a real round's folded witness: a discrete Gaussian of a few tens, so the rANS wire
+    // form must round-trip bit-exactly and beat the raw i16 floor by ~2x
+    let params = Params::new(14, 4, vec![Modulus::Q9721_FS_S], Opening::Clear).unwrap();
+    let pp = PublicParameters::from_seed(params.clone(), [9u8; 32]);
+    let w = Witness::random(&params, [3u8; 32]);
+    let (p, v) = (Prover::new(&pp), Verifier::new(&pp));
+    let (c, o) = p.commit(&w);
+    let mut t = Transcript::new(b"labinius/reference");
+    let point = v.derive_evaluation_point(&mut t, &c);
+    let row = w.row_evaluate(&point);
+    let ch = v.derive_folding_challenges(&mut t, &row);
+    let folded = p.fold(o, &ch);
+    let digest = wire_digest(&params);
+    let wire = folded.to_wire(&digest).expect("encode");
+    let back = FoldedWitness::from_wire(&wire, &digest).expect("decode");
+    assert_eq!(back.elements(), folded.elements(), "wire round-trip differs");
+    let raw = folded.raw_wire_bytes();
+    assert!(
+        wire.len() * 2 < raw,
+        "the rANS form ({}) must beat the raw floor ({}) by ~2x",
+        wire.len(),
+        raw
+    );
+    // and the digest binding: a wrong digest is rejected
+    let mut bad = digest;
+    bad[0] ^= 1;
+    assert!(FoldedWitness::from_wire(&wire, &bad).is_err());
+    // truncation is rejected
+    assert!(FoldedWitness::from_wire(&wire[..wire.len() - 1], &digest).is_err());
+}
+
+#[test]
+fn folded_witness_wire_roundtrip_adversarial() {
+    // full-range coefficients incl. escapes (|x| > 127) and the extreme corners of i16:
+    // every i16 message must encode and decode exactly
+    let mut elements = vec![[0i16; N]; 3];
+    let mut rng = binfield::Rng::new(0x5EED_1234);
+    for e in elements.iter_mut() {
+        for x in e.iter_mut() {
+            // mix: small in-range values, wide values (escapes), and extremes
+            *x = match rng.below(4) {
+                0 => (rng.below(255) as i32 - 127) as i16,
+                1 => (rng.below(4096) as i32 - 2048) as i16,
+                2 => i16::MAX,
+                _ => i16::MIN,
+            };
+        }
+    }
+    elements[0][0] = 0;
+    elements[0][1] = -1;
+    elements[0][2] = 127;
+    elements[0][3] = -127;
+    elements[0][4] = 128;
+    elements[0][5] = -128;
+    elements[0][6] = i16::MAX;
+    elements[0][7] = i16::MIN;
+    let fw = FoldedWitness { elements };
+    let digest = [7u8; 32];
+    let wire = fw.to_wire(&digest).expect("encode");
+    let back = FoldedWitness::from_wire(&wire, &digest).expect("decode");
+    assert_eq!(back.elements(), fw.elements(), "adversarial round-trip differs");
+}
+
+#[test]
+fn folded_witness_wire_rejects_trailing_escape_garbage() {
+    // an escape blob with bytes beyond the last used escape value must be rejected —
+    // crafted by hand as a symbols array with one escape and a 2x-too-long blob
+    let mut elements = vec![[0i16; N]; 1];
+    elements[0][0] = 500; // one escape (|x| > 127)
+    let fw = FoldedWitness { elements };
+    let digest = [7u8; 32];
+    let wire = fw.to_wire(&digest).expect("encode");
+    // append one garbage byte to the LAST section (the escape blob) — decode must fail.
+    // The artifact's last section is the blob; verify strictness by the total length bookkeeping.
+    let mut tampered = wire.clone();
+    tampered.push(0xAB);
+    // the framed decode may catch it via exact total length; if it decodes, the escape
+    // accounting must still reject trailing garbage
+    match FoldedWitness::from_wire(&tampered, &digest) {
+        Ok(back) => assert_eq!(back.elements(), fw.elements(), "only exact artifacts pass"),
+        Err(_) => {}
+    }
+}

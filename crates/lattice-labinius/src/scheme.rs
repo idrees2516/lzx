@@ -399,6 +399,105 @@ impl FoldedWitness {
             .map(|&x| (x as i64 * x as i64) as u64)
             .sum()
     }
+
+    // =========================================================================================
+    // the entropy-coded wire form (PERFORMANCE.md §4 item 8: 664 KB -> ~370 KB at sizem)
+    // =========================================================================================
+
+    /// The entropy-coded wire form, upstream's `wire::encode` discipline adapted to this
+    /// port's framed single-stream rANS: zigzag-mapped coefficients coded against a static
+    /// measured histogram over the in-range alphabet `[-127, 127]`, with one escape symbol
+    /// whose full 16-bit values ride as a raw blob. Any `i16` message encodes (adversarial
+    /// witnesses included); an honest folded witness — a discrete Gaussian of a few tens —
+    /// spends ~8-9 bits per coefficient against the 16 an `i16` spends.
+    ///
+    /// The artifact is bound to `params_digest` (the caller's binding to the round's
+    /// parameters — typically the commitment-key/params digest), and `decode` is strict:
+    /// framing, digest, counts and escape accounting must all match exactly.
+    pub fn to_wire(&self, params_digest: &[u8; 32]) -> Result<Vec<u8>, crate::wire::WireError> {
+        let mut symbols: Vec<u32> = Vec::with_capacity(self.elements.len() * N);
+        let mut escapes: Vec<u8> = Vec::new();
+        for e in &self.elements {
+            for &x in e.iter() {
+                let z = zigzag16(x);
+                if z <= 254 {
+                    symbols.push(z as u32);
+                } else {
+                    symbols.push(255);
+                    escapes.extend_from_slice(&z.to_le_bytes());
+                }
+            }
+        }
+        let art = crate::wire::WireArtifact {
+            params_digest: *params_digest,
+            small_fields: vec![(self.elements.len() as u64, 32)],
+            coefficients: symbols,
+            blobs: vec![escapes],
+        };
+        let (bytes, _) = art.encode()?;
+        Ok(bytes)
+    }
+
+    /// The strict inverse of [`Self::to_wire`]: framing, digest, shape and escape
+    /// accounting must all match, or the artifact is rejected.
+    pub fn from_wire(bytes: &[u8], params_digest: &[u8; 32]) -> Result<Self, crate::wire::WireError> {
+        let art = crate::wire::WireArtifact::decode(bytes, params_digest)?;
+        if art.small_fields.len() != 1
+            || art.small_fields[0].1 != 32
+            || art.blobs.len() != 1
+            || art.blobs[0].len() % 2 != 0
+        {
+            return Err(crate::wire::WireError::Framing);
+        }
+        let n_elements = art.small_fields[0].0 as usize;
+        if art.coefficients.len() != n_elements * N {
+            return Err(crate::wire::WireError::Framing);
+        }
+        let esc_blob = &art.blobs[0];
+        let mut esc_pos = 0usize;
+        let mut esc_used = 0usize;
+        let mut elements = vec![[0i16; N]; n_elements];
+        for (i, &s) in art.coefficients.iter().enumerate() {
+            let z: u16 = if s <= 254 {
+                s as u16
+            } else if s == 255 {
+                let lo = *esc_blob.get(esc_pos).ok_or(crate::wire::WireError::Framing)?;
+                let hi = *esc_blob.get(esc_pos + 1).ok_or(crate::wire::WireError::Framing)?;
+                esc_pos += 2;
+                esc_used += 1;
+                u16::from_le_bytes([lo, hi])
+            } else {
+                return Err(crate::wire::WireError::SymbolOutOfRange {
+                    got: s,
+                    alphabet: 256,
+                });
+            };
+            elements[i / N][i % N] = unzigzag16(z);
+        }
+        if esc_used * 2 != esc_blob.len() {
+            // trailing garbage after the last escape value
+            return Err(crate::wire::WireError::Framing);
+        }
+        Ok(FoldedWitness { elements })
+    }
+
+    /// The raw `i16` wire floor (what an uncompressed opening costs), for honest
+    /// size comparisons against [`Self::to_wire`].
+    pub fn raw_wire_bytes(&self) -> usize {
+        self.elements.len() * N * 2
+    }
+}
+
+/// Zigzag map of a centered `i16`: `0, -1, 1, -2, 2, ...` in `[0, 65535]`.
+#[inline]
+fn zigzag16(x: i16) -> u16 {
+    (((x as i32) << 1) ^ (x as i32 >> 15)) as u16
+}
+
+/// The inverse of [`zigzag16`].
+#[inline]
+fn unzigzag16(z: u16) -> i16 {
+    ((z >> 1) as i16) ^ -((z & 1) as i16)
 }
 
 /// `sum_j c_j C_j`: four `R_162` elements per modulus.
