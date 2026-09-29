@@ -262,7 +262,7 @@ pub fn decompose_components_quad<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing;
     let q = Q as u64;
     let half = (Q as i64 - 1) / 2;
     let tw = quad_consts::<Q>();
-    let inv2 = inv_mod(2, q) as u64;
+    let inv2 = inv_mod(2, q);
     // center a Barrett result already in [0, q)
     let ctr = |r: i64| -> i16 {
         if r > half {

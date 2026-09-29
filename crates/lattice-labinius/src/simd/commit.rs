@@ -672,7 +672,9 @@ pub unsafe fn stream_copy_batch32(dst: *mut Batch32, src: *const Batch32) {
     let s = (*src).v.as_ptr() as *const __m512i;
     let d = (*dst).v.as_mut_ptr() as *mut __m512i;
     for j in 0..N {
-        _mm512_stream_si512(d.add(j) as *mut __m512i, _mm512_load_si512(s.add(j) as *const __m512i));
+        // Safety: both pointers are 64-byte aligned per Batch32 and cover N vectors; the
+        // enclosing fn is unsafe.
+        _mm512_stream_si512(d.add(j), _mm512_load_si512(s.add(j)));
     }
 }
 

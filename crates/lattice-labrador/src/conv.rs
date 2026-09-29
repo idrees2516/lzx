@@ -70,8 +70,8 @@ pub fn available() -> bool {
 ///
 /// Centered mod-Q coefficients satisfy `|x| <= (Q-1)/2 < 2^47`, so `|hi| < 2^23 + 1` and
 /// every half-product is below `2^46` — one `QuadAcc` lane accumulates `64 m` of them,
-/// staying below `2^52 + log2(m)` and three orders under `i64` overflow for every `m` the
-/// prover runs (debug-asserted in [`negacyclic_sprod`]).
+/// and [`negacyclic_sprod`] folds the accumulator every 1024 pairs to keep every lane
+/// below `2^62`, two orders under i64 overflow.
 #[inline]
 fn split(x: i64) -> (i64, i64) {
     let mut lo = x % SPLIT;
@@ -223,20 +223,31 @@ pub fn negacyclic_mul(a: &Poly, b: &Poly) -> Poly {
 
 /// `sum_m a_m * b_m mod (X^64 + 1, Q)` (the ring inner product), vectorized when available.
 /// Bit-identical to `Poly::sprod`.
+///
+/// Pairs are taken index-wise over the shorter side, the longer side's trailing elements
+/// ignored — the schoolbook's semantics (the recursion path passes witnesses padded to a
+/// fixed length). The i64 split accumulators are sound for `CHUNK` pairs at a time
+/// (`CHUNK * 64 * 2^46 < 2^62`); longer inner products are folded exactly per chunk
+/// (`cmod` of each chunk's accumulator, summed mod Q — the same integer mod Q throughout).
 pub fn negacyclic_sprod(a: &[Poly], b: &[Poly]) -> Poly {
     if !available() {
         return Poly::sprod_schoolbook(a, b);
     }
-    assert_eq!(a.len(), b.len(), "sprod operands must pair up");
-    debug_assert!(
-        a.len() <= 2048,
-        "the split-accumulator bound needs m * 2^52 < 2^63"
-    );
-    let mut acc = [QuadAcc::zero(); N];
-    unsafe {
-        mac_into(a, b, &mut acc);
+    /// Pairs per accumulator fold: keeps every lane below `2^62`, two orders under i64.
+    const CHUNK: usize = 1024;
+    let n = a.len().min(b.len());
+    let mut out = Poly::zero();
+    let mut start = 0;
+    while start < n {
+        let end = (start + CHUNK).min(n);
+        let mut acc = [QuadAcc::zero(); N];
+        unsafe {
+            mac_into(&a[start..end], &b[start..end], &mut acc);
+        }
+        out = out.add(&finish(acc));
+        start = end;
     }
-    finish(acc)
+    out
 }
 
 /// All pairs MACed into one accumulator block.
@@ -345,17 +356,25 @@ mod tests {
             return;
         }
         let mut f = rng();
-        for k in [1usize, 2, 5, 16, 48] {
-            for _ in 0..8 {
+        // k values straddling the CHUNK=1024 accumulator fold
+        for k in [1usize, 2, 5, 16, 48, 1023, 1024, 1025, 2100, 4227] {
+            for _ in 0..4 {
                 let a: Vec<Poly> = (0..k).map(|_| poly(&mut f, 0)).collect();
                 let b: Vec<Poly> = (0..k).map(|_| poly(&mut f, (k % 4) as u8)).collect();
-                assert_eq!(negacyclic_sprod(&a, &b), Poly::sprod(&a, &b), "k={k}");
+                assert_eq!(negacyclic_sprod(&a, &b), Poly::sprod_schoolbook(&a, &b), "k={k}");
             }
         }
+        // the schoolbook's mismatched-length semantics: pair over the shorter side
+        let a: Vec<Poly> = (0..40).map(|_| poly(&mut f, 0)).collect();
+        let mut b: Vec<Poly> = (0..45).map(|_| poly(&mut f, 0)).collect();
+        let b_pad: Vec<Poly> = b.clone();
+        b.extend_from_slice(&b_pad[..5]);
+        let short = b[..40].to_vec();
+        assert_eq!(negacyclic_sprod(&a, &b), Poly::sprod_schoolbook(&a, &short));
         // zero-weight and max-weight edges
         let z = vec![Poly::zero(); 16];
-        let b: Vec<Poly> = (0..16).map(|_| poly(&mut f, 0)).collect();
-        assert_eq!(negacyclic_sprod(&z, &b), Poly::zero());
+        let bb: Vec<Poly> = (0..16).map(|_| poly(&mut f, 0)).collect();
+        assert_eq!(negacyclic_sprod(&z, &bb), Poly::zero());
         let w: Vec<Poly> = (0..16).map(|_| poly(&mut f, 3)).collect();
         assert_eq!(negacyclic_sprod(&w, &w), Poly::sprod_schoolbook(&w, &w));
     }

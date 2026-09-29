@@ -237,13 +237,13 @@ const fn fold_fits(q: u16, p: usize) -> bool {
 const _: () = {
     let mut i = 0;
     while i < 3 {
-        assert!(fold_fits(QS_QUAD[i], fold_period(QS_QUAD[i])) && fold_period(QS_QUAD[i]) % 2 == 0);
+        assert!(fold_fits(QS_QUAD[i], fold_period(QS_QUAD[i])) && fold_period(QS_QUAD[i]).is_multiple_of(2));
         i += 1;
     }
     let mut i = 0;
     while i < 2 {
-        assert!(fold_fits(QS[i], fold_period(QS[i])) && fold_period(QS[i]) % 2 == 0);
-        assert!(fold_fits(QS_LARGE[i], fold_period(QS_LARGE[i])) && fold_period(QS_LARGE[i]) % 2 == 0);
+        assert!(fold_fits(QS[i], fold_period(QS[i])) && fold_period(QS[i]).is_multiple_of(2));
+        assert!(fold_fits(QS_LARGE[i], fold_period(QS_LARGE[i])) && fold_period(QS_LARGE[i]).is_multiple_of(2));
         i += 1;
     }
 };
@@ -498,7 +498,7 @@ fn challenge_ntt_quad_base_v<const Q: u16>(challenges: &[ShortChallenge]) -> Cha
 /// accumulation wants.
 fn pack(bs: &[Batch32], r: usize) -> ChallengeNtt {
     assert!(
-        r >= 2 && r % 2 == 0,
+        r >= 2 && r.is_multiple_of(2),
         "the fold pairs the chunks: r must be even"
     );
     let mut pair = vec![[0u32; N]; r / 2];

@@ -2,7 +2,6 @@
 //! point -> evaluate -> fold -> verify, per-stage medians over RUNS, plus proof-size floors.
 //! `--suite xs|s|m|l` selects the witness size (2^14/2^16/2^18/2^20 F162).
 use lattice_labinius::*;
-use lattice_labinius::params::N;
 use std::time::Instant;
 
 fn median(v: &mut [u128]) -> f64 {

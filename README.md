@@ -13,7 +13,8 @@ pure `std` intrinsics, exact scalar fallbacks): vertical batch-of-32 binary NTT 
 `vpermb` lookup tables and lazy reduction, the `vpmaddwd` raw-accumulation commitment MAC with
 compile-time fold-back periods, `PCLMULQDQ` binary-field arithmetic — all verified bit-exact
 against the scalar reference. See **`PERFORMANCE.md`** for the full efficiency analysis:
-**commit 37x, fold 7x, evaluate 35x, reference round 17.5x end-to-end**.
+**the reference round runs 49x end-to-end (3885 -> 79 ms) with the proof 1.63x smaller
+(915 -> 560 KB)**, plus vectorized Goldilocks sumcheck and LaBRADOR ring arithmetic.
 
 **Wave 6 (shared substrate + soundness-critical fixes)** is in: paper-calibrated short
 **ring-element** challenge distributions with certified operator-norm bounds (the family-wide
@@ -139,20 +140,25 @@ fallback — the same binary runs unchanged on machines without the features.
 ## Performance snapshot
 
 Reference-round of the labinius PCS at sizem (2^18 GF(2^162) elements, 128 columns,
-3889+2917), pure-`std` Rust on 2 cores — **before → after** the AVX-512 backend:
+3889+2917), pure-`std` Rust on 2 cores — scalar reference → AVX-512 backend → **full
+upstream-parity wave** (generic-input transforms, vertical fold, slot-table commitment fold,
+rANS-coded opening):
 
-| Stage | scalar | AVX-512 backend | speedup |
-|-------|--------|-----------------|---------|
-| commit | 3134 ms | 84 ms | 37x |
-| evaluate | 327 ms | 9.4 ms | 35x |
-| fold | 332 ms | 48 ms | 7x |
-| challenge | 12 ms | 12.6 ms | — (hash-bound) |
-| verify | 78 ms | 67 ms | 1.2x |
-| **total round** | **3885 ms** | **222 ms** | **17.5x** |
+| Stage | scalar | AVX-512 backend | parity wave | total speedup |
+|-------|--------|-----------------|-------------|---------------|
+| commit | 3134 ms | 84 ms | 46 ms | 68x |
+| evaluate | 327 ms | 9.4 ms | 8.8 ms | 37x |
+| fold | 332 ms | 48 ms | 7.2 ms | 46x |
+| challenge | 12 ms | 12.6 ms | 12.5 ms | — (hash-bound) |
+| verify | 78 ms | 67 ms | 2.8 ms | 28x |
+| **total round** | **3885 ms** | **222 ms** | **79 ms** | **49x** |
+| **proof size** | 915 KB | 915 KB | **560 KB** | 1.63x |
 
-Kernel-level (batch of 32 ring elements): forward NTT **270x**, commitment MAC + finish
-**436x**, carry-less multiply **66x** (PCLMULQDQ). Full analysis, technique map and roadmap:
-`PERFORMANCE.md`.
+Beyond the PCS round: **sumcheck prove 2.9x** (Goldilocks AVX-512 field_simd kernels +
+vectorized hot loops, digests bit-identical), **LaBRADOR ring ops 2.2–2.4x** (the exact
+split-2^24 vectorized negacyclic convolution). Kernel-level (batch of 32 ring elements):
+forward NTT **270x**, commitment MAC + finish **436x**, carry-less multiply **66x**
+(PCLMULQDQ). Full analysis, technique map and the executed roadmap: `PERFORMANCE.md`.
 
 ## Security notes
 

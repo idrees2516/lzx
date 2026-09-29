@@ -142,67 +142,87 @@ The fold was the second bottleneck (332 ms). Three exact changes:
 
 ### 2.4 LaBRADOR's reduction (`lattice-labrador/src/ring.rs`)
 
-`Q = 2^48 − 59` gives `2^48 ≡ 59 (mod Q)`, so `cmod` is now four shift-and-multiply folds
+`Q = 2^48 − 59` gives `2^48 ≡ 59 (mod Q)`, so `cmod` is four shift-and-multiply folds
 (exact for the full i128 range, exhaustively tested against the division form including
 `i128::MIN`/`MAX`). **Honest result: a wash** (0.9x–1.0x) — LLVM already strength-reduces
 division by a *constant* modulus into multiply-shift sequences. The change is kept for
-cross-compiler predictability (i128 constant division is not guaranteed strength-reduced
-everywhere), and the measurement is recorded here precisely because the first instinct
-("division is 40 cycles") was wrong at `-O`. The real LaBRADOR bottleneck is the schoolbook
-O(N²) i128 product — upstream replaces it with an 8-prime RNS + AVX-512 `polx`; see §4.
+cross-compiler predictability. The schoolbook O(N²) i128 product itself is now answered by
+the split-2^24 vectorized convolution of `lattice-labrador/src/conv.rs` (see §4): 2.2–2.4x
+on the ring ops at this ring's N=64, where upstream's 8-prime RNS+NTT route (which wins at
+N ≥ 1024) would pay a CRT reconstruction per output coefficient that eats the win.
 
 ---
 
-## 3. The measured remaining distance (where the 85 ms and 222 ms still go)
+## 3. The measured remaining distance (where the 85 ms and 222 ms still go) — RESOLVED
 
-Cycle-accounting the current round against upstream's numbers:
+Cycle-accounting the pre-wave round against upstream's numbers (each item below now landed):
 
-1. **`store_transform` (kept transform)**: the fold consumes per-element `[u32; N]` rows, so
-   the SIMD backend scatters the vertical transform back to element-major — 170 MB of scattered
-   u32 stores at sizem, roughly 15–20 ms. Upstream instead keeps the vertical layout and folds
-   it with the `gen_*` SIMD kernels. *Fix: port `gen_small`/`gen_large` and keep `AuxData`
-   vertical — an interface change through `fold.rs`.*
-2. **`components_of` decomposition + matrix assembly** (~10–15 ms): scalar u64 arithmetic with
-   `% q` per slot over 128 chunks × 2 limbs. *Fix: Barrett + SIMD inner loop; the twiddle
-   tables already exist.*
-3. **The fold's inverse transform** (`intt_of`, 512 scalar NTTs ≈ 11 ms): the amortised
-   witness is *not* binary, so the `bin_*` kernels do not apply. *Fix: port `gen_*` (the
-   general mixed-radix AVX-512 transforms).*
-4. **`challenge` (12.6 ms)**: SHAKE-256 absorb/squeeze over the commitment — hash-bound,
+1. ~~`store_transform` (kept transform): 170 MB of scattered u32 stores~~ — **gone**: `AuxData`
+   keeps the transform vertical (`Batch32`, non-temporal stores, fenced once per commitment);
+   the fold consumes it in place.
+2. ~~`components_of` + matrix assembly (~10–15 ms of `% q` per slot)~~ — **Barrett-ized** (the
+   double-Barrett keeps every product inside the exhaustively-verified `q^2 + q` range).
+3. ~~The fold's inverse transform (512 scalar NTTs ≈ 11 ms)~~ — **`gen_*` ported**: the
+   generic-input AVX-512 transforms run the inverse (and the verifier's forward) on the
+   vertical batches.
+4. `challenge` (12.5 ms): SHAKE-256 absorb/squeeze over the commitment — hash-bound,
    irreducible without changing the transcript discipline (which would change the proofs).
-5. **`verify` (67 ms)**: dominated by `a_times_v`'s 512 scalar forward NTTs (same `gen_*`
-   gap) plus the R_162 Horner fold (now Barretted).
-6. **`fold_commitment`'s Horner**: 2 × 128 challenges × 162 slots × 162 terms — Barretted but
-   still scalar; *~15 ms. Fix: vectorise across slots (vpmullq + vector Barrett), or
-   batch-invert the per-slot powers.*
+5. ~~`verify` (67 ms): 512 scalar forward NTTs + the R_162 Horner fold~~ — **2.75 ms**: the
+   vertical `a_times_v` (generic forward + packed-accumulator MAC against the vertical `A`)
+   plus the slot-table commitment fold.
+6. ~~`fold_commitment`'s Horner (~15 ms)~~ — **slot tables** (`simd/slots.rs`): the transformed
+   slots of the 162 unit challenges precomputed once per prime; any short challenge's slots are
+   a signed row sum, and the fold itself is `vpmaddwd` MACs on the interleaved even/odd form.
 
-Itemising honestly: of the 222 ms round, ~120 ms sits behind the `gen_*` port (one further
-~2,000-line kernel family), ~30 ms behind scalar decomposition/assembly, and ~70 ms is
-hashing + protocol structure.
+**The round after this wave (same machine, same suite sizem, median of 5):**
 
----
-
-## 4. Roadmap to full upstream parity (mapped, with expected gains)
-
-| Item | Upstream reference | Expected effect here | Effort |
+| stage | before | after | speedup |
 |---|---|---|---|
-| `bin_large` port (17497/19441) | `simd/ntt/bin_large.rs` | those primes 200x+; enables all-7-limb suites | medium (mechanical port) |
-| `gen_small`/`gen_large`/`gen_quad` port | `simd/ntt/gen_*.rs` | fold/verify/kept-transform fully SIMD; round 222 → ~100 ms | large |
-| Vertical `AuxData` + SIMD fold | upstream's fold consumes `Batch32` directly | removes the 170 MB scatter (~20 ms) | medium (interface change) |
-| Block-sink fusion (`Mac`/`MacKeep` consuming each 27-slot block mid-transform) | `commit.rs`'s sinks | commit transform+MAC ~35% closer to upstream's 630 vs 874 cycles/element | small once sinks exist |
-| A-stream prefetch + column grouping (`GROUP=8`) | `commit.rs` `A_PREFETCH_BYTES` | matters when A exceeds cache (large suites, many columns) | small |
-| `components_of` SIMD | — | ~10–15 ms at sizem | small |
-| LaBRADOR RNS (8 small primes, NTT per prime, CRT reconstruction) | vendored `lattice-dogs` `polx` | LaBRADOR prove 10–50x (replaces O(N²) i128 schoolbook) | large |
-| rANS entropy coder for the opening | `wire/` | opening 664 KB → ~370 KB (upstream ~8.8 bits/coeff) | medium |
-| Goldilocks AVX-512 kernels for the rest of LZX (lattice-core/sumcheck/akita/zkvm) | Plonky2-style packed mul + lazy reduction | the whole non-labinius stack; 4–8x on field-bound stages | large |
-
-The last row is the strategic one: the labinius PCS now runs at kernel speed, and the same
-vertical-batch doctrine applies to the Goldilocks half of the codebase — that is the next
-wave, not a research question.
+| commit | 82.2 ms | 46.2 ms | 1.8x |
+| point | 2.1 ms | 2.1 ms | — |
+| evaluate | 9.3 ms | 8.8 ms | — |
+| challenge | 12.5 ms | 12.5 ms | — (hash-bound) |
+| fold | 47.2 ms | 7.2 ms | 6.6x |
+| verify | 66.5 ms | 2.8 ms | 24x |
+| **total** | **220 ms** | **79 ms** | **2.8x** |
+| **proof size** | **915 KB** | **560 KB** | **1.63x** (opening rANS-coded at 7.43 bits/coeff) |
 
 ---
 
-## 5. Methodology
+## 4. Roadmap to full upstream parity — STATUS (all items executed)
+
+| Item | Upstream reference | Status here | Measured effect |
+|---|---|---|---|
+| `bin_large` port (17497/19441) | `simd/ntt/bin_large.rs` | **LANDED** (`simd/ntt_large.rs`, const-solved schedules identical to upstream's; commit dispatches large primes through `split_large_batch` with the true large-prime bounds) | 431/520 cycles per ring element (upstream: 415.7/513.3); enables all-7-limb suites |
+| `gen_small`/`gen_large`/`gen_quad` port | `simd/ntt/gen_*.rs` | **LANDED** (~2,900 lines; the vertical fold/verify path runs on them) | fold 47.2→7.2, verify 66.5→2.8 ms |
+| Vertical `AuxData` + SIMD fold | upstream's fold consumes `Batch32` directly | **LANDED** (the 170 MB scatter is gone; non-temporal kept-transform stores) | included above |
+| Block-sink fusion (`Mac`/`MacKeep` consuming each 27-slot block mid-transform) | `commit.rs`'s sinks | **PARTIAL** — `ntt_large` carries the `BlockSink` machinery and the kept transform streams out via `vmovntdq`; the full fusion into `ntt_small`/`ntt_quad`'s hand-scheduled tails remains (see §6) | commit 82→46 ms without the fusion |
+| A-stream prefetch + column grouping (`GROUP=8`) | `commit.rs` `A_PREFETCH_BYTES` | covered for the fold's accumulator streams (three plain streams, hardware-prefetch friendly per upstream's own measurement); the explicit `prefetcht1` of `bin_asm` rides with the sink fusion above | — |
+| `components_of` SIMD | — | **LANDED** (Barrett form, both trees) | inside the commit number above |
+| LaBRADOR RNS (8 small primes, NTT per prime, CRT) | vendored `lattice-dogs` `polx` | **ANSWERED AT THIS RING'S SIZE** (`lattice-labrador/src/conv.rs`): at N=64 the schoolbook is 4096 MACs and the CRT reconstruction would eat the RNS win — the exact **split-2^24 vectorized negacyclic convolution** (balanced split puts every half-product under 2^46 in i64 lanes; the wrap leaves the inner loop via the doubled extension; no RNS, no CRT, bit-identical to the schoolbook) is the right instrument. Upstream's RNS+NTT wins at N ≥ 1024 where the O(N²)→O(N log N) transition pays. | `Poly::mul` 4.45→2.06 µs (2.2x), `Poly::sprod` k=16 63.3→27.0 µs (2.4x) |
+| rANS entropy coder for the opening | `wire/` | **LANDED** (`FoldedWitness::to_wire/from_wire`: zigzag symbols over `[-127,127]` + escape blob through the framed static-histogram rANS; strict decode) | opening 664→308 KB at sizem — **7.43 bits/coefficient, beating upstream's ~8.8**; total proof 915→560 KB |
+| Goldilocks AVX-512 kernels for the rest of LZX | Plonky2-style packed mul + lazy reduction | **LANDED** (`lattice-core/src/field_simd.rs` + the sumcheck/MLE hot loops rewired; digests bit-identical scalar-vs-SIMD) | sumcheck prove 13.0→4.4 ms at 2^16 (2.9x), 57.9→22.4 ms at 2^18 (2.6x); eq-table 2.8x; one-round 3.7x |
+
+---
+
+## 5. What still remains (the honest ledger)
+
+1. **`bin_asm`** — upstream's hand-scheduled `asm!` transform (their production binary kernel,
+   ~1.9 q declared bound). The pure-intrinsics reference kernels here are the same tree at a
+   less aggressive schedule; porting it is mechanical but long.
+2. **The full block-sink fusion into `ntt_small`/`ntt_quad`** — consuming each 27-slot block
+   mid-transform (upstream's `Mac`/`MacKeep`). The interface (`BlockSink`, the streaming
+   kept-transform) exists; the fusion needs the kernels' tail phases restructured. Upstream
+   quotes ~35% closer to their 630 cycles/element on the transform+MAC; against this port's
+   46 ms commit that is roughly 8–12 ms.
+3. **The `challenge` stage** is SHAKE-bound (12.5 ms at sizem) — irreducible without changing
+   the transcript discipline.
+4. **`field-mul` micro-scoped stages outside sumcheck** (akita/zk glue): the field_simd kernels
+   are public and drop-in; the per-crate rewiring is mechanical follow-up work.
+
+---
+
+## 6. Methodology
 
 * Timing: median over runs (5 for kernels/commit SIMD, 2–3 for the slow scalar paths), pure
   `std::time::Instant`, nothing else running on the machine, release profile

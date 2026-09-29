@@ -298,8 +298,9 @@ fn folded_witness_wire_rejects_trailing_escape_garbage() {
     tampered.push(0xAB);
     // the framed decode may catch it via exact total length; if it decodes, the escape
     // accounting must still reject trailing garbage
-    match FoldedWitness::from_wire(&tampered, &digest) {
-        Ok(back) => assert_eq!(back.elements(), fw.elements(), "only exact artifacts pass"),
-        Err(_) => {}
+    if let Ok(back) = FoldedWitness::from_wire(&tampered, &digest) {
+        // only the exact original artifact may survive; a trailing byte must not decode to
+        // a different-but-valid object here
+        assert_eq!(back.elements(), fw.elements(), "only exact artifacts pass");
     }
 }
