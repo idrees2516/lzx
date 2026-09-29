@@ -104,21 +104,20 @@ impl VirtualPolynomial {
     }
 
     /// Sum of P over the full boolean hypercube.
-    #[allow(clippy::needless_range_loop)]
     pub fn sum_over_hypercube(&self) -> Goldilocks {
-        // Precompute per-point products term by term.
-        let n = 1usize << self.num_vars;
-        let mut acc = Goldilocks::ZERO;
+        // SIMD: 8-lane lazy term-product accumulation with exact carry
+        // accounting — bit-identical to the scalar nested loop.
+        let mut acc = lattice_core::field_simd::Sum8::new();
+        let mut fslices: Vec<&[Goldilocks]> = Vec::with_capacity(8);
         for (coeff, ids) in &self.terms {
-            for pt in 0..n {
-                let mut prod = Goldilocks::ONE;
-                for fi in ids {
-                    prod = prod.mul(&self.factors[*fi].evaluations[pt]);
-                }
-                acc = acc.add(&coeff.mul(&prod));
-            }
+            fslices.clear();
+            fslices.extend(
+                ids.iter()
+                    .map(|fi| self.factors[*fi].evaluations.as_slice()),
+            );
+            acc.accumulate_term(*coeff, &fslices);
         }
-        acc
+        acc.finish()
     }
 
     /// Evaluate P at an arbitrary point.
@@ -141,18 +140,18 @@ impl VirtualPolynomial {
     }
 
     /// Materialize the dense MLE of P (exponential; tests/small cases).
-    #[allow(clippy::needless_range_loop)]
     pub fn to_dense_mle(&self) -> Result<DenseMle, VirtualPolyError> {
         let n = 1usize << self.num_vars;
         let mut evals = vec![Goldilocks::ZERO; n];
+        // SIMD: packed pointwise term-product accumulation.
+        let mut fslices: Vec<&[Goldilocks]> = Vec::with_capacity(8);
         for (coeff, ids) in &self.terms {
-            for pt in 0..n {
-                let mut prod = Goldilocks::ONE;
-                for fi in ids {
-                    prod = prod.mul(&self.factors[*fi].evaluations[pt]);
-                }
-                evals[pt] = evals[pt].add(&coeff.mul(&prod));
-            }
+            fslices.clear();
+            fslices.extend(
+                ids.iter()
+                    .map(|fi| self.factors[*fi].evaluations.as_slice()),
+            );
+            lattice_core::field_simd::accumulate_term_pointwise(&fslices, *coeff, &mut evals);
         }
         Ok(DenseMle {
             num_vars: self.num_vars,

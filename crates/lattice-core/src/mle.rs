@@ -102,7 +102,16 @@ impl DenseMle {
     /// the unique MLE that is 1 at `b` and 0 at every other hypercube vertex.
     /// (Identical to `eq_extension` restricted to boolean points.)
     pub fn lagrange_basis(num_vars: usize, point: &[Goldilocks]) -> Self {
-        // eq(X, P) = prod_i ( X_i*P_i + (1-X_i)(1-P_i) )
+        if point.len() == num_vars {
+            // SIMD: same canonical table as eq_extension (every entry is a
+            // canonical product of the same per-variable factors), built by
+            // the packed eq-table kernel.
+            return DenseMle {
+                num_vars,
+                evaluations: crate::field_simd::eq_table(point),
+            };
+        }
+        // Mismatched shapes keep the exact scalar semantics.
         let mut evals = vec![Goldilocks::ONE; 1 << num_vars];
         for (var_idx, p) in point.iter().enumerate() {
             let bit_shift = num_vars - 1 - var_idx;
@@ -131,12 +140,8 @@ impl DenseMle {
         let mut cur_len = cur.len();
         for p in point {
             let half = cur_len / 2;
-            for i in 0..half {
-                let a = cur[i];
-                let b = cur[i + half];
-                // a*(1-p) + b*p
-                cur[i] = a.add(&b.sub(&a).mul(p));
-            }
+            // SIMD: vectorized first-half binding, 8 field elements per chunk.
+            crate::field_simd::bind_first_half_in_place(&mut cur[..cur_len], *p);
             cur_len = half;
         }
         Ok(cur[0])
@@ -155,11 +160,8 @@ impl DenseMle {
         let mut cur_len = cur.len();
         for p in partial_point {
             let half = cur_len / 2;
-            for i in 0..half {
-                let a = cur[i];
-                let b = cur[i + half];
-                cur[i] = a.add(&b.sub(&a).mul(p));
-            }
+            // SIMD: vectorized first-half binding, 8 field elements per chunk.
+            crate::field_simd::bind_first_half_in_place(&mut cur[..cur_len], *p);
             cur_len = half;
         }
         cur.truncate(cur_len);
@@ -171,11 +173,8 @@ impl DenseMle {
 
     /// Sum of all evaluations over the hypercube.
     pub fn sum_over_hypercube(&self) -> Goldilocks {
-        let mut acc = Goldilocks::ZERO;
-        for e in &self.evaluations {
-            acc = acc.add(e);
-        }
-        acc
+        // SIMD: 8-lane lazy accumulation with exact carry accounting.
+        crate::field_simd::sum_slice(&self.evaluations)
     }
 
     /// Pointwise addition (same shape required).
@@ -186,12 +185,16 @@ impl DenseMle {
                 got: other.num_vars,
             });
         }
-        let evals = self
-            .evaluations
-            .iter()
-            .zip(other.evaluations.iter())
-            .map(|(a, b)| a.add(b))
-            .collect();
+        let evals = {
+            let mut out = vec![Goldilocks::ZERO; self.evaluations.len()];
+            // SIMD: packed pointwise add.
+            crate::field_simd::add_slices(
+                &self.evaluations,
+                &other.evaluations,
+                &mut out,
+            );
+            out
+        };
         Ok(DenseMle {
             num_vars: self.num_vars,
             evaluations: evals,
@@ -206,12 +209,16 @@ impl DenseMle {
                 got: other.num_vars,
             });
         }
-        let evals = self
-            .evaluations
-            .iter()
-            .zip(other.evaluations.iter())
-            .map(|(a, b)| a.sub(b))
-            .collect();
+        let evals = {
+            let mut out = vec![Goldilocks::ZERO; self.evaluations.len()];
+            // SIMD: packed pointwise sub.
+            crate::field_simd::sub_slices(
+                &self.evaluations,
+                &other.evaluations,
+                &mut out,
+            );
+            out
+        };
         Ok(DenseMle {
             num_vars: self.num_vars,
             evaluations: evals,
@@ -220,9 +227,12 @@ impl DenseMle {
 
     /// Scalar multiply.
     pub fn scale(&self, c: &Goldilocks) -> DenseMle {
+        let mut evals = vec![Goldilocks::ZERO; self.evaluations.len()];
+        // SIMD: broadcast-scalar packed multiply.
+        crate::field_simd::mul_scalar_slice(&self.evaluations, *c, &mut evals);
         DenseMle {
             num_vars: self.num_vars,
-            evaluations: self.evaluations.iter().map(|e| e.mul(c)).collect(),
+            evaluations: evals,
         }
     }
 
@@ -232,10 +242,11 @@ impl DenseMle {
     pub fn tensor(&self, other: &DenseMle) -> DenseMle {
         let n = self.evaluations.len() * other.evaluations.len();
         let mut evals = Vec::with_capacity(n);
+        // SIMD: each output row is a broadcast-scalar multiply of `other`.
         for &a in &self.evaluations {
-            for &b in &other.evaluations {
-                evals.push(a.mul(&b));
-            }
+            let start = evals.len();
+            evals.resize(start + other.evaluations.len(), Goldilocks::ZERO);
+            crate::field_simd::mul_scalar_slice(&other.evaluations, a, &mut evals[start..]);
         }
         DenseMle {
             num_vars: self.num_vars + other.num_vars,
@@ -248,26 +259,11 @@ impl DenseMle {
     /// given challenge point `x` (variable 0 = most significant index bit,
     /// matching `fix_variables`).
     pub fn eq_extension(point: &[Goldilocks]) -> DenseMle {
-        let m = point.len();
-        let mut evals = Vec::with_capacity(1 << m);
-        // Start with the constant-1 array in 0 vars; iteratively double.
-        // Processing variables in REVERSE order places variable 0 at the
-        // most significant bit, matching the fix_variables convention.
-        evals.push(Goldilocks::ONE);
-        for p in point.iter().rev() {
-            let one_minus_p = Goldilocks::ONE.sub(p);
-            let mut next = Vec::with_capacity(evals.len() * 2);
-            for e in &evals {
-                next.push(e.mul(&one_minus_p));
-            }
-            for e in &evals {
-                next.push(e.mul(p));
-            }
-            evals = next;
-        }
+        // SIMD: packed eq-table builder (doubling construction with two
+        // broadcast-scalar multiplies per variable; see field_simd::eq_table).
         DenseMle {
-            num_vars: m,
-            evaluations: evals,
+            num_vars: point.len(),
+            evaluations: crate::field_simd::eq_table(point),
         }
     }
 
@@ -290,14 +286,10 @@ impl DenseMle {
         let mut cur = self.evaluations.clone();
         // Bind from the least-significant variable up: each binding folds
         // ADJACENT index pairs (variable `num_vars-1` is the index LSB).
+        // SIMD: vectorized adjacent-pair binding with lane deinterleave.
         for p in tail.iter().rev() {
-            let half = cur.len() / 2;
-            for i in 0..half {
-                let a = cur[2 * i];
-                let b = cur[2 * i + 1];
-                cur[i] = a.add(&b.sub(&a).mul(p));
-            }
-            cur.truncate(half);
+            crate::field_simd::bind_pairs_in_place(&mut cur, *p);
+            cur.truncate(cur.len() / 2);
         }
         Ok(DenseMle {
             num_vars: self.num_vars - tail.len(),
@@ -447,10 +439,40 @@ mod tests {
 
     #[test]
     fn lagrange_basis_matches_eq() {
+        // Independent per-entry scalar reference (variable 0 = most
+        // significant index bit) — NOT a wrapper of the packed eq kernel,
+        // so this cross-check is non-circular for both `lagrange_basis` and
+        // `eq_extension` (which both route through field_simd::eq_table).
         let point: Vec<Goldilocks> = (1..=4).map(fe).collect();
+        let m = point.len();
+        let mut expected = Vec::with_capacity(1 << m);
+        for idx in 0..(1usize << m) {
+            let mut v = Goldilocks::ONE;
+            for (i, p) in point.iter().enumerate() {
+                let bit = (idx >> (m - 1 - i)) & 1;
+                let term = if bit == 1 { *p } else { Goldilocks::ONE.sub(p) };
+                v = v.mul(&term);
+            }
+            expected.push(v);
+        }
         let lb = DenseMle::lagrange_basis(4, &point);
         let eq = DenseMle::eq_extension(&point);
+        assert_eq!(lb.evaluations, expected);
+        assert_eq!(eq.evaluations, expected);
         assert_eq!(lb, eq);
+        // The scalar (mismatched-shape) branch must agree per-factor too.
+        let partial = DenseMle::lagrange_basis(4, &point[..2]);
+        let mut expected_partial = Vec::with_capacity(1 << 4);
+        for idx in 0..(1usize << 4) {
+            let mut v = Goldilocks::ONE;
+            for (i, p) in point[..2].iter().enumerate() {
+                let bit = (idx >> (4 - 1 - i)) & 1;
+                let term = if bit == 1 { *p } else { Goldilocks::ONE.sub(p) };
+                v = v.mul(&term);
+            }
+            expected_partial.push(v);
+        }
+        assert_eq!(partial.evaluations, expected_partial);
     }
 
     #[test]

@@ -170,32 +170,36 @@ fn sum_products(
     }
     let rem_vars = bound[0].num_vars; // before binding
     let points = 1usize << (rem_vars - 1);
-    let mut acc = Goldilocks::ZERO;
     // Precompute per-factor half-bindings: for factor f with 2*points
     // evaluations, bound value at point p with first var = t:
     // f_val(p) = f[p] + t * (f[p + points] - f[p]).
     let mut bound_vals: Vec<Vec<Goldilocks>> = Vec::with_capacity(bound.len());
     for f in bound {
         let evs = &f.evaluations;
-        let mut vals = Vec::with_capacity(points);
-        for p in 0..points {
-            let a = evs[p];
-            let b = evs[p + points];
-            vals.push(a.add(&b.sub(&a).mul(&t)));
+        let mut vals = vec![Goldilocks::ZERO; points];
+        // SIMD: the t = 0 / t = 1 bindings are exactly the raw halves
+        // (a + (b−a)·0 = a, a + (b−a)·1 = b — canonical), so copy instead
+        // of multiplying; every other t goes through the packed half-binding
+        // kernel (8 field elements per chunk).
+        if t.is_zero() {
+            vals.copy_from_slice(&evs[..points]);
+        } else if t == Goldilocks::ONE {
+            vals.copy_from_slice(&evs[points..]);
+        } else {
+            lattice_core::field_simd::bind_half_slices(&evs[..points], &evs[points..], t, &mut vals);
         }
         bound_vals.push(vals);
     }
-    #[allow(clippy::needless_range_loop)]
+    // SIMD: 8-lane lazy term-product accumulation with exact carry
+    // accounting (bit-identical to the scalar sequential sum).
+    let mut acc = lattice_core::field_simd::Sum8::new();
+    let mut fslices: Vec<&[Goldilocks]> = Vec::with_capacity(8);
     for (coeff, ids) in terms {
-        for p in 0..points {
-            let mut prod = *coeff;
-            for fi in ids {
-                prod = prod.mul(&bound_vals[*fi][p]);
-            }
-            acc = acc.add(&prod);
-        }
+        fslices.clear();
+        fslices.extend(ids.iter().map(|fi| bound_vals[*fi].as_slice()));
+        acc.accumulate_term(*coeff, &fslices);
     }
-    acc
+    acc.finish()
 }
 
 /// Lagrange-evaluate the round polynomial (given its values at 0..d) at r.

@@ -16,8 +16,16 @@
 //!   gates `β < min(q/2, β*)` (Wave 6 §2.4).
 //! * `extension` — F_{p²} arithmetic over Goldilocks with transcript
 //!   sampling (Wave 6 §2.3: the F_{q^e} sumcheck substrate).
+//! * `field_simd` — packed Goldilocks AVX-512 kernels (8 lanes per
+//!   `__m512i`, Plonky2-style packed mul + lazy reduction), runtime-gated
+//!   with the exact scalar paths as fallback (`LZX_NO_SIMD=1` disables).
 
-#![forbid(unsafe_code)]
+// `field_simd` holds the crate's only `unsafe`: core::arch intrinsics behind
+// runtime CPU detection, exactly the lattice-labinius `hw.rs` doctrine. Every
+// other module keeps the forbid-level guarantee; the deny here exists so the
+// carve-out can be scoped to that one module (an inner `#![allow]` cannot
+// relax a `forbid`).
+#![deny(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 // Tests may use unwrap/expect/panic freely.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
@@ -26,6 +34,7 @@ pub mod challenge_set;
 pub mod decomposition;
 pub mod extension;
 pub mod field;
+pub mod field_simd;
 pub mod keccak;
 pub mod mle;
 pub mod norm_budget;
