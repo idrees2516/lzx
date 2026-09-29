@@ -753,7 +753,7 @@ discipline level (S ≲ 1-2 d, M ≈ 3-7 d, L ≈ 1-3 wk).
 | 7.1 | ProtogaLattice Fig-3 protocol (δ/α/y, Gröbner K_rt, e*-check) + adversarial tests | PG | M |
 | 7.2 | SALSAA D1+D2: ring norm sumcheck + LDE linearization | SALSA | L |
 | 7.3 | **D4: swap Akita/zkVM response layer to the SALSAA chain** (Θ(N)→polylog, disclosure removed) | SALSA+Akita+zkVM | M |
-| 7.4 | Twist & Shout P0-1..P0-5: real PIOPs + sparse prover + column restructure + delete re-execution | T&S+zkVM | L |
+| 7.4 | ~~Twist & Shout P0-1..P0-5~~ LANDED 2026-09-29 (core): the zkVM memory argument proves/verifies without re-execution (`lattice-zkvm/{columns,ledger,memory,memproof}.rs` — digit-bit virtual one-hots, virtual-Val Fig-9, two Ajtai bundles, 552 workspace tests green). REMAINING: the arith/logic/comparison/control/routing/halted constraint families (substrate staged in `constraints.rs`) + the sparse prover (8.5) | T&S+zkVM | core done |
 | 7.5 | labinius Recursive-mode wiring + end-to-end tests | labinius | M |
 | 7.6 | Cyclo Π^range protocol over F_{q^e} + Π^ext RoK rows | Cyclo | M |
 | 7.7 | LF+ monomial/ψ layer + Π^mon + real double commitments | LF+ | M |

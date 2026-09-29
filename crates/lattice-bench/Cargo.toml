@@ -22,7 +22,12 @@ lattice-folding = { workspace = true }
 lattice-lookup = { workspace = true }
 lattice-salsa = { workspace = true }
 lattice-sis-estimator = { workspace = true }
+lattice-guest = { workspace = true }
 
 [[bin]]
 name = "lattice-bench"
 path = "src/bin/bench.rs"
+
+[[bin]]
+name = "zkvm-membench"
+path = "src/bin/zkvm_membench.rs"
