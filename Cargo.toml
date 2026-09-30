@@ -23,6 +23,8 @@ members = [
     "crates/lattice-labinius",
     "crates/lattice-sis-estimator",
     "crates/lattice-guest",
+    "crates/lattice-projsumcheck",
+    "crates/lattice-streaming",
 ]
 
 [workspace.package]
@@ -54,6 +56,8 @@ lattice-sis-estimator = { path = "crates/lattice-sis-estimator" }
 lattice-guest = { path = "crates/lattice-guest" }
 lattice-labinius = { path = "crates/lattice-labinius" }
 lattice-labrador = { path = "crates/lattice-labrador" }
+lattice-projsumcheck = { path = "crates/lattice-projsumcheck" }
+lattice-streaming = { path = "crates/lattice-streaming" }
 
 [profile.release]
 lto = "thin"

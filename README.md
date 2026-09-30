@@ -1,12 +1,23 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**28k lines of pure-`std` Rust. 21 crates. 341 tests. Zero external dependencies.**
+**~33k lines of pure-`std` Rust. 23 crates. 677 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
-zero-knowledge proof stack: it implements **eleven research papers** end-to-end (prover +
+zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
 verifier + exact algebraic identity tests), ports the **labinius** lattice PCS and the
 **LaBRADOR** proof system as native Rust, and assembles them into a proving zkVM for
 RV64IMAC programs with a bounded canonical proof envelope.
+
+Two recent papers round out the prover stack: **the monomial-basis
+(projective) sum-check** (ePrint 2026/762 — the `{0,∞}` interpolating set,
+subtraction-free binding, the `(e, e·r)` table recurrences, claim-preserving
+batched dummy rounds, upper-limb Montgomery challenges over 256-bit fields)
+and **proving CPU executions in small space** (ePrint 2025/611 — streaming
+witness oracles with checkpointed regeneration, the `O(n)`-space sum-check
+prover, the hybrid space/time switch, the prefix-suffix inner product
+protocol, streaming grand products, `√N`-matrix commitments, and the
+client-side facade): proving is **streaming and client-side**, with
+round messages bit-identical to the in-memory engine.
 
 The labinius PCS path runs **upstream's AVX-512 kernel designs natively** (runtime-detected,
 pure `std` intrinsics, exact scalar fallbacks): vertical batch-of-32 binary NTT kernels with
@@ -97,7 +108,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **341 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **677 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations).
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
@@ -124,7 +135,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 341 tests
+cargo test --workspace      # 677 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round

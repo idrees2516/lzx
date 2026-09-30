@@ -1082,7 +1082,7 @@ mod tests {
 
     fn random_point(len: usize, seed: u64) -> Vec<Goldilocks> {
         (0..len)
-            .map(|i| fe((seed.wrapping_mul(2654435761).wrapping_add(i as u64)) % 100_000_000_7))
+            .map(|i| fe((seed.wrapping_mul(2_654_435_761).wrapping_add(i as u64)) % 1_000_000_007))
             .collect()
     }
 
@@ -1240,7 +1240,7 @@ mod tests {
         let flat = &packed.flat;
         // Rebuild each flat position's value from the column streams.
         let shape = &packed.shape;
-        let flat_pad = shape.flat_pad();
+        let _flat_pad = shape.flat_pad();
         for p in 0..flat_len_of(&refs) {
             let j = p % r;
             let h = p / r;

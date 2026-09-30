@@ -16,6 +16,7 @@ lattice-akita = { workspace = true }
 lattice-vm = { workspace = true }
 lattice-memory = { workspace = true }
 lattice-labinius = { workspace = true }
+lattice-streaming = { workspace = true }
 
 [dev-dependencies]
 lattice-guest = { workspace = true }

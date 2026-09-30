@@ -291,7 +291,7 @@ pub fn verify_program(
     Ok(())
 }
 
-fn serialize_output(output: &PublicOutput) -> Vec<u8> {
+pub(crate) fn serialize_output(output: &PublicOutput) -> Vec<u8> {
     let mut out = Vec::with_capacity(32 * 8 + 32);
     for r in &output.final_regs {
         out.extend_from_slice(&r.to_le_bytes());

@@ -156,7 +156,7 @@ fn compact_proof_size_kb(proof: &CompactMemoryProof) -> usize {
 fn proof_size_kb(proof: &lattice_zkvm::memproof::MemoryArgumentProof) -> usize {
     // The serialized size: claims + legs + commitments + openings.
     let mut bytes = 0usize;
-    for _c in &proof.claims {
+    for c in &proof.claims {
         bytes += 1 + 8 + c.point.len() * 8 + 8;
     }
     for inst in &proof.legs {

@@ -11,7 +11,7 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 * [`unimplemented/`](unimplemented/) — designated components not yet
   started (tracked so the roadmap stays honest).
 
-## The matrix (Wave 7 end-state)
+## The matrix (Wave 7 end-state + the streaming wave)
 
 | Paper | Crate | Wave-7 items | Status | Tests |
 |---|---|---|---|---|
@@ -28,6 +28,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | HyperWolf (2025/1903) | lattice-pcs | 7.12 | partial (PcsBackend + transparent mode; guarded IPA open) | — |
 | RoKoko (2026/575) | lattice-rokoko | 7.13 | partial (projection kernels; Π^proj-c/COM open) | — |
 | Twist & Shout (2025/105) | lattice-memory + zkvm | 7.3, 7.4 | partial/unimplemented (oracles + envelope strong; PIOPs + response-layer swap open) | — |
+| **Monomial-basis sum-check (2026/762)** | lattice-projsumcheck | — | **implemented** (projective protocol + structured tables + claim-preserving batching + Fp256 upper-limb challenges + grinding) | 27 |
+| **Small-space CPU proving (2025/611)** | lattice-streaming + zkvm/streaming.rs | — | **implemented** (oracles + Algorithm 1 + hybrid + prefix-suffix + grand product + matrix commitment + client facade + e2e path) | 25 |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`

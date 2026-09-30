@@ -320,6 +320,57 @@ pub fn bind_pairs_in_place(evals: &mut [Goldilocks], r: Goldilocks) {
     }
 }
 
+/// In-place **projective** binding of the first variable over the monomial
+/// (coefficient) basis — Corollary 3.2 of "The Sum-Check Protocol over the
+/// Monomial Basis" (ePrint 2026/762):
+/// `coeffs[i] = coeffs[i] + r · coeffs[i + half]` for `i < half`,
+/// `half = coeffs.len()/2`.
+/// The first half holds the monomials without the variable (the value at 0),
+/// the second half the coefficients of the variable (the value at infinity),
+/// so binding is one multiplication and one addition — **no subtraction**.
+/// The second half is left untouched, matching `bind_first_half_in_place`.
+pub fn bind_projective_first_half_in_place(coeffs: &mut [Goldilocks], r: Goldilocks) {
+    let half = coeffs.len() / 2;
+    let mut done = 0;
+    #[cfg(target_arch = "x86_64")]
+    if half >= 8 && avx512_field() {
+        let chunks = half / 8;
+        // SAFETY: gate checked; writes stay in the first half, second-half
+        // reads at disjoint offsets (same aliasing argument as
+        // imp::bind_first_half_simd).
+        unsafe { imp::bind_projective_first_half_simd(coeffs.as_mut_ptr(), half, r.0, chunks) };
+        done = chunks * 8;
+    }
+    for i in done..half {
+        let a = coeffs[i];
+        let b = coeffs[i + half];
+        coeffs[i] = a.add(&r.mul(&b));
+    }
+}
+
+/// In-place binding of the *last* (least-significant) variable of the
+/// monomial (coefficient) basis:
+/// `coeffs[i] = coeffs[2i] + r · coeffs[2i+1]` for `i < len/2` — the
+/// projective analogue of `bind_pairs_in_place`, again subtraction-free.
+pub fn bind_projective_pairs_in_place(coeffs: &mut [Goldilocks], r: Goldilocks) {
+    let half = coeffs.len() / 2;
+    let mut done = 0;
+    #[cfg(target_arch = "x86_64")]
+    if half >= 8 && avx512_field() {
+        let chunks = half / 8;
+        // SAFETY: gate checked; each iteration loads its 16 inputs before
+        // writing 8 outputs at strictly lower offsets (same argument as
+        // imp::bind_pairs_simd).
+        unsafe { imp::bind_projective_pairs_simd(coeffs.as_mut_ptr(), r.0, chunks) };
+        done = chunks * 8;
+    }
+    for i in done..half {
+        let a = coeffs[2 * i];
+        let b = coeffs[2 * i + 1];
+        coeffs[i] = a.add(&r.mul(&b));
+    }
+}
+
 /// The dense multilinear `eq` table `prod_i [(1−x_i)(1−b_i) + x_i·b_i]`
 /// evaluated at every hypercube vertex `b` (variable 0 = most significant
 /// index bit, matching `DenseMle::eq_extension`). Bit-exact with the scalar
@@ -719,6 +770,44 @@ mod imp {
             let b = load(evals.add(half + i * 8));
             // Writes stay in the first half; second-half reads are disjoint.
             store(evals.add(i * 8), add_v(a, mul_v(sub_v(b, a), vr)));
+        }
+    }
+
+    /// # Safety
+    /// Caller must have checked `avx512_field()`; `evals` valid for
+    /// `2*half` elements with `chunks*8 <= half`.
+    #[target_feature(enable = "avx512f")]
+    pub(super) unsafe fn bind_projective_first_half_simd(
+        evals: *mut Goldilocks,
+        half: usize,
+        r: u64,
+        chunks: usize,
+    ) {
+        let vr = _mm512_set1_epi64(r as i64);
+        for i in 0..chunks {
+            let a = load(evals.add(i * 8));
+            let b = load(evals.add(half + i * 8));
+            // Writes stay in the first half; second-half reads are disjoint.
+            store(evals.add(i * 8), add_v(a, mul_v(b, vr)));
+        }
+    }
+
+    /// Projective pairwise binding: `out[i] = in[2i] + r·in[2i+1]`.
+    ///
+    /// # Safety
+    /// Caller must have checked `avx512_field()`; `evals` valid for
+    /// `16*chunks` elements with `8*chunks <= 16*chunks/2`.
+    #[target_feature(enable = "avx512f")]
+    pub(super) unsafe fn bind_projective_pairs_simd(evals: *mut Goldilocks, r: u64, chunks: usize) {
+        let vr = _mm512_set1_epi64(r as i64);
+        let idx_even = _mm512_setr_epi64(0, 2, 4, 6, 8, 10, 12, 14);
+        let idx_odd = _mm512_setr_epi64(1, 3, 5, 7, 9, 11, 13, 15);
+        for c in 0..chunks {
+            let v0 = load(evals.add(16 * c));
+            let v1 = load(evals.add(16 * c + 8));
+            let ev = _mm512_permutex2var_epi64(v0, idx_even, v1);
+            let od = _mm512_permutex2var_epi64(v0, idx_odd, v1);
+            store(evals.add(8 * c), add_v(ev, mul_v(od, vr)));
         }
     }
 

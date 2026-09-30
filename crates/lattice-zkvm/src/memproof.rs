@@ -1369,7 +1369,7 @@ mod compact_tests {
 
         // Size accounting: the honest wire estimate.
         let mut bytes = 0usize;
-        for c in &proof.claims {
+        for _c in &proof.claims {
             bytes += 1 + 1 + 8; // disc + payload + value (points derived)
         }
         for inst in &proof.legs {
@@ -1379,7 +1379,7 @@ mod compact_tests {
         }
         bytes += proof.bits_commitment.len();
         bytes += proof.values_commitment.len();
-        for (carrier, w) in [
+        for (carrier, _w) in [
             (&proof.bits_carrier, &proof.bits_w),
             (&proof.values_carrier, &proof.values_w),
         ] {

@@ -58,6 +58,52 @@ column commitments 8.2 KB, carriers 0.8 KB, compact openings 9.3 KB,
 statement 0.5 KB. The multi-megabyte digit tables — 95% of the old
 proof — are gone; the opening machinery is now 13% of the proof.
 
+
+## 2c. The streaming / client-side prover (the small-space pipeline, 2026-09-30)
+
+Papers: ePrint 2025/611 (Proving CPU Executions in Small Space) and
+ePrint 2026/762 (the monomial-basis sum-check). Harness: `cargo run
+--release -p lattice-streaming --example stream_bench` and `cargo run
+--release -p lattice-projsumcheck --example proj_bench`.
+
+### The projective (monomial-basis) sum-check — `lattice-projsumcheck`
+
+| kernel | Boolean baseline | projective | speedup |
+|---|---|---|---|
+| binding, 2^20 coefficients | 1.19 ms | 0.91 ms | 1.31× |
+| eq full-domain table, n=20 | 4.64 ms | 2.70 ms | 1.72× |
+| degree-2 sum-check, n=20 | 36.0 ms / 480 B | 24.7 ms / 320 B | 1.46× / 1.50× smaller |
+| degree-2 × eq, n=20 | 64.1 ms / 640 B | 48.6 ms / 480 B | 1.32× / 1.33× |
+| degree-2, n=22 | 170 ms | 123 ms | 1.38× |
+| Fp256 (BN254 Fr) chained mul ×10^6 | 27.5 ms | 19.0 ms | 1.45× |
+| Fp256 projective binding 2^20 | 29.5 ms | 24.9 ms | 1.19× |
+
+The proof-size column is structural: the projective message set
+`{s(∞), s(1..d−1)}` carries one element fewer per round (the verifier
+derives `s(0)` from the round identity `s(0) + s(∞) = C`). On
+BN254-shaped fields the paper measures 1.92× for the upper-limb
+challenge multiplication; our scalar-fallback CIOS keeps 1.45×.
+
+### The streaming prover — `lattice-streaming`
+
+| prover | time | space |
+|---|---|---|
+| sum-check n=16, fully streamed (Algorithm 1) | 0.15 s | O(n + ℓ²) beyond the data |
+| sum-check n=16, hybrid @ 2 MiB | 0.003 s | 1.0 MiB metered peak |
+| sum-check n=20, fully streamed | 3.13 s | 7.8 MiB ΔVmHWM (16 MiB data) |
+| sum-check n=20, hybrid @ 2 MiB | 0.94 s | 2.0 MiB metered peak |
+| prefix-suffix inner product n=20 (pcnext) | 0.53 s | O(√N) tables |
+| grand product n=20, DFS | 0.013 s | O(n) stack (≤ 21 entries) |
+| grand product n=20, + Quarks proof | 0.11 s | recorded tables |
+| matrix-layout streaming commitment n=20 | 22.8 s | O(√N), one pass |
+
+Round messages of the streamed/hybrid/prefix-suffix provers are
+**bit-identical** to the in-memory engine's (tested), so the streaming
+paths are drop-in prover strategies, not protocol variants. The end-to-end
+`prove_program_streaming` composes the pcnext prefix-suffix sum-check,
+the streaming witness commitment, and the memory-fingerprint grand
+products over one VM execution.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

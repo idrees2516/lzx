@@ -1,0 +1,17 @@
+[package]
+name = "lattice-streaming"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Streaming, small-space, client-side proving: stream oracles, O(n)-space sum-check, hybrid switch, prefix-suffix inner product, streaming grand products, matrix-layout streaming commitments (ePrint 2025/611)"
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-projsumcheck = { workspace = true }
+
+[dev-dependencies]
+lattice-sumcheck = { workspace = true }
+
+[[example]]
+name = "stream_bench"

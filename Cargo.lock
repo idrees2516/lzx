@@ -123,6 +123,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-projsumcheck"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-sumcheck",
+]
+
+[[package]]
 name = "lattice-qrom"
 version = "0.2.0"
 dependencies = [
@@ -171,6 +179,15 @@ name = "lattice-sis-estimator"
 version = "0.2.0"
 
 [[package]]
+name = "lattice-streaming"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-projsumcheck",
+ "lattice-sumcheck",
+]
+
+[[package]]
 name = "lattice-sumcheck"
 version = "0.2.0"
 dependencies = [
@@ -205,6 +222,7 @@ dependencies = [
  "lattice-labinius",
  "lattice-memory",
  "lattice-ring",
+ "lattice-streaming",
  "lattice-sumcheck",
  "lattice-vm",
 ]

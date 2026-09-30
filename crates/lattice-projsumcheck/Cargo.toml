@@ -1,0 +1,16 @@
+[package]
+name = "lattice-projsumcheck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Projective (monomial-basis) sum-check: the {0,infty} interpolating set, subtraction-free binding, structured tables, upper-limb Montgomery challenges (ePrint 2026/762)"
+
+[dependencies]
+lattice-core = { workspace = true }
+
+[dev-dependencies]
+lattice-sumcheck = { workspace = true }
+
+[[example]]
+name = "proj_bench"
