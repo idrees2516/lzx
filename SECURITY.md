@@ -94,3 +94,45 @@ Security issues follow the audit's gate G6 process:
 * Zero external crates; `cargo metadata` must show no registry
   dependencies. Builds use a pinned stable toolchain; release
   artifacts must record the toolchain digest (gate G8 checklist).
+
+
+## The compact folded opening (2026-09-30) — security notes
+
+1. **The bits-bundle vacuous-gate fix** (a security defect, not just
+   size): the old packing put 31 bits per coefficient against
+   q = 3·2^30+1 (q/2 ≈ 2^30.6) — the balanced-representative norm claim
+   was ambiguous mod q. The compact mode's 1-byte-per-coefficient
+   packing bounds every committed coefficient by 255, restoring the
+   norm gate's meaning.
+2. **The two-characteristic discipline**: the legs' claims are
+   Goldilocks values; the commitments live in R_q. No homomorphism
+   connects the fields (verified live during implementation — the F_q
+   carrier's evaluation diverges from the lifted Goldilocks claim), so
+   the compact design keeps the carrier over Goldilocks and closes the
+   fold with SCALAR challenges: the integer fold never wraps mod q (the
+   gate bounds r·A·255 < q/2), so the Goldilocks evaluation functional
+   commutes exactly through the fold. Cross-field claim lifting is
+   forbidden by construction.
+3. **Soundness chain**: legs → carrier (Goldilocks sumcheck) →
+   w = f(r_sc) → the MLE interpolation over columns pins the ũ's → the
+   commuting functional pins ũ to the response v → the Ajtai fold
+   F̄·v = Σ d_j·y_j pins v to the commitments → MSIS on
+   `[F̄ | −y₁..−y_r]` at the relaxed bound (2× the gate) with the
+   mixed-moduli constraint lattice. Extraction needs no ring divisions
+   (Q_32 splits completely — division by challenge differences is
+   unsound there).
+4. **Fail-closed gates**: per-coefficient norm gate (< q/2, checked on
+   prove and verify); the r-alignment precondition (r ≤ every factor
+   length); the response codec's strict decode; the values-only
+   claims queue must drain exactly (reordered or missing claims
+   rejected); commitment/width/factor-length shape checks.
+5. **Challenge family**: scalar d_j ∈ [−2^12, 2^12] drawn after the
+   ũ absorption; the response is a deterministic function of the
+   committed columns (no prover adaptation surface). The forgery
+   resistance reduces to the CVP hardness of the constraint lattice at
+   the honest-gap regime — the parameter knobs (k, r, the gate) are
+   documented in DESIGN_50KB.md for estimator-driven tightening.
+6. **Tamper coverage** (test-pinned): wrong final registers, wrong
+   program digest, wrong claim value, reordered claims, tampered
+   carrier terminal, tampered ũ, tampered response bits, tampered
+   commitment bytes, wrong seed, tampered widths — all rejected.

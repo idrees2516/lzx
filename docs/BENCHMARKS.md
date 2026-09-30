@@ -35,6 +35,29 @@ programs with `T ≤ 2^12` cycles **and** a RAM window ≤ 256 words. The
 paper's sparse provers (T&S §6.3/§7 — "0s are free") remove the cap; they
 are the Wave 8.5 follow-up.
 
+## 2b. The compact mode (the 50 KB pipeline, 2026-09-30)
+
+`prove_memory_argument_compact` replaces the Θ(N) digit-revealing
+bundle openings with the folded amortized opening
+(docs/DESIGN_50KB.md): narrow byte packing (1 byte/coefficient — also
+fixing the bits-bundle 31-bit vacuous-gate security defect), the
+r-aligned column layout with per-column Ajtai commitments, the
+scalar-challenge integer fold with the Goldilocks commuting functional,
+the rANS-coded response, and the values-only claims list (points
+re-derived by the verifier's leg replay).
+
+| program | cycles | Clear mode | Compact mode | reduction | compact prove | compact verify |
+|---|---|---|---|---|---|---|
+| fibonacci | 185 | 3,640 KB | **75.5 KB** | 48× | 1,802 ms | 221 ms |
+| regex | 451 | 7,218 KB | **108.4 KB** | 47× | 4,600 ms | 288 ms |
+| muldiv | 392 | 7,212 KB | **~107 KB** | 48× | 4,831 ms | 295 ms |
+
+Compact-mode composition (fibonacci): legs 55.0 KB (108 sumchecks —
+the remaining term, see the roadmap), claims 3.5 KB (345 values-only),
+column commitments 8.2 KB, carriers 0.8 KB, compact openings 9.3 KB,
+statement 0.5 KB. The multi-megabyte digit tables — 95% of the old
+proof — are gone; the opening machinery is now 13% of the proof.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel
@@ -46,7 +69,8 @@ comparison fixes the *shape* of the gap.
 | **Jolt** (a16z, 2024) | sha2/keccak/ecdsa guests | ~0.9–1.5 s / 2^20 cycles | ~50–100 ms | ~100–200 KB | Spartan-style + sumchecks, GPU paths exist |
 | **SP1** (S1, 2024) | sha2/rsaecdsa | ~2–6 s / 2^20-ish cycles | ~10–100 ms | ~100–300 KB | Plonkish + STARK folding, SP1 Pro network |
 | **Risc0** (2024) | sha2/rsa | ~2–10 s / 2^20 cycles | ~50–200 ms | ~100–500 KB | FRI STARKs |
-| **lzx memory argument** (this) | arithmetic/DFA guests, ≤ 2^12 cycles | ~2.5–7.5 s / ≤ 512 cycles | ~0.5–1.1 s | ~3.6–7.2 MB | SIS commitments, Clear-response norm proofs |
+| **lzx memory argument (Clear)** (this) | arithmetic/DFA guests, ≤ 2^12 cycles | ~2.5–7.5 s / ≤ 512 cycles | ~0.5–1.1 s | ~3.6–7.2 MB | SIS commitments, Clear-response norm proofs |
+| **lzx memory argument (compact)** (this) | arithmetic/DFA guests, ≤ 2^12 cycles | ~1.8–4.8 s | ~0.2–0.3 s | **75–108 KB** | folded amortized openings (LaBinius/LaBRADOR-lineage), values-only claims |
 
 Honest reading of the gap:
 
