@@ -180,6 +180,15 @@ pub struct Ledger<'a> {
     queue: VecDeque<BaseClaim>,
 }
 
+/// A values-only claim record: (factor, value) — the point is
+/// verifier-derived from the leg replay (the compact mode's compressed
+/// claim list; saves the ~104 B/claim point transmission).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValueClaim {
+    pub factor: Factor,
+    pub value: Goldilocks,
+}
+
 impl<'a> Ledger<'a> {
     /// Prover-mode ledger over the full committed-factor table.
     pub fn prover(table: Vec<(Factor, &'a DenseMle)>) -> Self {
@@ -206,6 +215,12 @@ impl<'a> Ledger<'a> {
         &self.claims
     }
 
+    /// The number of un-popped verifier claims (0 when the replay
+    /// consumed exactly the transmitted list).
+    pub fn queue_len(&self) -> usize {
+        self.queue.len()
+    }
+
     fn record(&mut self, factor: Factor, point: &[Goldilocks], value: Goldilocks) {
         let key = (factor.discriminant(), factor.payload(), point_bytes(point));
         if self.seen.insert(key, value).is_some() {
@@ -227,9 +242,17 @@ impl<'a> Ledger<'a> {
         let claim = self.queue.pop_front().ok_or(LedgerError::QueueEmpty)?;
         let got = (claim.factor.discriminant(), claim.factor.payload());
         let expected = (factor.discriminant(), factor.payload());
-        if got != expected || claim.point != point {
+        // Values-only mode (empty transmitted point): the point is the
+        // verifier's own derivation — record it as the claim's point.
+        let point_ok = claim.point.is_empty() || claim.point == point;
+        if got != expected || !point_ok {
             return Err(LedgerError::KeyMismatch { expected, got });
         }
+        let claim = BaseClaim {
+            factor: claim.factor,
+            point: point.to_vec(),
+            value: claim.value,
+        };
         if let Some(prev) = self.seen.insert(key, claim.value) {
             if prev != claim.value {
                 return Err(LedgerError::InconsistentDuplicate);
@@ -247,6 +270,24 @@ impl<'a> Ledger<'a> {
             .map(|(_, m)| *m)
             .ok_or_else(|| LedgerError::Layout(format!("factor {factor:?} not in table")))?;
         tensor.evaluate(point).map_err(LedgerError::Mle)
+    }
+
+        /// The values-only verifier ledger: pops match by factor only; the
+    /// claim's point is the verifier's own derivation.
+    pub fn verifier_values(pairs: Vec<ValueClaim>) -> Self {
+        Ledger {
+            table: Vec::new(),
+            claims: Vec::new(),
+            seen: HashMap::new(),
+            queue: pairs
+                .into_iter()
+                .map(|vc| BaseClaim {
+                    factor: vc.factor,
+                    point: Vec::new(),
+                    value: vc.value,
+                })
+                .collect(),
+        }
     }
 
     /// A direct base claim on a tensor at an arbitrary point.

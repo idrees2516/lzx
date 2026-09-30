@@ -52,6 +52,8 @@ lattice-qrom = { path = "crates/lattice-qrom" }
 lattice-bench = { path = "crates/lattice-bench" }
 lattice-sis-estimator = { path = "crates/lattice-sis-estimator" }
 lattice-guest = { path = "crates/lattice-guest" }
+lattice-labinius = { path = "crates/lattice-labinius" }
+lattice-labrador = { path = "crates/lattice-labrador" }
 
 [profile.release]
 lto = "thin"

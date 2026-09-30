@@ -37,7 +37,7 @@ use lattice_vm::{run as vm_run, MachineState};
 use crate::columns::{build_cycle_witness, CycleWitness, RamWindow, FetchWindow};
 use crate::ledger::{
     bits_bundle_commit, verify_bundle_opening, values_bundle_commit, BaseClaim, BundleOpening,
-    Factor, Ledger,
+    Factor, Ledger, ValueClaim,
 };
 use crate::memory::{
     activity_factor, addr_factor, inc_factor, prove_memory, rv_factor, verify_memory, wv_factor,
@@ -740,4 +740,735 @@ fn values_m_from_layout(layout: &[crate::ledger::BundleLayoutEntry]) -> usize {
     let flat: usize = layout.iter().map(|e| 1usize << e.num_vars).sum();
     let padded = flat.next_power_of_two().max(1);
     (padded * 3).div_ceil(64)
+}
+
+// ---------------------------------------------------------------------------
+// The compact proof mode (docs/DESIGN_50KB.md): the same legs + carrier,
+// with the Θ(N) digit reveal replaced by the folded compact opening.
+// ---------------------------------------------------------------------------
+
+use crate::compact::{compact_bundle_commit, verify_compact_opening, CompactOpening};
+use crate::ledger::{idx_point, LedgerError};
+use lattice_sumcheck::sumcheck;
+use lattice_sumcheck::VirtualPolynomial;
+
+/// The compact memory-argument proof.
+#[derive(Clone, Debug)]
+pub struct CompactMemoryProof {
+    pub statement: MemoryStatement,
+    /// Values-only claims in ledger recording order (the points are
+    /// verifier-derived from the leg replay).
+    pub claims: Vec<ValueClaim>,
+    pub legs: Vec<MemoryProof>,
+    /// The per-bundle column commitments (r × k ring elements each).
+    pub bits_commitment: Vec<u8>,
+    pub values_commitment: Vec<u8>,
+    /// The Goldilocks grouped carriers (identical protocol to the Clear
+    /// mode's carrier).
+    pub bits_carrier: sumcheck::SumcheckProof,
+    pub values_carrier: sumcheck::SumcheckProof,
+    /// f(r_sc) per bundle (the carrier terminal bound by the fold).
+    pub bits_w: Goldilocks,
+    pub values_w: Goldilocks,
+    /// The compact openings.
+    pub bits_opening: CompactOpening,
+    pub values_opening: CompactOpening,
+    /// Factor lengths per bundle (for the verifier's layout rebuild).
+    pub bits_factor_lens: Vec<usize>,
+    pub values_factor_lens: Vec<usize>,
+}
+
+/// The per-bundle fold parameters (r, k) chosen from the packed size: the
+/// response stays near a fixed budget while the commitment scales with r.
+fn fold_params_for(total_values: usize, max_value_bytes: usize) -> (usize, usize) {
+    // Target ~8–16k response coefficients: r ≈ stream/2^13 where
+    // stream ≈ total_values × avg bytes.
+    let stream = total_values.saturating_mul(max_value_bytes.max(1));
+    let mut r = 4usize;
+    while r < 64 && stream / (r * 2) > 8192 {
+        r *= 2;
+    }
+    (r, 2usize)
+}
+
+/// Map claims to their flat-domain points (the ledger's flat_point
+/// convention: offset bits then the factor's own variables). Full-Factor
+/// matching (discriminant + payload) picks the entry.
+fn flat_points_for_claims_full(
+    entries: &[(Factor, &DenseMle)],
+    claims: &[BaseClaim],
+    log_flat: usize,
+) -> Result<Vec<Vec<Goldilocks>>, MemProofError> {
+    let le = |e: LedgerError| MemProofError::Ledger(e);
+    let mut out = Vec::with_capacity(claims.len());
+    for c in claims {
+        let (num_vars, offset) = {
+            let mut off = 0usize;
+            let mut found = None;
+            for (f, mle) in entries {
+                if *f == c.factor {
+                    found = Some((mle.num_vars, off));
+                    break;
+                }
+                off += mle.evaluations.len();
+            }
+            found
+        }
+        .ok_or_else(|| le(LedgerError::Layout("claim factor not in bundle".into())))?;
+        if c.point.len() != num_vars {
+            return Err(le(LedgerError::PointArity {
+                expected: num_vars,
+                got: c.point.len(),
+            }));
+        }
+        let head_bits = log_flat - num_vars;
+        let slice = offset >> num_vars;
+        let mut pt = idx_point(head_bits, slice);
+        pt.extend_from_slice(&c.point);
+        out.push(pt);
+    }
+    Ok(out)
+}
+
+/// Prove the memory argument with the compact (folded) openings.
+#[allow(clippy::too_many_arguments)]
+pub fn prove_memory_argument_compact(
+    program: &[u8],
+    public_input: &[u8],
+    max_steps: u64,
+    ram_log_k: usize,
+    fetch_log_k: usize,
+) -> Result<(CompactMemoryProof, [u64; 32]), MemProofError> {
+    // 1–3. Execute, witness, instances (shared with the Clear mode).
+    let mut state = MachineState::new();
+    state.load_program(0x1000, public_input);
+    state.load_program(0, program);
+    let rows = vm_run(&mut state, max_steps).map_err(MemProofError::Execution)?;
+    let final_regs = state.regs;
+    let (w, final_words) = build_cycle_witness(
+        &rows,
+        program,
+        public_input,
+        RamWindow { log_k: ram_log_k },
+        FetchWindow { log_k: fetch_log_k },
+    )
+    .map_err(MemProofError::Witness)?;
+    let init_image = |word_key: u64| -> u64 {
+        let base = word_key * 8;
+        let mut word = 0u64;
+        for i in 0..8usize {
+            let addr = base + i as u64;
+            let byte = if (addr as usize) < program.len() {
+                program[addr as usize]
+            } else if addr >= 0x1000 && (addr as usize - 0x1000) < public_input.len() {
+                public_input[addr as usize - 0x1000]
+            } else {
+                0
+            };
+            word |= (byte as u64) << (8 * i);
+        }
+        word
+    };
+    let final_memory: Vec<u64> = (0..(1usize << ram_log_k))
+        .map(|k| {
+            final_words
+                .get(&(k as u64))
+                .copied()
+                .unwrap_or_else(|| init_image(k as u64))
+        })
+        .collect();
+    let instances = build_instances(
+        &w,
+        &final_regs,
+        &final_words,
+        ram_log_k,
+        fetch_log_k,
+        program,
+        public_input,
+    );
+
+    // 4. The factor table.
+    let mut digit_tensors: Vec<(Factor, DenseMle)> = Vec::new();
+    let mut activity_cols: Vec<(Factor, DenseMle)> = Vec::new();
+    let mut stream_cols: Vec<(Factor, DenseMle)> = Vec::new();
+    for (i, m) in instances.iter().enumerate() {
+        digit_tensors.push((Factor::DigitBits { inst: i }, m.digit_tensor()));
+        activity_cols.push((activity_factor(i, false), m.activity_col(false)));
+        activity_cols.push((activity_factor(i, true), m.activity_col(true)));
+        stream_cols.push((addr_factor(i), m.addr_col()));
+        stream_cols.push((rv_factor(i), m.rv_col()));
+        if !m.read_only() {
+            stream_cols.push((wv_factor(i), m.wv_col()));
+            stream_cols.push((inc_factor(i), m.inc_col()));
+        }
+    }
+
+    // 5. The statement + seeds.
+    let program_digest = Transcript::hash_domain(b"zkvm-program", program);
+    let input_digest = Transcript::hash_domain(b"zkvm-public-input", public_input);
+    let statement = MemoryStatement {
+        program_digest,
+        input_digest,
+        log_t: w.log_t,
+        ram_log_k,
+        fetch_log_k,
+        final_regs,
+        final_memory: final_memory.clone(),
+    };
+    let seed = derive_seed(&statement);
+
+    // 6. The compact bundle commitments.
+    let bits_entries: Vec<(u32, &DenseMle)> = digit_tensors
+        .iter()
+        .chain(activity_cols.iter())
+        .map(|(f, m)| (f.discriminant() as u32, m))
+        .collect();
+    let values_entries: Vec<(u32, &DenseMle)> =
+        stream_cols.iter().map(|(f, m)| (f.discriminant() as u32, m)).collect();
+    let bits_total: usize = bits_entries.iter().map(|(_, m)| m.evaluations.len()).sum();
+    let values_total: usize = values_entries.iter().map(|(_, m)| m.evaluations.len()).sum();
+    let (r_bits, k_bits) = fold_params_for(bits_total, 1);
+    let (r_vals, k_vals) = fold_params_for(values_total, 3);
+    let bits_prover = compact_bundle_commit(&bits_entries, seed, r_bits, k_bits)
+        .map_err(MemProofError::Ledger)?;
+    let values_prover = compact_bundle_commit(&values_entries, seed, r_vals, k_vals)
+        .map_err(MemProofError::Ledger)?;
+    let bits_commitment = bits_prover.commitment_bytes();
+    let values_commitment = values_prover.commitment_bytes();
+
+    let mut transcript = Transcript::new_default(b"lzx-zkvm-memarg-compact");
+    absorb_statement(&statement, &mut transcript).map_err(|e| {
+        MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e))
+    })?;
+    transcript
+        .append_bytes(b"bits-commitment", &bits_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+    transcript
+        .append_bytes(b"values-commitment", &values_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+
+    // 7. The legs (identical to the Clear mode).
+    let mut table: Vec<(Factor, &DenseMle)> = Vec::new();
+    for (f, m) in digit_tensors.iter() {
+        table.push((*f, m));
+    }
+    for (f, m) in activity_cols.iter() {
+        table.push((*f, m));
+    }
+    for (f, m) in stream_cols.iter() {
+        table.push((*f, m));
+    }
+    let mut ledger = Ledger::prover(table);
+    let mut all_legs: Vec<MemoryProof> = Vec::with_capacity(instances.len());
+    for (i, m) in instances.iter().enumerate() {
+        let mut inst_legs: Vec<crate::memory::LegProof> = Vec::new();
+        prove_memory(i, m, &mut ledger, &mut inst_legs, &mut transcript)
+            .map_err(MemProofError::Memory)?;
+        all_legs.push(MemoryProof { legs: inst_legs });
+    }
+    let full_claims: Vec<BaseClaim> = ledger.claims().to_vec();
+    let claims: Vec<ValueClaim> = full_claims
+        .iter()
+        .map(|c| ValueClaim {
+            factor: c.factor,
+            value: c.value,
+        })
+        .collect();
+    let bits_claims: Vec<BaseClaim> = full_claims
+        .iter()
+        .filter(|c| c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let values_claims: Vec<BaseClaim> = full_claims
+        .iter()
+        .filter(|c| !c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+
+    // 8. The carriers + compact openings.
+    let bits_flat = bits_prover.flat_mle();
+    let values_flat = values_prover.flat_mle();
+    let bits_pts = flat_points_for_claims_full(
+        &digit_tensors
+            .iter()
+            .chain(activity_cols.iter())
+            .map(|(f, m)| (*f, m))
+            .collect::<Vec<_>>(),
+        &bits_claims,
+        bits_flat.num_vars,
+    )?;
+    let values_pts = flat_points_for_claims_full(
+        &stream_cols.iter().map(|(f, m)| (*f, m)).collect::<Vec<_>>(),
+        &values_claims,
+        values_flat.num_vars,
+    )?;
+
+    let (bits_carrier, bits_rsc, bits_w) =
+        prove_carrier_goldilocks(bits_flat, &bits_claims, &bits_pts, &mut transcript)
+            .map_err(MemProofError::Ledger)?;
+    let (values_carrier, values_rsc, values_w) =
+        prove_carrier_goldilocks(values_flat, &values_claims, &values_pts, &mut transcript)
+            .map_err(MemProofError::Ledger)?;
+
+    let bits_opening = bits_prover
+        .prove_compact_opening(&bits_rsc, &bits_w, &mut transcript)
+        .map_err(MemProofError::Ledger)?;
+    let values_opening = values_prover
+        .prove_compact_opening(&values_rsc, &values_w, &mut transcript)
+        .map_err(MemProofError::Ledger)?;
+
+    Ok((
+        CompactMemoryProof {
+            statement,
+            claims,
+            legs: all_legs,
+            bits_commitment,
+            values_commitment,
+            bits_carrier,
+            values_carrier,
+            bits_w,
+            values_w,
+            bits_opening,
+            values_opening,
+            bits_factor_lens: bits_entries.iter().map(|(_, m)| m.evaluations.len()).collect(),
+            values_factor_lens: values_entries
+                .iter()
+                .map(|(_, m)| m.evaluations.len())
+                .collect(),
+        },
+        final_regs,
+    ))
+}
+
+/// The Goldilocks grouped carrier (the Clear mode's carrier, extracted):
+/// proves Σ_x f(x)·E(x) = Σ_i ρ_i·v_i with E = Σ_i ρ_i·eq(pt_i, ·).
+/// Returns (proof, r_sc, f(r_sc)).
+fn prove_carrier_goldilocks(
+    flat: &DenseMle,
+    claims: &[BaseClaim],
+    points: &[Vec<Goldilocks>],
+    transcript: &mut Transcript,
+) -> Result<(sumcheck::SumcheckProof, Vec<Goldilocks>, Goldilocks), LedgerError> {
+    let rhos = transcript
+        .challenge_fields(b"bundle-rho", points.len())
+        .map_err(LedgerError::Transcript)?;
+    let mut vp = VirtualPolynomial::new(flat.num_vars);
+    let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
+    let mut combined = Goldilocks::ZERO;
+    for (i, pt) in points.iter().enumerate() {
+        let eq = DenseMle::eq_extension(pt);
+        let ei = vp.add_factor(eq).map_err(LedgerError::Virtual)?;
+        vp.add_term(rhos[i], vec![fi, ei])
+            .map_err(LedgerError::Virtual)?;
+        combined = combined.add(&rhos[i].mul(&claims[i].value));
+    }
+    let out = sumcheck::prove(&vp, combined, transcript).map_err(LedgerError::Sumcheck)?;
+    let w = out.factor_claims[fi];
+    Ok((out.proof, out.challenges, w))
+}
+
+/// Verify the compact memory argument with NO re-execution: the same
+/// public-table rebuild + leg replay as the Clear mode, with the carriers
+/// and compact openings replacing the digit reveal.
+pub fn verify_memory_argument_compact(
+    proof: &CompactMemoryProof,
+    program: &[u8],
+    public_input: &[u8],
+) -> Result<(), MemProofError> {
+    // 1. Statement digests.
+    let program_digest = Transcript::hash_domain(b"zkvm-program", program);
+    let input_digest = Transcript::hash_domain(b"zkvm-public-input", public_input);
+    let s = &proof.statement;
+    if s.program_digest != program_digest || s.input_digest != input_digest {
+        return Err(MemProofError::VerificationFailed);
+    }
+
+    // 2. Rebuild the instances' public structure (no execution).
+    let t = 1usize << s.log_t;
+    let log_ts = 2 + s.log_t;
+    let k_ram = 1usize << s.ram_log_k;
+    let k_fetch = 1usize << s.fetch_log_k;
+    let init_image = |word_key: u64| -> u64 {
+        let base = word_key * 8;
+        let mut word = 0u64;
+        for i in 0..8usize {
+            let addr = base + i as u64;
+            let byte = if (addr as usize) < program.len() {
+                program[addr as usize]
+            } else if addr >= 0x1000 && (addr as usize - 0x1000) < public_input.len() {
+                public_input[addr as usize - 0x1000]
+            } else {
+                0
+            };
+            word |= (byte as u64) << (8 * i);
+        }
+        word
+    };
+    let limb = |v: u64, l: usize| fe((v >> (16 * l)) & 0xFFFF);
+    let mut instances: Vec<MemoryInstance> = Vec::with_capacity(9);
+    for l in 0..4usize {
+        instances.push(MemoryInstance {
+            log_k: 5,
+            log_ts,
+            addr: vec![0; 1 << log_ts],
+            ractive: vec![0; 1 << log_ts],
+            wactive: vec![0; 1 << log_ts],
+            rv: vec![Goldilocks::ZERO; 1 << log_ts],
+            wv: vec![Goldilocks::ZERO; 1 << log_ts],
+            inc_off: vec![fe(INC_OFFSET); 1 << log_ts],
+            init: vec![Goldilocks::ZERO; 32],
+            final_state: s.final_regs.iter().map(|r| limb(*r, l)).collect(),
+            table: None,
+        });
+    }
+    for l in 0..4usize {
+        instances.push(MemoryInstance {
+            log_k: s.ram_log_k,
+            log_ts,
+            addr: vec![0; 1 << log_ts],
+            ractive: vec![0; 1 << log_ts],
+            wactive: vec![0; 1 << log_ts],
+            rv: vec![Goldilocks::ZERO; 1 << log_ts],
+            wv: vec![Goldilocks::ZERO; 1 << log_ts],
+            inc_off: vec![fe(INC_OFFSET); 1 << log_ts],
+            init: (0..k_ram as u64).map(|k| limb(init_image(k), l)).collect(),
+            final_state: (0..k_ram)
+                .map(|k| limb(s.final_memory.get(k).copied().unwrap_or(0), l))
+                .collect(),
+            table: None,
+        });
+    }
+    {
+        let table: Vec<Goldilocks> = (0..k_fetch)
+            .map(|k| {
+                let base = k * 4;
+                let mut word = 0u32;
+                for i in 0..4usize {
+                    if base + i < program.len() {
+                        word |= (program[base + i] as u32) << (8 * i);
+                    }
+                }
+                fe(word as u64)
+            })
+            .collect();
+        instances.push(MemoryInstance {
+            log_k: s.fetch_log_k,
+            log_ts: s.log_t,
+            addr: vec![0; t],
+            ractive: vec![1; t],
+            wactive: vec![0; t],
+            rv: vec![Goldilocks::ZERO; t],
+            wv: vec![Goldilocks::ZERO; t],
+            inc_off: vec![fe(INC_OFFSET); t],
+            init: table.clone(),
+            final_state: table.clone(),
+            table: Some(table),
+        });
+    }
+
+    // 3. Transcript replay (statement → compact commitments → legs).
+    let mut transcript = Transcript::new_default(b"lzx-zkvm-memarg-compact");
+    absorb_statement(s, &mut transcript).map_err(|e| {
+        MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e))
+    })?;
+    transcript
+        .append_bytes(b"bits-commitment", &proof.bits_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+    transcript
+        .append_bytes(b"values-commitment", &proof.values_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+
+    // 4. Ledger (values-only verifier mode) + per-instance leg replay:
+    //    the claim points are re-derived by the replay.
+    let mut ledger = Ledger::verifier_values(proof.claims.clone());
+    if proof.legs.len() != 9 {
+        return Err(MemProofError::Shape);
+    }
+    for (i, m) in instances.iter().enumerate() {
+        verify_memory(i, m, &proof.legs[i], &mut ledger, &mut transcript)
+            .map_err(MemProofError::Memory)?;
+    }
+    if ledger.queue_len() != 0 {
+        return Err(MemProofError::Shape);
+    }
+    // The derived claims (with the verifier-derived points).
+    let derived: Vec<BaseClaim> = ledger.claims().to_vec();
+    let bits_claims: Vec<BaseClaim> = derived
+        .iter()
+        .filter(|c| c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let values_claims: Vec<BaseClaim> = derived
+        .iter()
+        .filter(|c| !c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    // Rebuild the bundle geometries (deterministic from the instances).
+    let bits_entries = bundle_entries(&instances, true);
+    let values_entries = bundle_entries(&instances, false);
+    let bits_factor_lens: Vec<usize> =
+        bits_entries.iter().map(|(_, m)| m.evaluations.len()).collect();
+    let values_factor_lens: Vec<usize> =
+        values_entries.iter().map(|(_, m)| m.evaluations.len()).collect();
+    if bits_factor_lens != proof.bits_factor_lens || values_factor_lens != proof.values_factor_lens
+    {
+        return Err(MemProofError::Shape);
+    }
+    let bits_flat_log = {
+        let total: usize = bits_factor_lens.iter().sum();
+        total.next_power_of_two().max(1).trailing_zeros() as usize
+    };
+    let values_flat_log = {
+        let total: usize = values_factor_lens.iter().sum();
+        total.next_power_of_two().max(1).trailing_zeros() as usize
+    };
+
+    // The carriers: the claim points come from the ledger's flat mapping
+    // over the geometry (full Factor matching).
+    let bits_refs: Vec<(Factor, &DenseMle)> =
+        bits_entries.iter().map(|(f, m)| (*f, m)).collect();
+    let values_refs: Vec<(Factor, &DenseMle)> =
+        values_entries.iter().map(|(f, m)| (*f, m)).collect();
+    let bits_pts =
+        flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat_log)?;
+    let values_pts =
+        flat_points_for_claims_full(&values_refs, &values_claims, values_flat_log)?;
+    let (bits_rsc, _) = verify_carrier_goldilocks(
+        bits_flat_log,
+        &bits_claims,
+        &bits_pts,
+        &proof.bits_carrier,
+        &proof.bits_w,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    let (values_rsc, _) = verify_carrier_goldilocks(
+        values_flat_log,
+        &values_claims,
+        &values_pts,
+        &proof.values_carrier,
+        &proof.values_w,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+
+    // 6. The compact openings.
+    let seed = derive_seed(s);
+    verify_compact_opening(
+        seed,
+        &proof.bits_commitment,
+        &bits_factor_lens,
+        bits_flat_log,
+        &bits_rsc,
+        &proof.bits_w,
+        &proof.bits_opening,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    verify_compact_opening(
+        seed,
+        &proof.values_commitment,
+        &values_factor_lens,
+        values_flat_log,
+        &values_rsc,
+        &proof.values_w,
+        &proof.values_opening,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    Ok(())
+}
+
+/// The bundle entries (Factor, DenseMle) rebuilt on the verifier side —
+/// the SAME order as the prover's (digit tensors, then activity columns;
+/// stream columns for the values bundle). The MLE contents are
+/// public-derivable shapes (the real values live in the committed
+/// columns; only the geometry matters here).
+fn bundle_entries(instances: &[MemoryInstance], bits: bool) -> Vec<(Factor, DenseMle)> {
+    let mut out = Vec::new();
+    if bits {
+        for (i, m) in instances.iter().enumerate() {
+            out.push((Factor::DigitBits { inst: i }, m.digit_tensor()));
+        }
+        for (i, m) in instances.iter().enumerate() {
+            out.push((activity_factor(i, false), m.activity_col(false)));
+            out.push((activity_factor(i, true), m.activity_col(true)));
+        }
+    } else {
+        for (i, m) in instances.iter().enumerate() {
+            out.push((addr_factor(i), m.addr_col()));
+            out.push((rv_factor(i), m.rv_col()));
+            if !m.read_only() {
+                out.push((wv_factor(i), m.wv_col()));
+                out.push((inc_factor(i), m.inc_col()));
+            }
+        }
+    }
+    out
+}
+
+/// Verify the Goldilocks carrier; returns (r_sc, final_claim).
+#[allow(clippy::too_many_arguments)]
+fn verify_carrier_goldilocks(
+    log_flat: usize,
+    claims: &[BaseClaim],
+    points: &[Vec<Goldilocks>],
+    carrier: &sumcheck::SumcheckProof,
+    w: &Goldilocks,
+    transcript: &mut Transcript,
+) -> Result<(Vec<Goldilocks>, Goldilocks), LedgerError> {
+    let rhos = transcript
+        .challenge_fields(b"bundle-rho", points.len())
+        .map_err(LedgerError::Transcript)?;
+    let mut combined = Goldilocks::ZERO;
+    for (rho, c) in rhos.iter().zip(claims.iter()) {
+        combined = combined.add(&rho.mul(&c.value));
+    }
+    let verdict = carrier
+        .verify(log_flat, 2, combined, transcript, None)
+        .map_err(LedgerError::Sumcheck)?;
+    // E(r_sc) = Σ_i ρ_i·eq(pt_i, r_sc); require E·w = final_claim.
+    let mut e_r = Goldilocks::ZERO;
+    for (i, pt) in points.iter().enumerate() {
+        let eq_v = DenseMle::eq_eval(pt, &verdict.point).map_err(LedgerError::Mle)?;
+        e_r = e_r.add(&rhos[i].mul(&eq_v));
+    }
+    if e_r.mul(w) != verdict.final_claim {
+        return Err(LedgerError::DerivedMismatch);
+    }
+    Ok((verdict.point, verdict.final_claim))
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    fn fib_program() -> Vec<u8> {
+        // A tiny hand-assembled straight-line arithmetic program (the
+        // guest crate covers real programs; here 16 deterministic ops).
+        let mut code = vec![
+            0x93, 0x00, 0x10, 0x00, // addi x1, x0, 1
+            0x13, 0x01, 0x20, 0x00, // addi x2, x0, 1
+        ];
+        for _ in 0..14 {
+            code.extend_from_slice(&[0xB3, 0x01, 0x21, 0x00]); // add x3, x1, x2
+        }
+        code.extend_from_slice(&0x73u32.to_le_bytes()); // ecall (halt)
+        code
+    }
+
+    #[test]
+    fn compact_memproof_honest_and_tamper() {
+        let program = fib_program();
+        let input: Vec<u8> = vec![];
+        // Prove.
+        let (proof, final_regs) =
+            prove_memory_argument_compact(&program, &input, 64, 4, 5).unwrap();
+        // Verify (honest).
+        verify_memory_argument_compact(&proof, &program, &input).unwrap();
+
+        // Size accounting: the honest wire estimate.
+        let mut bytes = 0usize;
+        for c in &proof.claims {
+            bytes += 1 + 1 + 8; // disc + payload + value (points derived)
+        }
+        for inst in &proof.legs {
+            for leg in &inst.legs {
+                bytes += leg.sc.rounds.len() * leg.sc.rounds[0].len().max(1) * 8 + 16;
+            }
+        }
+        bytes += proof.bits_commitment.len();
+        bytes += proof.values_commitment.len();
+        for (carrier, w) in [
+            (&proof.bits_carrier, &proof.bits_w),
+            (&proof.values_carrier, &proof.values_w),
+        ] {
+            bytes += carrier
+                .rounds
+                .iter()
+                .map(|r| r.len() * 8)
+                .sum::<usize>()
+                + 16;
+            bytes += 8; // w
+        }
+        for (op, lens) in [
+            (&proof.bits_opening, &proof.bits_factor_lens),
+            (&proof.values_opening, &proof.values_factor_lens),
+        ] {
+            bytes += op.u_tilde.len() * 8;
+            bytes += op.response.hist.len()
+                + op.response.payload.len()
+                + op.response.raw.len();
+            bytes += lens.len() + 16;
+        }
+        println!("COMPACT PROOF SIZE: {} B = {:.1} KB", bytes, bytes as f64 / 1024.0);
+        assert!(
+            bytes < 300_000,
+            "compact proof should be far under the Clear mode"
+        );
+
+        // ---- Tamper suite ----
+        // Wrong final register: rejected.
+        let mut bad = clone_proof(&proof);
+        bad.statement.final_regs[1] = bad.statement.final_regs[1].wrapping_add(1);
+        assert!(verify_memory_argument_compact(&bad, &program, &input).is_err());
+
+        // Wrong program digest: rejected.
+        let mut bad2 = clone_proof(&proof);
+        bad2.statement.program_digest[0] ^= 0xFF;
+        assert!(verify_memory_argument_compact(&bad2, &program, &input).is_err());
+
+        // Tampered claim value: rejected.
+        let mut bad3 = clone_proof(&proof);
+        if let Some(c) = bad3.claims.first_mut() {
+            c.value = c.value.add(&Goldilocks::from_u64(1));
+        }
+        assert!(verify_memory_argument_compact(&bad3, &program, &input).is_err());
+
+        // Reordered claims: rejected (the pop order is protocol-fixed).
+        let mut bad9 = clone_proof(&proof);
+        if bad9.claims.len() > 2 {
+            bad9.claims.swap(0, 1);
+        }
+        assert!(verify_memory_argument_compact(&bad9, &program, &input).is_err());
+
+        // Tampered carrier terminal w: rejected.
+        let mut bad4 = clone_proof(&proof);
+        bad4.bits_w = bad4.bits_w.add(&Goldilocks::from_u64(1));
+        assert!(verify_memory_argument_compact(&bad4, &program, &input).is_err());
+
+        // Tampered u_tilde: rejected.
+        let mut bad5 = clone_proof(&proof);
+        if let Some(u) = bad5.bits_opening.u_tilde.first_mut() {
+            *u = u.add(&Goldilocks::from_u64(1));
+        }
+        assert!(verify_memory_argument_compact(&bad5, &program, &input).is_err());
+
+        // Tampered response: rejected.
+        let mut bad6 = clone_proof(&proof);
+        if let Some(x) = bad6.values_opening.response.raw.first_mut() {
+            *x ^= 0x40;
+        }
+        assert!(verify_memory_argument_compact(&bad6, &program, &input).is_err());
+
+        // Tampered commitment: rejected.
+        let mut bad7 = clone_proof(&proof);
+        if bad7.bits_commitment.len() > 12 {
+            bad7.bits_commitment[12] ^= 0xFF;
+        }
+        assert!(verify_memory_argument_compact(&bad7, &program, &input).is_err());
+
+        // Tampered widths: rejected.
+        let mut bad8 = clone_proof(&proof);
+        if let Some(x) = bad8.values_opening.widths.first_mut() {
+            *x = (*x + 1) % 9;
+        }
+        assert!(verify_memory_argument_compact(&bad8, &program, &input).is_err());
+
+        let _ = final_regs;
+    }
+
+    fn clone_proof(p: &CompactMemoryProof) -> CompactMemoryProof {
+        p.clone()
+    }
 }

@@ -15,6 +15,7 @@ lattice-sumcheck = { workspace = true }
 lattice-akita = { workspace = true }
 lattice-vm = { workspace = true }
 lattice-memory = { workspace = true }
+lattice-labinius = { workspace = true }
 
 [dev-dependencies]
 lattice-guest = { workspace = true }

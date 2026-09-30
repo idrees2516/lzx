@@ -26,6 +26,7 @@ pub mod columns;
 pub mod memory;
 pub mod constraints;
 pub mod memproof;
+pub mod compact;
 pub mod ledger;
 pub mod envelope;
 pub mod prove;
