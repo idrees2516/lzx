@@ -164,3 +164,50 @@ arithmetic predicts ≤ 45 KB without it.
    ambiguous mod q.
 5. Tamper tests: wrong u, wrong v, wrong y, norm violation, shadow mismatch,
    carrier mismatch — all must fail closed.
+
+
+## Stage 4 — the leg batching (the specified final cut, next session)
+
+The 108 legs (55–70 KB) group by (dependency stage, variable count); the
+batching via `lattice-sumcheck/src/batch.rs::prove_batch` (random-power
+RLC, the T&S §4.2.1 machinery) collapses each group into ONE sumcheck
+whose message count is `max_rounds × max_degree` regardless of the
+group's size:
+
+| group | legs per RW instance | shared point | vars | batched size |
+|---|---|---|---|---|
+| read group | Ma, V0, Mu0 | read_point (C's terminal) | log_ts | 10 × ~12 coeffs |
+| write group | Mb, Mc, V1, Mu1 | write_point (W's terminal) | log_ts | 10 × ~12 |
+| tel group | Md | tel_point (T's terminal) | log_ts | 10 × ~10 |
+| B+R | B, R | (own points, same cube) | log_rows+log_ts | 13 × ~7 |
+
+Per-instance: 13 sumchecks → 6 (B+R, C, read-group, W, write-group, T+Md
+— T and Md stay separate: different cubes). Cross-instance: the groups
+share `log_ts` across all nine instances, so the read/write/tel groups
+batch GLOBALLY (27/32/8 legs → 3 sumchecks): the projected total legs
+communication drops 55–70 KB → **~8–12 KB**, landing the full proof at
+**~33–46 KB** — comfortably under the 50 KB target at every provable
+program size.
+
+Implementation notes (the dependency-safe order): C's terminal feeds the
+read group; W's terminal feeds the write group; T's terminal feeds Md —
+batch only WITHIN a stage. `prove_batch`'s factor claims use GLOBAL
+factor indexing (the union across the batched claims); each leg's
+`bind_matrix_factors`/terminal checks map through the index offsets. The
+verify side mirrors the same grouping; the LegProof list changes shape
+(13 → 6 per instance) — the legs' names/claims must stay
+transcript-stable across the change (a protocol revision, not a
+compatibility break — the proof format is versioned by the envelope).
+
+## Stage 5 — the residual roadmap (post-50 KB)
+
+1. The MSIS parameter tightening: run `lattice-sis-estimator` on the
+   fold's instances (q = 3·2^30+1, n = 64, k ∈ {2, 4}, m = n̄, the gate
+   at r·A·255 vs the statistical 6σ bound) and publish the security
+   table; the knobs (k↑, r↓, the statistical gate) are the levers.
+2. The LaBRADOR decider (completing `lattice-labrador`'s core: the
+   response vector per part, γ/δ wiring, the real verifier) — the
+   second-level fold that takes the openings to ~5 KB and removes the
+   (k, n̄) security/size tension entirely.
+3. The verifier's O(K) public-table work → MLE-structured tables
+   (O(log K)) at RAM scale.
