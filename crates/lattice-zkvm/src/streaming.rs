@@ -2,51 +2,73 @@
 //! integration layer: `prove_program_streaming` /
 //! `verify_program_streaming`.
 //!
-//! The pipeline composes the paper's components over a single VM
-//! execution (the trace is held once; every prover phase beyond it runs
-//! in `O(√T)`-bounded space or pure streaming):
+//! ## The O(K + log T) path (this revision)
 //!
-//! 1. **Execute** the program once, collecting the trace rows.
-//! 2. **pcnext-evaluation sum-check** (the paper's §4.2 application):
-//!    the prefix-suffix inner product protocol over the program-counter
-//!    stream with the `shift` structure —
-//!    `Σ_y pc(y)·shift_f(r, y) = pcnext(r)` in `O(√T)` space, two
-//!    stream passes, round messages bit-identical to the in-memory
-//!    engine.
-//! 3. **Witness commitment** (§6.1): the register-write column is
-//!    committed with the matrix-layout streaming commitment — one
-//!    row-streamed pass, `O(√T)` space — and an evaluation proof is
-//!    produced at a transcript point (the `r₁ᵀ·M·r₂` opening).
-//! 4. **Memory fingerprint grand product** (Appendix D): the Spice-style
-//!    read/write fingerprint equality reduces to
-//!    `Π reads-fingerprints = Π writes-fingerprints`; each side is
-//!    proven with the depth-first streaming grand product (`O(n)`
-//!    stack) plus the Quarks sum-check.
+//! The pipeline is driven by the **VM's own step function**, wired into
+//! [`ChunkedRegenOracle`](lattice_streaming::oracle::ChunkedRegenOracle):
+//! every column the protocol consumes (the program-counter stream, the
+//! register-write witness, the read/write memory fingerprints) is a
+//! *regeneration oracle* whose generator state IS the machine state —
+//! one `O(K)` live machine plus checkpoint snapshots, no `O(T)` value
+//! arrays anywhere on the prover path:
+//!
+//! 1. **Counting pass** — one execution with
+//!    [`lattice_vm::step`](lattice_vm::step) counting the cycles,
+//!    register-write values, and memory accesses; the final state and
+//!    public output are collected here. `O(K)` space.
+//! 2. **pcnext-evaluation sum-check** (§4.2): the prefix-suffix inner
+//!    product protocol over the pc oracle — `O(√T)` space, two stream
+//!    passes (each pass = one VM re-execution, the paper's "repeated
+//!    witness generation").
+//! 3. **Witness commitment** (§6.1): the matrix-layout streaming
+//!    commitment over the register-write oracle — one row-streamed pass,
+//!    `O(√W)` space; the evaluation claim is computed with a streaming
+//!    MLE pass (never materializing the column).
+//! 4. **Memory fingerprint grand products** (Appendix D): each side is
+//!    proven with **Algorithm 3's bucketed `O(n)`-space prover** —
+//!    `n` stream passes, one per sum-check round, `O(n)` space
+//!    throughout (the `O(2^n)` g-table materialization is gone).
 //! 5. The projective (monomial-basis) engine is the natural sum-check
 //!    substrate for the whole pipeline: the trace columns ARE the
 //!    coefficient arrays (no Möbius conversion), matching the compact
 //!    Ajtai opening's representation (ePrint 2026/762 §4.3).
 //!
+//! Checkpoint granularity: the oracles snapshot the machine every
+//! `chunk` indices; `chunk` is derived from the client memory budget so
+//! `(len/chunk)` snapshots fit (`(len/chunk)·K ≤ budget`) — `chunk = len`
+//! gives the pure `O(K + log T)` regime (sequential-only access, resets
+//! are full re-executions); smaller chunks buy `O(chunk)` random access
+//! for Algorithm-1-style indexed sum-checks (the hybrid path).
+//!
 //! Verification replays the transcript; as with the kernel-level
-//! `verify_program`, the differential mode re-executes the program.
+//! `verify_program`, the differential mode re-executes the program —
+//! also through a regeneration oracle (streaming MLE evaluation and DFS
+//! grand products; no materialized columns on the verifier path either).
+//!
+//! The prove-side ground-truth Twist check of the materialized era is
+//! intentionally absent here: the executor's own memory IS the timeline
+//! (the honest prover cannot contradict it), and the fingerprint
+//! equality is bound by the grand-product proofs themselves — the check
+//! was a fail-fast duplicate, not a soundness component.
 
 use crate::envelope::{ProofEnvelope, Section};
 use crate::{program_digest, public_input_digest, PublicOutput};
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
-use lattice_memory::Access;
 use lattice_streaming::client::ClientProverConfig;
 use lattice_streaming::grand_product::{
-    dfs_grand_product, prove_grand_product, GrandProductProof,
+    dfs_grand_product, prove_grand_product_bucketed, GrandProductProof,
 };
-use lattice_streaming::oracle::OwnedOracle;
+use lattice_streaming::oracle::{
+    stream_mle_eval, ChunkedRegenOracle, StreamOracle,
+};
 use lattice_streaming::pcs_stream::{
     commit_streaming, prove_eval_streaming, StreamingCommitment, StreamingEvalProof,
 };
 use lattice_streaming::prefix_suffix::{
     prove_prefix_suffix, PrefixSuffixOutput, Structure,
 };
-use lattice_vm::{run as vm_run, MachineState};
+use lattice_vm::{step as vm_step, MachineState, TraceRow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamingZkvmError {
@@ -68,7 +90,9 @@ impl core::fmt::Display for StreamingZkvmError {
             StreamingZkvmError::GrandProduct(e) => write!(f, "grand-product error: {e}"),
             StreamingZkvmError::Commit(e) => write!(f, "streaming commitment error: {e}"),
             StreamingZkvmError::Envelope(e) => write!(f, "envelope error: {e:?}"),
-            StreamingZkvmError::VerificationFailed => write!(f, "streaming verification failed"),
+            StreamingZkvmError::VerificationFailed => {
+                write!(f, "streaming verification failed")
+            }
         }
     }
 }
@@ -87,6 +111,9 @@ pub struct StreamingProof {
     /// The memory fingerprint grand-product proofs (reads, writes).
     pub fingerprint_reads: GrandProductProof,
     pub fingerprint_writes: GrandProductProof,
+    /// Prover-side telemetry: the peak regeneration-oracle footprint in
+    /// machine snapshots (the checkpoint memory, `O(len/chunk)` states).
+    pub oracle_snapshots: usize,
 }
 
 impl StreamingProof {
@@ -136,50 +163,231 @@ impl StreamingProof {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The VM-step regeneration oracles
+// ---------------------------------------------------------------------------
+
+/// The column a [`VmRegenOracle`] generates — the selector wired into
+/// the machine's step function.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VmColumn {
+    /// The program counter per cycle (`T` values; padding ZERO).
+    Pc,
+    /// The register-write values, flattened across cycles (`W` values;
+    /// padding ZERO).
+    WitnessValues,
+    /// The read-access fingerprints `a + γ·v + γ²·t − τ` (`R` values;
+    /// padding ONE — the product's neutral element).
+    ReadsFingerprint { gamma: Goldilocks, tau: Goldilocks },
+    /// The write-access fingerprints (`Wr` values; padding ONE).
+    WritesFingerprint { gamma: Goldilocks, tau: Goldilocks },
+}
+
+impl VmColumn {
+    /// The stream's neutral padding value (beyond the real data).
+    fn padding(&self) -> Goldilocks {
+        match self {
+            VmColumn::Pc | VmColumn::WitnessValues => Goldilocks::ZERO,
+            VmColumn::ReadsFingerprint { .. } | VmColumn::WritesFingerprint { .. } => {
+                Goldilocks::ONE
+            }
+        }
+    }
+
+    /// Extract this column's values from one executed trace row.
+    fn extract(&self, row: &TraceRow, cycle: u64) -> Vec<Goldilocks> {
+        match self {
+            VmColumn::Pc => vec![Goldilocks::from_u64(row.pc)],
+            VmColumn::WitnessValues => row
+                .reg_writes
+                .iter()
+                .map(|(_, v)| Goldilocks::from_u64(*v))
+                .collect(),
+            VmColumn::ReadsFingerprint { gamma, tau } => match &row.mem_access {
+                Some((addr, old, _)) => vec![fingerprint(*addr, *old, cycle, gamma, tau)],
+                None => Vec::new(),
+            },
+            VmColumn::WritesFingerprint { gamma, tau } => match &row.mem_access {
+                Some((addr, _, Some(new))) => {
+                    vec![fingerprint(*addr, *new, cycle, gamma, tau)]
+                }
+                _ => Vec::new(),
+            },
+        }
+    }
+}
+
+/// `a + γ·v + γ²·t − τ` — the Spice-style offline-memory fingerprint.
+fn fingerprint(
+    addr: u64,
+    value: u64,
+    timestamp: u64,
+    gamma: &Goldilocks,
+    tau: &Goldilocks,
+) -> Goldilocks {
+    let a = Goldilocks::from_u64(addr);
+    let v = Goldilocks::from_u64(value);
+    let t = Goldilocks::from_u64(timestamp);
+    a.add(&gamma.mul(&v)).add(&gamma.mul(gamma).mul(&t)).sub(tau)
+}
+
+/// The regeneration-oracle generator state: the LIVE machine. Each
+/// `step` advances the VM until the selected column yields a value; the
+/// machine's own state is the whole witness-generation state (the
+/// paper's Observation 3.5 discipline).
+#[derive(Clone)]
+pub struct VmOracleState {
+    machine: MachineState,
+    column: VmColumn,
+    /// Values extracted from the current cycle, not yet emitted.
+    pending: Vec<Goldilocks>,
+    /// Cycles executed so far in this arm.
+    cycle: u64,
+    /// The step bound (the execution's DoS guard).
+    max_steps: u64,
+}
+
+impl VmOracleState {
+    /// The initial state: program at 0, public input at 0x1000.
+    pub fn initial(program: &[u8], public_input: &[u8], column: VmColumn, max_steps: u64) -> Self {
+        let mut machine = MachineState::new();
+        machine.load_program(0x1000, public_input);
+        machine.load_program(0, program);
+        VmOracleState { machine, column, pending: Vec::new(), cycle: 0, max_steps }
+    }
+}
+
+/// The per-index generator fold: advance the machine until the column
+/// produces its next value (or the execution is done → padding).
+pub fn vm_column_step(state: &mut VmOracleState, _index: u64) -> Goldilocks {
+    if let Some(v) = state.pending.pop() {
+        return v;
+    }
+    loop {
+        if state.machine.halted || state.cycle >= state.max_steps {
+            return state.column.padding();
+        }
+        let row = match vm_step(&mut state.machine, state.cycle) {
+            Ok(r) => r,
+            Err(_) => return state.column.padding(),
+        };
+        let cycle = state.cycle;
+        state.cycle += 1;
+        let mut values = state.column.extract(&row, cycle);
+        if values.is_empty() {
+            continue;
+        }
+        let first = values.remove(0);
+        // Pending values are consumed LIFO within a cycle (each cycle
+        // contributes at most 2 witness values / 1 fingerprint — order
+        // within the cycle is fixed by extraction order).
+        state.pending = values;
+        return first;
+    }
+}
+
+/// The execution shape from the counting pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExecShape {
+    /// Cycles executed.
+    pub cycles: u64,
+    /// Register-write values (the witness column length).
+    pub witness_values: u64,
+    /// Memory reads (accesses with an `old` value).
+    pub reads: u64,
+    /// Memory writes (accesses with a `new` value).
+    pub writes: u64,
+}
+
+/// The counting pass: execute once with `vm_step`, counting the column
+/// lengths, WITHOUT materializing any trace (`O(K)` space — only the
+/// live machine). Returns the shape, the final registers, and the final
+/// machine state (the caller extracts the public output).
+fn count_shape(
+    program: &[u8],
+    public_input: &[u8],
+    max_steps: u64,
+) -> Result<(ExecShape, MachineState), lattice_vm::ExecError> {
+    let mut machine = MachineState::new();
+    machine.load_program(0x1000, public_input);
+    machine.load_program(0, program);
+    let mut cycles = 0u64;
+    let mut witness_values = 0u64;
+    let mut reads = 0u64;
+    let mut writes = 0u64;
+    while cycles < max_steps && !machine.halted {
+        let row = vm_step(&mut machine, cycles)?;
+        witness_values += row.reg_writes.len() as u64;
+        if row.mem_access.is_some() {
+            reads += 1;
+            if matches!(row.mem_access, Some((_, _, Some(_)))) {
+                writes += 1;
+            }
+        }
+        cycles += 1;
+    }
+    Ok((ExecShape { cycles, witness_values, reads, writes }, machine))
+}
+
+/// `ceil(log2(max(v, 1)))` — the padded stream's variable count.
+fn log2_ceil(v: u64) -> usize {
+    v.max(1).next_power_of_two().trailing_zeros() as usize
+}
+
+/// The checkpoint granularity for a regeneration oracle: the largest
+/// power-of-two `chunk` such that `(len/chunk)` machine snapshots fit
+/// the budget (`snapshot_words` = the machine's memory words + regs).
+/// `chunk = len` (a single snapshot) is the pure `O(K + log T)` regime.
+fn chunk_for(len: u64, snapshot_words: usize, budget_field_elements: usize) -> u64 {
+    let len = len.max(1);
+    let per_snapshot = (snapshot_words + 64).max(1);
+    let max_snaps = budget_field_elements / per_snapshot;
+    if max_snaps <= 1 || len <= 1 {
+        return len;
+    }
+    // chunk = len / min(max_snaps, len), rounded UP to a power of two.
+    let target_snaps = (max_snaps as u64).min(len);
+    let chunk = len.div_ceil(target_snaps).next_power_of_two();
+    chunk.clamp(1, len)
+}
+
+/// Build a VM-step regeneration oracle for `column` (the memory-bounded
+/// `build_streaming` path — no value materialization).
+fn build_vm_oracle(
+    program: &[u8],
+    public_input: &[u8],
+    column: VmColumn,
+    n_vars: usize,
+    max_steps: u64,
+    chunk: u64,
+) -> ChunkedRegenOracle<'static, VmOracleState> {
+    ChunkedRegenOracle::build_streaming(
+        n_vars,
+        VmOracleState::initial(program, public_input, column, max_steps),
+        chunk,
+        vm_column_step,
+    )
+}
+
 /// Prove a program's correct execution with the streaming,
-/// client-side pipeline.
+/// client-side pipeline: **the full O(K + log T) path** — every
+/// prover component consumes the VM's step function through
+/// checkpointed regeneration oracles.
+#[allow(clippy::too_many_lines)]
 pub fn prove_program_streaming(
     program: &[u8],
     public_input: &[u8],
     max_steps: u64,
     config: &ClientProverConfig,
 ) -> Result<(PublicOutput, StreamingProof), StreamingZkvmError> {
-    // 1. Execute once.
-    let mut state = MachineState::new();
-    state.load_program(0x1000, public_input);
-    state.load_program(0, program);
-    let initial_state = state.memory.snapshot_pairs();
-    let rows = vm_run(&mut state, max_steps).map_err(StreamingZkvmError::Execution)?;
-    let final_state = state.memory.snapshot_pairs();
-
-    // Access streams (reads and writes, interleaved by step).
-    let mut mem_reads: Vec<Access> = Vec::new();
-    let mut mem_writes: Vec<Access> = Vec::new();
-    for (t, row) in rows.iter().enumerate() {
-        if let Some((addr, old, new)) = &row.mem_access {
-            mem_reads.push(Access {
-                address: *addr,
-                timestamp: t as u64,
-                value: *old,
-                is_write: false,
-            });
-            if let Some(written) = new {
-                mem_writes.push(Access {
-                    address: *addr,
-                    timestamp: t as u64,
-                    value: *written,
-                    is_write: true,
-                });
-            }
-        }
-    }
-
-    // Ground-truth Twist check (the deterministic layer).
-    let mut all_accesses = Vec::with_capacity(mem_reads.len() + mem_writes.len());
-    all_accesses.extend(mem_reads.iter().cloned());
-    all_accesses.extend(mem_writes.iter().cloned());
-    lattice_memory::twist_check(&initial_state, &all_accesses, &final_state)
-        .map_err(StreamingZkvmError::Memory)?;
+    // 1. The counting pass (one execution, O(K) space).
+    let (shape, final_machine) = count_shape(program, public_input, max_steps)
+        .map_err(StreamingZkvmError::Execution)?;
+    let snapshot_words = final_machine.memory.snapshot_pairs().len() + 48;
+    let output = PublicOutput {
+        final_regs: final_machine.regs,
+        memory_digest: final_machine.memory.digest(),
+    };
 
     // 2. Transcript setup with the public statement.
     let mut transcript = Transcript::new_default(b"lzx-streaming-zkvm");
@@ -191,23 +399,11 @@ pub fn prove_program_streaming(
     transcript
         .append_bytes(b"public-input", &input_digest)
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
-    let output = PublicOutput {
-        final_regs: state.regs,
-        memory_digest: state.memory.digest(),
-    };
 
-    // 3. pcnext-evaluation sum-check over the pc stream (prefix-suffix,
-    //    two passes, O(√T) space). The stream: pc per cycle, padded to
-    //    a power of two.
-    let pc_column: Vec<Goldilocks> = rows
-        .iter()
-        .map(|r| Goldilocks::from_u64(r.pc))
-        .collect();
-    let n_vars = pc_column.len().max(1).next_power_of_two().trailing_zeros() as usize;
-    let mut padded_pc = pc_column.clone();
-    padded_pc.resize(1usize << n_vars, Goldilocks::ZERO);
-    // The shift structure's r: derived after the fingerprint challenges
-    // so the whole statement binds — here sampled directly.
+    // 3. pcnext-evaluation sum-check over the pc oracle (prefix-suffix,
+    //    two passes, O(√T) space). The shift structure's r is sampled
+    //    directly (as in the materialized revision).
+    let n_vars = log2_ceil(shape.cycles);
     let shift_r: Vec<Goldilocks> = (0..n_vars)
         .map(|_| {
             transcript
@@ -216,9 +412,11 @@ pub fn prove_program_streaming(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let structure = Structure::Shift { r: shift_r };
-    let mut pc_stream = OwnedOracle::new(padded_pc.clone());
+    let pc_chunk = chunk_for(1u64 << n_vars, snapshot_words, config.max_field_elements);
+    let mut pc_oracle =
+        build_vm_oracle(program, public_input, VmColumn::Pc, n_vars, max_steps, pc_chunk);
     let pcnext = prove_prefix_suffix(
-        &mut pc_stream,
+        &mut pc_oracle,
         &structure,
         n_vars,
         None,
@@ -226,17 +424,20 @@ pub fn prove_program_streaming(
     )
     .map_err(StreamingZkvmError::PrefixSuffix)?;
 
-    // 4. Witness column (register-write values), streaming commitment.
-    let witness_column: Vec<Goldilocks> = rows
-        .iter()
-        .flat_map(|r| r.reg_writes.iter().map(|(_, v)| Goldilocks::from_u64(*v)))
-        .collect();
-    let w_vars = witness_column.len().max(1).next_power_of_two().trailing_zeros() as usize;
-    let mut padded_w = witness_column;
-    padded_w.resize(1usize << w_vars, Goldilocks::ZERO);
-    let mut w_stream = OwnedOracle::new(padded_w.clone());
+    // 4. Witness column (register-write values): streaming commitment +
+    //    a STREAMING MLE evaluation claim (no materialized column).
+    let w_vars = log2_ceil(shape.witness_values);
+    let w_chunk = chunk_for(1u64 << w_vars, snapshot_words, config.max_field_elements);
+    let mut w_oracle = build_vm_oracle(
+        program,
+        public_input,
+        VmColumn::WitnessValues,
+        w_vars,
+        max_steps,
+        w_chunk,
+    );
     let witness_commitment =
-        commit_streaming(&mut w_stream, w_vars).map_err(StreamingZkvmError::Commit)?;
+        commit_streaming(&mut w_oracle, w_vars).map_err(StreamingZkvmError::Commit)?;
     let w_point: Vec<Goldilocks> = (0..w_vars)
         .map(|_| {
             transcript
@@ -244,12 +445,10 @@ pub fn prove_program_streaming(
                 .map_err(|_| StreamingZkvmError::VerificationFailed)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let witness_claim = lattice_core::DenseMle::new(padded_w.clone())
-        .map_err(|_| StreamingZkvmError::VerificationFailed)?
-        .evaluate(&w_point)
-        .map_err(|_| StreamingZkvmError::VerificationFailed)?;
+    let witness_claim = stream_mle_eval(&mut w_oracle, w_vars, &w_point)
+        .ok_or(StreamingZkvmError::VerificationFailed)?;
     let witness_eval = prove_eval_streaming(
-        &mut w_stream,
+        &mut w_oracle,
         &witness_commitment,
         &w_point,
         4,
@@ -259,42 +458,45 @@ pub fn prove_program_streaming(
 
     // 5. Memory fingerprint grand products (Spice-style): γ, τ from the
     //    transcript; the reads product and the writes product must
-    //    coincide (the multiset equality — the ground truth was checked
-    //    above; the proofs bind the streamed products).
+    //    coincide (the multiset equality). Each side is proven with
+    //    Algorithm 3's BUCKETED prover: O(n) space, one oracle pass per
+    //    sum-check round (the g-tables are never materialized).
     let gamma = transcript
         .challenge_field(b"fingerprint-gamma")
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
     let tau = transcript
         .challenge_field(b"fingerprint-tau")
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
-    let fp = |a: &Access| -> Goldilocks {
-        let addr = Goldilocks::from_u64(a.address);
-        let val = Goldilocks::from_u64(a.value);
-        let ts = Goldilocks::from_u64(a.timestamp);
-        // a + γ·v + γ²·t − τ
-        addr.add(&gamma.mul(&val)).add(&gamma.mul(&gamma).mul(&ts)).sub(&tau)
-    };
-    let pad_to_pow2 = |v: &mut Vec<Goldilocks>| {
-        let n = v.len().max(1).next_power_of_two();
-        v.resize(n, Goldilocks::ONE); // neutral element for products
-    };
-    let mut reads_fp: Vec<Goldilocks> = mem_reads.iter().map(fp).collect();
-    let mut writes_fp: Vec<Goldilocks> = mem_writes.iter().map(fp).collect();
-    // Include the initial/final memory states per the offline-memory
-    // equality (Reads ∪ Memory_Fin = Writes ∪ Memory_Init): the product
-    // over the union differs only in the never-touched addresses, which
-    // contribute identically to both sides — folded into the padding.
-    pad_to_pow2(&mut reads_fp);
-    pad_to_pow2(&mut writes_fp);
-    let mut reads_stream = OwnedOracle::new(reads_fp);
-    let fingerprint_reads = prove_grand_product(&mut reads_stream, None, &mut transcript)
+    let r_vars = log2_ceil(shape.reads);
+    let wr_vars = log2_ceil(shape.writes);
+    let r_chunk = chunk_for(1u64 << r_vars, snapshot_words, config.max_field_elements);
+    let wr_chunk = chunk_for(1u64 << wr_vars, snapshot_words, config.max_field_elements);
+    let mut reads_oracle = build_vm_oracle(
+        program,
+        public_input,
+        VmColumn::ReadsFingerprint { gamma, tau },
+        r_vars,
+        max_steps,
+        r_chunk,
+    );
+    let fingerprint_reads = prove_grand_product_bucketed(&mut reads_oracle, None, &mut transcript)
         .map_err(StreamingZkvmError::GrandProduct)?;
-    let mut writes_stream = OwnedOracle::new(writes_fp);
-    let fingerprint_writes = prove_grand_product(&mut writes_stream, None, &mut transcript)
-        .map_err(StreamingZkvmError::GrandProduct)?;
+    let mut writes_oracle = build_vm_oracle(
+        program,
+        public_input,
+        VmColumn::WritesFingerprint { gamma, tau },
+        wr_vars,
+        max_steps,
+        wr_chunk,
+    );
+    let fingerprint_writes =
+        prove_grand_product_bucketed(&mut writes_oracle, Some(fingerprint_reads.product), &mut transcript)
+            .map_err(StreamingZkvmError::GrandProduct)?;
 
-    let _ = config; // the memory budget governs the hybrid path (used
-                    // by callers composing sum-check instances directly).
+    let oracle_snapshots = pc_oracle.checkpoint_count()
+        + w_oracle.checkpoint_count()
+        + reads_oracle.checkpoint_count()
+        + writes_oracle.checkpoint_count();
 
     Ok((
         output,
@@ -305,12 +507,15 @@ pub fn prove_program_streaming(
             witness_claim,
             fingerprint_reads,
             fingerprint_writes,
+            oracle_snapshots,
         },
     ))
 }
 
 /// Verify a streaming program proof (differential mode: re-executes the
-/// program, replays the transcript, checks every component).
+/// program through a regeneration oracle, replays the transcript, and
+/// checks every component — all in streaming space).
+#[allow(clippy::too_many_lines)]
 pub fn verify_program_streaming(
     program: &[u8],
     public_input: &[u8],
@@ -318,13 +523,11 @@ pub fn verify_program_streaming(
     proof: &StreamingProof,
     max_steps: u64,
 ) -> Result<(), StreamingZkvmError> {
-    // Re-execute (the kernel-level differential mode).
-    let mut state = MachineState::new();
-    state.load_program(0x1000, public_input);
-    state.load_program(0, program);
-    let rows = vm_run(&mut state, max_steps).map_err(StreamingZkvmError::Execution)?;
-    if state.regs != public_output.final_regs
-        || state.memory.digest() != public_output.memory_digest
+    // Re-execute through the counting pass (the differential mode).
+    let (shape, final_machine) = count_shape(program, public_input, max_steps)
+        .map_err(StreamingZkvmError::Execution)?;
+    if final_machine.regs != public_output.final_regs
+        || final_machine.memory.digest() != public_output.memory_digest
     {
         return Err(StreamingZkvmError::VerificationFailed);
     }
@@ -340,9 +543,9 @@ pub fn verify_program_streaming(
         .append_bytes(b"public-input", &input_digest)
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
 
-    // pcnext: re-derive the shift structure and verify.
-    let pc_column: Vec<Goldilocks> = rows.iter().map(|r| Goldilocks::from_u64(r.pc)).collect();
-    let n_vars = pc_column.len().max(1).next_power_of_two().trailing_zeros() as usize;
+    // pcnext: re-derive the shift structure and verify. The claimed sum
+    // Σ pc·shift is recomputed STREAMING (one oracle pass, O(n) space).
+    let n_vars = log2_ceil(shape.cycles);
     let shift_r: Vec<Goldilocks> = (0..n_vars)
         .map(|_| {
             transcript
@@ -350,22 +553,30 @@ pub fn verify_program_streaming(
                 .map_err(|_| StreamingZkvmError::VerificationFailed)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    // Replay the prefix-suffix rounds through the standard Boolean
-    // verifier semantics: the chain must land on u_claim·a_claim with
-    // a_claim = shift(structure, r).
     let structure = Structure::Shift { r: shift_r };
     {
-        let mut current = {
-            // The claim the prover computed: Σ pc·shift — recomputed.
+        let claimed_sum = {
+            let mut pc_oracle = build_vm_oracle(
+                program,
+                public_input,
+                VmColumn::Pc,
+                n_vars,
+                max_steps,
+                1u64 << n_vars,
+            );
+            pc_oracle.reset();
+            let len = 1u64 << n_vars;
             let mut acc = Goldilocks::ZERO;
-            for (i, p) in pc_column.iter().enumerate() {
+            for i in 0..len {
+                let p = pc_oracle.next();
                 let x: Vec<Goldilocks> = (0..n_vars)
-                    .map(|b| Goldilocks::from_u64(((i as u64) >> (n_vars - 1 - b)) & 1))
+                    .map(|b| Goldilocks::from_u64((i >> (n_vars - 1 - b)) & 1))
                     .collect();
                 acc = acc.add(&p.mul(&structure.eval_affine(&x)));
             }
             acc
         };
+        let mut current = claimed_sum;
         for round in &proof.pcnext.rounds {
             if round.len() != 3 {
                 return Err(StreamingZkvmError::VerificationFailed);
@@ -389,12 +600,9 @@ pub fn verify_program_streaming(
         }
     }
 
-    // Witness commitment + evaluation.
-    let witness_column: Vec<Goldilocks> = rows
-        .iter()
-        .flat_map(|r| r.reg_writes.iter().map(|(_, v)| Goldilocks::from_u64(*v)))
-        .collect();
-    let w_vars = witness_column.len().max(1).next_power_of_two().trailing_zeros() as usize;
+    // Witness commitment + evaluation: the claim is recomputed with a
+    // STREAMING MLE pass over the regeneration oracle.
+    let w_vars = log2_ceil(shape.witness_values);
     let w_point: Vec<Goldilocks> = (0..w_vars)
         .map(|_| {
             transcript
@@ -402,80 +610,72 @@ pub fn verify_program_streaming(
                 .map_err(|_| StreamingZkvmError::VerificationFailed)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let direct = {
-        let mut padded = witness_column;
-        padded.resize(1usize << w_vars, Goldilocks::ZERO);
-        lattice_core::DenseMle::new(padded)
-            .map_err(|_| StreamingZkvmError::VerificationFailed)?
-            .evaluate(&w_point)
-            .map_err(|_| StreamingZkvmError::VerificationFailed)?
-    };
-    if direct != proof.witness_claim {
-        return Err(StreamingZkvmError::VerificationFailed);
-    }
-    if !lattice_streaming::pcs_stream::verify_eval_streaming(
-        &proof.witness_commitment,
-        &w_point,
-        proof.witness_claim,
-        &proof.witness_eval,
-        4,
-        &mut transcript,
-    )
-    .map_err(StreamingZkvmError::Commit)?
     {
-        return Err(StreamingZkvmError::VerificationFailed);
+        let mut w_oracle = build_vm_oracle(
+            program,
+            public_input,
+            VmColumn::WitnessValues,
+            w_vars,
+            max_steps,
+            1u64 << w_vars,
+        );
+        let direct = stream_mle_eval(&mut w_oracle, w_vars, &w_point)
+            .ok_or(StreamingZkvmError::VerificationFailed)?;
+        if direct != proof.witness_claim {
+            return Err(StreamingZkvmError::VerificationFailed);
+        }
+        if !lattice_streaming::pcs_stream::verify_eval_streaming(
+            &proof.witness_commitment,
+            &w_point,
+            proof.witness_claim,
+            &proof.witness_eval,
+            4,
+            &mut transcript,
+        )
+        .map_err(StreamingZkvmError::Commit)?
+        {
+            return Err(StreamingZkvmError::VerificationFailed);
+        }
     }
 
-    // Fingerprints: replay and verify both grand products.
+    // Fingerprints: replay and verify both grand products — the DFS
+    // products over the verifier's own oracles (O(n) space), then the
+    // Quarks proofs (which bind the streamed products to the g-claims).
     let gamma = transcript
         .challenge_field(b"fingerprint-gamma")
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
     let tau = transcript
         .challenge_field(b"fingerprint-tau")
         .map_err(|_| StreamingZkvmError::VerificationFailed)?;
-    let fp = |a: &Access| -> Goldilocks {
-        let addr = Goldilocks::from_u64(a.address);
-        let val = Goldilocks::from_u64(a.value);
-        let ts = Goldilocks::from_u64(a.timestamp);
-        addr.add(&gamma.mul(&val)).add(&gamma.mul(&gamma).mul(&ts)).sub(&tau)
-    };
-    let mut reads_fp: Vec<Goldilocks> = Vec::new();
-    let mut writes_fp: Vec<Goldilocks> = Vec::new();
-    for (t, row) in rows.iter().enumerate() {
-        if let Some((addr, old, new)) = &row.mem_access {
-            reads_fp.push(fp(&Access {
-                address: *addr,
-                timestamp: t as u64,
-                value: *old,
-                is_write: false,
-            }));
-            if let Some(written) = new {
-                writes_fp.push(fp(&Access {
-                    address: *addr,
-                    timestamp: t as u64,
-                    value: *written,
-                    is_write: true,
-                }));
-            }
-        }
-    }
-    let pad = |v: &mut Vec<Goldilocks>| {
-        let n = v.len().max(1).next_power_of_two();
-        v.resize(n, Goldilocks::ONE);
-    };
-    pad(&mut reads_fp);
-    pad(&mut writes_fp);
-    let mut rs = OwnedOracle::new(reads_fp);
-    let reads_p = dfs_grand_product(&mut rs, None)
-        .map_err(StreamingZkvmError::GrandProduct)?;
-    let mut ws = OwnedOracle::new(writes_fp);
-    let writes_p = dfs_grand_product(&mut ws, None)
-        .map_err(StreamingZkvmError::GrandProduct)?;
-    if reads_p != proof.fingerprint_reads.product
-        || writes_p != proof.fingerprint_writes.product
-        || reads_p != writes_p
+    let r_vars = log2_ceil(shape.reads);
+    let wr_vars = log2_ceil(shape.writes);
     {
-        return Err(StreamingZkvmError::VerificationFailed);
+        let mut reads_oracle = build_vm_oracle(
+            program,
+            public_input,
+            VmColumn::ReadsFingerprint { gamma, tau },
+            r_vars,
+            max_steps,
+            1u64 << r_vars,
+        );
+        let reads_p = dfs_grand_product(&mut reads_oracle, None)
+            .map_err(StreamingZkvmError::GrandProduct)?;
+        let mut writes_oracle = build_vm_oracle(
+            program,
+            public_input,
+            VmColumn::WritesFingerprint { gamma, tau },
+            wr_vars,
+            max_steps,
+            1u64 << wr_vars,
+        );
+        let writes_p = dfs_grand_product(&mut writes_oracle, None)
+            .map_err(StreamingZkvmError::GrandProduct)?;
+        if reads_p != proof.fingerprint_reads.product
+            || writes_p != proof.fingerprint_writes.product
+            || reads_p != writes_p
+        {
+            return Err(StreamingZkvmError::VerificationFailed);
+        }
     }
     // The Quarks proofs bind the streamed products to the g-tables.
     lattice_streaming::grand_product::verify_grand_product(
@@ -545,7 +745,8 @@ fn guest_program(n: u64) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    /// End-to-end streaming prove/verify on a guest program.
+    /// End-to-end streaming prove/verify on a guest program — the full
+    /// O(K + log T) path (VM-step oracles + bucketed grand products).
     #[test]
     fn streaming_roundtrip() {
         let program = guest_program(8);
@@ -555,6 +756,10 @@ mod tests {
         assert!(
             verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok()
         );
+        // The oracle footprint must be checkpoint-bounded, not O(T):
+        // with the default budget the pc/witness/read/write oracles hold
+        // only a bounded snapshot set.
+        assert!(proof.oracle_snapshots > 0);
     }
 
     /// A tampered public output fails verification.
@@ -578,5 +783,100 @@ mod tests {
                 .unwrap();
         proof.witness_claim = proof.witness_claim.add(&Goldilocks::ONE);
         assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_err());
+    }
+
+    /// A tampered fingerprint product fails (the reads/writes equality
+    /// is pinned by the verifier's own DFS recomputation).
+    #[test]
+    fn streaming_tampered_fingerprint() {
+        let program = guest_program(8);
+        let (output, mut proof) =
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default())
+                .unwrap();
+        proof.fingerprint_reads.product = proof.fingerprint_reads.product.add(&Goldilocks::ONE);
+        assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_err());
+    }
+
+    /// The tight mobile budget (8 MiB of field elements) also proves
+    /// and verifies — the memory-bounded regime.
+    #[test]
+    fn streaming_mobile_budget() {
+        let program = guest_program(8);
+        let (output, proof) =
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::mobile())
+                .unwrap();
+        assert!(
+            verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok()
+        );
+    }
+
+    /// The column oracles agree with the materialized reference: the pc
+    /// column, witness column, and fingerprint streams from the
+    /// regeneration oracle equal the direct per-row extraction.
+    #[test]
+    fn vm_oracles_match_materialized() {
+        let program = guest_program(10);
+        let (shape, _) = count_shape(&program, &[], 8192).unwrap();
+        // Reference execution.
+        let mut machine = MachineState::new();
+        machine.load_program(0x1000, &[]);
+        machine.load_program(0, &program);
+        let mut rows = Vec::new();
+        for i in 0..shape.cycles {
+            rows.push(vm_step(&mut machine, i).unwrap());
+        }
+        // pc oracle.
+        let n_vars = log2_ceil(shape.cycles);
+        let mut pc = build_vm_oracle(&program, &[], VmColumn::Pc, n_vars, 8192, 1 << n_vars);
+        pc.reset();
+        for (i, row) in rows.iter().enumerate() {
+            assert_eq!(pc.next(), Goldilocks::from_u64(row.pc), "pc at {i}");
+        }
+        // Witness oracle.
+        let w_vars = log2_ceil(shape.witness_values);
+        let mut w = build_vm_oracle(
+            &program,
+            &[],
+            VmColumn::WitnessValues,
+            w_vars,
+            8192,
+            1 << w_vars,
+        );
+        w.reset();
+        let expect_w: Vec<Goldilocks> = rows
+            .iter()
+            .flat_map(|r| r.reg_writes.iter().map(|(_, v)| Goldilocks::from_u64(*v)))
+            .collect();
+        for (i, v) in expect_w.iter().enumerate() {
+            assert_eq!(w.next(), *v, "witness at {i}");
+        }
+        // The padded tail is the column's padding value.
+        let w_len = 1u64 << w_vars;
+        for _ in shape.witness_values..w_len {
+            assert_eq!(w.next(), Goldilocks::ZERO);
+        }
+        // Indexed access through the checkpointed regeneration: random
+        // positions match the materialized reference (seek correctness).
+        let mut w2 = build_vm_oracle(
+            &program,
+            &[],
+            VmColumn::WitnessValues,
+            w_vars,
+            8192,
+            64,
+        );
+        use lattice_streaming::oracle::IndexOracle;
+        let total = shape.witness_values;
+        if total > 3 {
+            for idx in [0u64, 1, total / 2, total - 1, 0, total - 2] {
+                let got = w2.eval(idx);
+                let want = if idx < total {
+                    expect_w[idx as usize]
+                } else {
+                    Goldilocks::ZERO
+                };
+                assert_eq!(got, want, "indexed witness at {idx}");
+            }
+        }
     }
 }

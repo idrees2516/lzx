@@ -234,6 +234,53 @@ impl<'a, S: Clone> ChunkedRegenOracle<'a, S> {
         (oracle, values)
     }
 
+    /// Build **without materializing the values** — the checkpoint-only
+    /// pass (the memory-bounded path: `O(len/chunk)` snapshots of the
+    /// generator state, no `O(len)` value array). The oracle then serves
+    /// both sequential walks (`StreamOracle`, one re-generation pass per
+    /// `reset`) and indexed access (`IndexOracle::eval`, `O(chunk)` per
+    /// seek from the latest checkpoint) — the paper's §1.2 item 4.
+    pub fn build_streaming(
+        n_vars: usize,
+        initial: S,
+        chunk: u64,
+        mut step: impl FnMut(&mut S, u64) -> Goldilocks + 'a,
+    ) -> Self {
+        let len = 1u64 << n_vars;
+        let chunk = chunk.max(1);
+        let mut checkpoints = vec![(0u64, initial.clone())];
+        let mut st = initial.clone();
+        for i in 0..len {
+            if i > 0 && i % chunk == 0 {
+                checkpoints.push((i, st.clone()));
+            }
+            let _ = step(&mut st, i);
+        }
+        ChunkedRegenOracle {
+            n_vars,
+            initial: initial.clone(),
+            checkpoints,
+            chunk,
+            pos: 0,
+            state: initial,
+            step: Box::new(step),
+        }
+    }
+
+    /// The number of live snapshots (the checkpoint-memory footprint in
+    /// generator states).
+    pub fn checkpoint_count(&self) -> usize {
+        self.checkpoints.len()
+    }
+
+    /// Seek to position 0 and drop to the initial state (a fresh
+    /// re-generation arm — used instead of `reset` when the caller wants
+    /// an explicitly rewound sequential walk).
+    pub fn rewind(&mut self) {
+        self.state = self.initial.clone();
+        self.pos = 0;
+    }
+
     fn seek(&mut self, index: u64) {
         // Fast path: sequential or small forward jumps.
         if index >= self.pos && index - self.pos <= self.chunk {
@@ -287,6 +334,34 @@ impl<'a, S: Clone> StreamOracle for ChunkedRegenOracle<'a, S> {
         self.state = self.initial.clone();
         self.pos = 0;
     }
+}
+
+/// **Streaming MLE evaluation** — `Σ_z eq(point, z)·v[z]` in one pass
+/// over the stream, `O(n)` space (the eq weight maintained per element,
+/// `O(n)` work each — `O(n·2^n)` total). The memory-bounded replacement
+/// for `DenseMle::new(values).evaluate(&point)`.
+pub fn stream_mle_eval(
+    stream: &mut dyn StreamOracle,
+    n_vars: usize,
+    point: &[Goldilocks],
+) -> Option<Goldilocks> {
+    if point.len() != n_vars {
+        return None;
+    }
+    stream.reset();
+    let len = 1u64 << n_vars;
+    let mut acc = Goldilocks::ZERO;
+    // Gray-code-free direct evaluation: O(n) per element.
+    for z in 0..len {
+        let v = stream.next();
+        let mut w = Goldilocks::ONE;
+        for (b, rb) in point.iter().enumerate() {
+            let f = if (z >> (n_vars - 1 - b)) & 1 == 1 { *rb } else { Goldilocks::ONE.sub(rb) };
+            w = w.mul(&f);
+        }
+        acc = acc.add(&w.mul(&v));
+    }
+    Some(acc)
 }
 
 #[cfg(test)]

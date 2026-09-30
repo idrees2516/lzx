@@ -152,3 +152,23 @@ sorting, memory-ops, regex (table-driven DFA for `(ab|ba)*c`),
 matrix-mul, modinv (Fermat inverses mod 2^61−1), muldiv — each with a
 pure-std reference and a VM-vs-reference test. SHA-2/SHA-3/merkle are the
 documented next guests.
+
+## 8. The Stage-4 + streaming session (2026-09-30, evening)
+
+The DESIGN_50KB final cut executed end-to-end, plus the two streaming
+papers' client-side path:
+
+| item | landed | evidence |
+|---|---|---|
+| **Stage 4 leg batching** | ~117 legs → 12 staged batched sumchecks (`legbatch.rs`); fibonacci **75.5 → 33.0 KB** (110× vs Clear; 27.0 KB at the k=2 prototype) | `memproof::compact_tests`, `zkvm-membench` |
+| **Algorithm 3 (2025/611 App D)** | the bucketed `O(n)`-space grand-product round prover — LSB-first binding, open-bucket routing, completion-label flushes; the `O(2^n)` g-tables eliminated | `grand_product::tests::bucketed_*` (round-1 bit-identical to the direct evaluation; g-claims vs rebuilt tables) |
+| **The O(K + log T) path** | the VM's step function wired into `ChunkedRegenOracle` (`build_streaming`, the budget-derived chunk); pc/witness/fingerprint columns are regeneration oracles — no `O(T)` materialization on prover or verifier | `streaming::tests` (incl. the materialized cross-check + indexed access) |
+| **Stage 5.1 (the MSIS table)** | the estimator run + the honest verdict: `k=2` is `~2^12` at every response length; **shipped the `k=4`, `A=2^6` interim**; the sound posture needs the second-level fold | `fold_security_table.rs`, SECURITY.md |
+| **Stage 5.4 (partial)** | the ledger `fix_last_variables` tail cache — the digit-row claim pattern's `(log_k+1)×` resolution win | `ledger.rs` |
+
+Workspace: **685 tests green, 0 clippy warnings**. The remaining ledger:
+the LaBRADOR decider (5.2 — now estimator-MANDATED), MLE-structured
+verifier tables (5.3), the sparse prover + SIMD/RNS (5.4), and the
+instruction-semantics families (5.5 — the substrate and aux columns are
+built; the arith/logic/comparison/control/routing constraint
+polynomials are the next focused session).

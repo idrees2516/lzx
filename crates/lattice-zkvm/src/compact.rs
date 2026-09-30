@@ -556,9 +556,12 @@ pub struct FoldParams {
 }
 
 impl FoldParams {
-    /// Conservative default: amplitude 2^12, gate = r·A·255 (worst case).
+    /// The estimator-tuned default (SECURITY.md's MSIS table): amplitude
+    /// `2^6` tightens the relaxed bound `64×` at zero exactness cost
+    /// (the integer fold's Goldilocks functional commutes at any
+    /// amplitude; `r·A·255 ≪ q/2` holds with margin).
     pub fn new(r: usize, k: usize) -> Self {
-        let amplitude = 1u32 << 12;
+        let amplitude = 1u32 << 6;
         let gate = (r as u64) * (amplitude as u64) * 255;
         FoldParams {
             r,

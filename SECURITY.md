@@ -136,3 +136,43 @@ Security issues follow the audit's gate G6 process:
    program digest, wrong claim value, reordered claims, tampered
    carrier terminal, tampered ũ, tampered response bits, tampered
    commitment bytes, wrong seed, tampered widths — all rejected.
+
+## The estimator-run MSIS table (2026-09-30, Stage 5.1) — the honest verdict
+
+`lattice-sis-estimator/examples/fold_security_table.rs` runs the ADPS16
+estimator on the compact fold's actual instances
+(`q = 3·2^30+1`, ring `N = 64`, `m = (n̄ + r)·64`, the relaxed `2×`
+bound; scalar convention per `scalar_sis_from_ring`). The
+pre-estimator assertion in note 5 above ("the lattice covering radius
+at the chosen `(k, n̄)` far above the gate") **does not survive the
+run**:
+
+| shape | bound | classical bits | verdict |
+|---|---|---|---|
+| k=2, A=2^12, n̄ ∈ {128..1024} | gate `2·r·A·255` | **11.7** | broken |
+| k=2, any n̄, any bound | any | 11.7 | the rank-2 module is broken at every response length |
+| k=4, n̄=4, r=4, A=2^6 | gate | 60.2 | insufficient |
+| k=4, n̄=2, r=4, A=2^8 | gate | **329.6** | sound — the second-fold regime |
+| k=4, n̄=2, r=4, A=2^6 | gate | 1040.6 | sound |
+| knob search: n̄ ≥ 8 at 128 bits | gate | — | needs k ≥ 16 (commitments blow the 50 KB budget) |
+
+**The finding**: the single-level fold at the benchmark response
+lengths (`n̄` in the hundreds) buys the 27 KB size, **not** the MSIS
+binding — `m/n` in the tens puts every instance in the combinatorial
+regime regardless of the gate. The knobs (`k↑`, `r↓`, `A↓`, the
+statistical gate) do not close the gap at these lengths: reaching 128
+bits at `n̄ ≥ 8` requires `k ≥ 16`, whose commitments
+(`r·k·64·4` bytes) alone exceed the 50 KB budget.
+
+**The sound posture** (the roadmap's own Stage 5.2, now estimator-
+mandated): the **second-level fold** — reduce the response to
+`n̄ ∈ {2, 4}` ring elements before the opening (the LaBRADOR decider's
+job) — where `k = 4, r = 4, A ≤ 2^8` holds 329+ classical bits with
+~4 KB of commitments. Until that lands, the compact mode's opening
+must be read as a **size prototype with an under-sized module**: the
+protocol's tamper tests pin the honest path, but the binding claim at
+`k = 2` is `~2^12` — the interim hardening is `k = 4` + `A = 2^6`
+(60 bits at `n̄ = 4`; still shy of 128 at longer responses).
+
+The table itself regenerates with:
+`cargo run --release -p lattice-sis-estimator --example fold_security_table`.

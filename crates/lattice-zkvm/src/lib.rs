@@ -30,6 +30,7 @@ pub mod compact;
 pub mod ledger;
 pub mod envelope;
 pub mod prove;
+pub mod legbatch;
 pub mod streaming;
 
 #[cfg(test)]

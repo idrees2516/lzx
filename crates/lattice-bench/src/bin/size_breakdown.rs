@@ -70,12 +70,20 @@ fn breakdown_compact(proof: &CompactMemoryProof) {
     }
     let mut legs_bytes = 0usize;
     let mut n_legs = 0usize;
-    for inst in &proof.legs {
-        for leg in &inst.legs {
-            legs_bytes += leg.sc.rounds.len() * leg.sc.rounds[0].len().max(1) * 8 + 16;
-            n_legs += 1;
-        }
+    for sc in proof.legs.sumchecks() {
+        legs_bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
+        n_legs += 1;
     }
+    // The transmitted batched-claim vectors (the batches' input claims).
+    legs_bytes += (proof.legs.ra_claims.len()
+        + proof.legs.val_read_claims.len()
+        + proof.legs.u_read_claims.len()
+        + proof.legs.wa_claims.len()
+        + proof.legs.inc_w_claims.len()
+        + proof.legs.val_write_claims.len()
+        + proof.legs.u_write_claims.len()
+        + proof.legs.inc_tel_claims.len())
+        * 8;
     let bits_c = proof.bits_commitment.len();
     let vals_c = proof.values_commitment.len();
     let mut carrier_bytes = 0usize;

@@ -1,13 +1,16 @@
 # The 50 KB Proof Pipeline — Design Document
 
-Date: 2026-09-30. Status: **STAGE 0–2 + claims compression LANDED** —
-measured 3,640 KB → **75.5 KB (fibonacci)**, 7,218 KB → **108.4 KB
-(regex)**, with the values-only claims list (345 claims → 3.5 KB) and the
-folded compact opening (the old 3.4 MB digit reveal → ~18 KB). The
-remaining term is the 108 sumcheck legs (55–70 KB); the leg batching
-(§Stage 4 below) is the specified final cut to ~33 KB.
-Target: zkVM memory-argument proof ≤ 50 KB (from 3.6–7.2 MB), without losing
-the non-re-executing verifier or the soundness posture.
+Date: 2026-09-30. Status: **STAGE 4 LANDED — the 50 KB target is met**:
+measured 3,640 KB → **33.0 KB (fibonacci, the k=4-hardened fold; 27.0 KB at the k=2 size prototype) with the Stage-4 leg
+batching (the 108 legs → 12 staged sumchecks; `lattice-zkvm/src/legbatch.rs`),
+on top of the Stage 0–2 compact opening + claims compression
+(75.5 KB pre-batching). The estimator-run MSIS table (Stage 5.1,
+`SECURITY.md`) published the honest binding verdict: the single-level
+fold at `k = 2` is `~2^12` at every response length — the interim
+hardening (`k = 4`, `A = 2^6`) is shipped; the sound posture needs the
+second-level fold (Stage 5.2).
+Target: zkVM memory-argument proof ≤ 50 KB (from 3.6–7.2 MB) — **met at
+33 KB** (27 KB at the k=2 size prototype), with the binding caveat documented.
 
 ## Measured after the compact opening + claims compression
 
@@ -166,7 +169,7 @@ arithmetic predicts ≤ 45 KB without it.
    carrier mismatch — all must fail closed.
 
 
-## Stage 4 — the leg batching (the specified final cut, next session)
+## Stage 4 — the leg batching (LANDED, this session)
 
 The 108 legs (55–70 KB) group by (dependency stage, variable count); the
 batching via `lattice-sumcheck/src/batch.rs::prove_batch` (random-power
@@ -181,13 +184,20 @@ group's size:
 | tel group | Md | tel_point (T's terminal) | log_ts | 10 × ~10 |
 | B+R | B, R | (own points, same cube) | log_rows+log_ts | 13 × ~7 |
 
-Per-instance: 13 sumchecks → 6 (B+R, C, read-group, W, write-group, T+Md
-— T and Md stay separate: different cubes). Cross-instance: the groups
-share `log_ts` across all nine instances, so the read/write/tel groups
-batch GLOBALLY (27/32/8 legs → 3 sumchecks): the projected total legs
-communication drops 55–70 KB → **~8–12 KB**, landing the full proof at
-**~33–46 KB** — comfortably under the 50 KB target at every provable
-program size.
+**The landed shape** (`lattice-zkvm/src/legbatch.rs`): the dependency-safe
+staged protocol — stage A (B+R per cube class), stage B (C/W/T per
+class, one shared terminal per class), the fetch instance's standalone
+Ma, then the GLOBAL batches: read {Ma, V0}×8 → Mu0×8 → write
+{Mb, Mc, V1}×8 → Mu1×8 → Md×8. Twelve sumchecks total (vs ~117 legs);
+the measured legs communication dropped 55 KB → **~6 KB** and the full
+fibonacci proof landed at **27.0 KB** (17.7 KB on the compact test
+program) — under the 50 KB target with the `k = 4` hardened opening.
+The transmitted per-leg evaluation claims (`ra/val/u/wa/inc`) became the
+batches' claimed-sum vectors, pinned by their own stages' terminal
+identities against the ledger — the same binding structure the per-leg
+`LegProof::claim` had. The ledger discipline (dedup'd `(factor, point)`
+records in a prover/verifier-identical sequence) is the queue-sync
+invariant; the shared terminals CONCENTRATE the ledger claims.
 
 Implementation notes (the dependency-safe order): C's terminal feeds the
 read group; W's terminal feeds the write group; T's terminal feeds Md —
@@ -201,13 +211,42 @@ compatibility break — the proof format is versioned by the envelope).
 
 ## Stage 5 — the residual roadmap (post-50 KB)
 
-1. The MSIS parameter tightening: run `lattice-sis-estimator` on the
-   fold's instances (q = 3·2^30+1, n = 64, k ∈ {2, 4}, m = n̄, the gate
-   at r·A·255 vs the statistical 6σ bound) and publish the security
-   table; the knobs (k↑, r↓, the statistical gate) are the levers.
+1. **The MSIS parameter tightening — RUN, verdict published**
+   (`lattice-sis-estimator/examples/fold_security_table.rs` +
+   `SECURITY.md`): the estimator says the single-level fold at `k = 2`
+   is `~2^12` bits at EVERY response length (the `m/n` regime), the
+   knobs alone do not close it at `n̄ ≥ 8` (needs `k ≥ 16`, whose
+   commitments blow the budget), and the sound regime is the
+   second-level fold's `n̄ ∈ {2, 4}` at `k = 4, A ≤ 2^8` (329+ bits).
+   **Shipped as the interim**: `k = 4`, `A = 2^6` (the gate tightened
+   64×, the commitments doubled — 33 KB total, still under budget).
 2. The LaBRADOR decider (completing `lattice-labrador`'s core: the
    response vector per part, γ/δ wiring, the real verifier) — the
    second-level fold that takes the openings to ~5 KB and removes the
-   (k, n̄) security/size tension entirely.
+   (k, n̄) security/size tension entirely. **Now estimator-mandated**
+   (the Stage 5.1 verdict): the single-level fold's binding does not
+   reach 128 bits at the benchmark response lengths without it.
 3. The verifier's O(K) public-table work → MLE-structured tables
    (O(log K)) at RAM scale.
+
+## The session's companion landings (the streaming path)
+
+* **Algorithm 3's bucketed O(n)-space grand-product rounds**
+  (`lattice-streaming/src/grand_product.rs::
+  prove_grand_product_bucketed`): LSB-first binding + open-bucket
+  routing keyed by the remaining hypercube's high bits, completion-label
+  flushes — the `O(2^n)` g-table materialization eliminated; round-1
+  messages cross-validated against the direct evaluation, g-claims
+  against the rebuilt tables.
+* **The VM's step function wired into `ChunkedRegenOracle`**
+  (`lattice-zkvm/src/streaming.rs`): every prover/verifier column (pc,
+  register-write witness, read/write fingerprints) is a regeneration
+  oracle over the live machine — the full `O(K + log T)` path
+  (`build_streaming`'s checkpoint-only construction, the
+  budget-derived chunk granularity, streaming MLE evaluation).
+  `prove/verify_program_streaming` no longer materializes any
+  `O(T)` column.
+* **The ledger `fix_last_variables` cache** (`ledger.rs`): the
+  digit-row claim pattern (`idx_point(b) ∥ terminal`, the `b`-loop)
+  shares one bound tensor per tail — the `(log_k + 1)×` resolution win
+  the prover profile identified.

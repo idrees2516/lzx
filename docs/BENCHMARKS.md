@@ -58,6 +58,37 @@ column commitments 8.2 KB, carriers 0.8 KB, compact openings 9.3 KB,
 statement 0.5 KB. The multi-megabyte digit tables — 95% of the old
 proof — are gone; the opening machinery is now 13% of the proof.
 
+## 2b′. The Stage-4 leg batching + the estimator-hardened fold (2026-09-30, this session)
+
+**The 50 KB target is met**: `legbatch.rs` re-structures the ~117
+per-instance legs into 12 staged, dependency-ordered batched sumchecks
+(T&S §4.2.1 random-power RLC via `prove_batch`; the transmitted
+per-leg evaluation claims became the batches' claimed-sum vectors,
+pinned by their own stages' terminal identities). The fold's interim
+hardening (`k = 4`, amplitude `2^6` — the estimator-run MSIS table's
+verdict, SECURITY.md) doubles the column commitments and tightens the
+relaxed bound 64×.
+
+| program | cycles | Clear mode | Batched compact | reduction | compact prove | compact verify |
+|---|---|---|---|---|---|---|
+| fibonacci | 185 | 3,640 KB | **33.0 KB** | **110×** | 1,429 ms | 196 ms |
+
+Batched-compact composition (fibonacci): legs ~6 KB (12 batched
+sumchecks — was 55 KB / 108 legs), claims 3.5 KB, column commitments
+~16 KB (the k=4 hardening), carriers 0.8 KB, compact openings ~6 KB,
+statement 0.5 KB. The per-cycle prover cost includes the ledger's new
+`fix_last_variables` tail cache (the digit-row claim pattern's
+`(log_k+1)×` resolution win).
+
+**The honest security caveat** (the estimator's verdict,
+`SECURITY.md`): the single-level fold's MSIS binding at `k = 2` was
+`~2^12` bits at every response length; the shipped `k = 4` interim
+lifts the short-response regime but the sound 128-bit posture at the
+benchmark response lengths requires the second-level fold (Stage 5.2,
+the LaBRADOR decider) — the estimator table
+(`lattice-sis-estimator/examples/fold_security_table.rs`) maps the
+knob levers and the sound `n̄ ∈ {2, 4}` regime.
+
 
 ## 2c. The streaming / client-side prover (the small-space pipeline, 2026-09-30)
 

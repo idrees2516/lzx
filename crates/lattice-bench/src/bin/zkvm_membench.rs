@@ -68,10 +68,11 @@ fn measure_memory_argument(
     let fetch_log_k = fetch_words.next_power_of_two().max(1).trailing_zeros() as usize;
     let t0 = Instant::now();
     let mut proof = None;
-    // The dense prover materializes K x T_s matrices; cap the window at
-    // 256 words so K*T_s stays tractable (the sparse prover is the next
-    // wave — see docs/BENCHMARKS.md).
-    for ram_log_k in 4..=8usize {
+    // The dense prover materializes K x T_s matrices; the window extends
+    // to 4096 words to cover the input region at 0x1000 (word 512) and
+    // guest stacks (the sparse prover is the next wave — see
+    // docs/BENCHMARKS.md).
+    for ram_log_k in 4..=12usize {
         if let Ok((p, _)) = prove_memory_argument(
             &prog.image,
             &prog.public_input,
@@ -94,7 +95,7 @@ fn measure_memory_argument(
     // The compact mode: prove + verify + size.
     let t2 = Instant::now();
     let mut compact: Option<CompactMemoryProof> = None;
-    for ram_log_k in 4..=8usize {
+    for ram_log_k in 4..=12usize {
         if let Ok((p, _)) = prove_memory_argument_compact(
             &prog.image,
             &prog.public_input,
@@ -131,11 +132,18 @@ fn compact_proof_size_kb(proof: &CompactMemoryProof) -> usize {
     for _c in &proof.claims {
         bytes += 1 + 1 + 8; // values-only (points verifier-derived)
     }
-    for inst in &proof.legs {
-        for leg in &inst.legs {
-            bytes += leg.sc.rounds.len() * leg.sc.rounds[0].len().max(1) * 8 + 16;
-        }
+    for sc in proof.legs.sumchecks() {
+        bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
     }
+    // The transmitted evaluation claims (the batched legs' input claims).
+    bytes += proof.legs.ra_claims.len() * 8
+        + proof.legs.val_read_claims.len() * 8
+        + proof.legs.u_read_claims.len() * 8
+        + proof.legs.wa_claims.len() * 8
+        + proof.legs.inc_w_claims.len() * 8
+        + proof.legs.val_write_claims.len() * 8
+        + proof.legs.u_write_claims.len() * 8
+        + proof.legs.inc_tel_claims.len() * 8;
     bytes += proof.bits_commitment.len();
     bytes += proof.values_commitment.len();
     for carrier in [&proof.bits_carrier, &proof.values_carrier] {

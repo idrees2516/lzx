@@ -295,6 +295,306 @@ pub fn prove_grand_product(
     })
 }
 
+/// An open bucket: one per simultaneously-open remaining-hypercube index
+/// `m` (≤ `n + 1 − i` of them — exactly the DFS stack depth plus the
+/// current subtree). `acc[k][s]` accumulates
+/// `Σ_y eq((r_1..r_{i−1}, α_s), y) · g_k(y, m)` — the bound `g_k`
+/// expansion for bucket key `m`, per `α`-node `s`.
+#[derive(Clone)]
+struct OpenBucket {
+    m: u64,
+    acc: [[Goldilocks; 4]; 4],
+}
+
+impl OpenBucket {
+    fn free() -> Self {
+        OpenBucket { m: u64::MAX, acc: [[Goldilocks::ZERO; 4]; 4] }
+    }
+}
+
+/// **Algorithm 3 — the bucketed `O(n)`-space round-message prover**
+/// (ePrint 2025/611, Appendix D, Theorem D.4).
+///
+/// Computes the Quarks sum-check round messages **without materializing
+/// the `g`-tables** (the recorded-table path above is the `O(2^n)`-space
+/// reference): the DFS walk emits `(z, g1, g2, g3)` merge events; each
+/// event's term `eq((r_{<i}, α_s), y)·g_k(z)` (with `y = z`'s low `i`
+/// bits, bucket key `m = z >> i`) routes into one of the open buckets,
+/// and the *completion label* of `m` (its low `i` bits all ones — the
+/// ancestor merge `z = (m+1)·2^i − 1`, or the special point `1^n` for
+/// the last `m`) flushes the bucket product
+/// `acc[0][s]·(acc[1][s] − acc[2][s]·acc[3][s])` into the round
+/// accumulator and frees the slot.
+///
+/// Binding order: **least-significant variable first** (the paper's
+/// convention — round `i` binds `x_i`, the `i`-th LSB). This is what
+/// makes the bucketing work: the remaining hypercube is indexed by the
+/// *high* bits, which is exactly the DFS tree's subtree structure, so
+/// buckets open and close in tree order and at most `n + 1 − i` are
+/// live. (Binding MSB-first would key the buckets by the *low* bits —
+/// diagonal across the tree — and need `O(2^{n−i})` live buckets.)
+///
+/// Space: the DFS stack (`n + 1` blocks) + ≤ `n + 1 − i` buckets × 16
+/// field elements + the challenges — `O(n)`. Time: one stream pass per
+/// round with `O(n + i)` work per merge event — `O(n²·2^n)` field
+/// operations overall (the same shape as Algorithm 1's `O(ℓ²·n·2^n)`).
+/// The produced proof verifies with [`verify_grand_product`] (the
+/// verifier's replay is binding-order-agnostic).
+pub fn prove_grand_product_bucketed(
+    stream: &mut dyn StreamOracle,
+    product: Option<Goldilocks>,
+    transcript: &mut Transcript,
+) -> Result<GrandProductProof, GrandProductError> {
+    let n = stream.len().trailing_zeros() as usize;
+    // Derived-product mode: a plain DFS pre-pass (O(n) space) fixes the
+    // claim so it can be absorbed BEFORE any challenge (FS hygiene).
+    let product = match product {
+        Some(p) => p,
+        None => {
+            stream.reset();
+            dfs_grand_product(stream, None)?
+        }
+    };
+    transcript
+        .append_field(b"grand-product", &product)
+        .map_err(GrandProductError::Transcript)?;
+    let mut u: Vec<Goldilocks> = Vec::with_capacity(n);
+    for _ in 0..n {
+        u.push(
+            transcript
+                .challenge_field(b"grand-product-u")
+                .map_err(GrandProductError::Transcript)?,
+        );
+    }
+    // The u-challenges are drawn LSB-first (u[b] ↔ the variable at
+    // LSB-position b — the round-(b+1) variable); eq(u, z) below uses
+    // that order directly.
+
+    if n == 0 {
+        // Degenerate: the stream is a single leaf; P = v(0), no rounds,
+        // g1 = g3 = 0, g2(·) = P at the empty point.
+        stream.reset();
+        let p = stream.next();
+        if p != product {
+            return Err(GrandProductError::TerminalIdentityFailed);
+        }
+        return Ok(GrandProductProof {
+            product,
+            rounds: Vec::new(),
+            challenges: Vec::new(),
+            g_claims: [Goldilocks::ZERO, product, Goldilocks::ZERO],
+        });
+    }
+
+    let mut rounds: Vec<Vec<Goldilocks>> = Vec::with_capacity(n);
+    let mut challenges: Vec<Goldilocks> = Vec::with_capacity(n);
+    let mut current_claim = Goldilocks::ZERO;
+    // The last round's flush values per g (at the α nodes) — the g-claims
+    // interpolate from the Boolean nodes.
+    let mut last_flush: Option<[[Goldilocks; 4]; 4]> = None;
+    let mut bound_r: Vec<Goldilocks> = Vec::with_capacity(n);
+    let len = stream.len();
+
+    for i in 1..=n {
+        // ---- one DFS stream pass, bucketed ----
+        let mut accumulator = [Goldilocks::ZERO; 4];
+        let mut open: Vec<OpenBucket> = Vec::new();
+        let mut stack: Vec<Block> = Vec::with_capacity(n + 1);
+        let mask: u64 = (1u64 << i) - 1;
+        stream.reset();
+        for x in 0..len {
+            let v = stream.next();
+            stack.push(Block { value: v, size: 1, offset: x });
+            while stack.len() >= 2 {
+                let (left, right) = {
+                    let l = stack.len();
+                    (&stack[l - 2], &stack[l - 1])
+                };
+                if left.size == right.size
+                    && left.offset + left.size == right.offset
+                    && (right.offset / right.size) % 2 == 1
+                {
+                    let prod = left.value.mul(&right.value);
+                    let z = left.offset + left.size - 1;
+                    // ---- the merge event: route the term ----
+                    let g0 = eq_point_lsb(&u, z, n);
+                    let slot = bucket_slot(&mut open, z >> i, i, n);
+                    add_term(
+                        &mut open[slot], i, &bound_r, z, mask,
+                        [g0, prod, left.value, right.value],
+                    );
+                    if z & mask == mask {
+                        // Completion label of bucket `z >> i`: flush now.
+                        flush_bucket(&mut open[slot], &mut accumulator);
+                    }
+                    let merged = Block {
+                        value: prod,
+                        size: left.size * 2,
+                        offset: left.offset,
+                    };
+                    stack.pop();
+                    stack.pop();
+                    stack.push(merged);
+                } else {
+                    break;
+                }
+            }
+        }
+        if stack.len() != 1 {
+            return Err(GrandProductError::ShapeMismatch {
+                expected: 1,
+                got: stack.len(),
+            });
+        }
+        let p = stack[0].value;
+        if p != product {
+            return Err(GrandProductError::TerminalIdentityFailed);
+        }
+
+        // ---- the special point 1^n: g1 = g3 = 0, g2 = P ----
+        {
+            let z = len - 1;
+            debug_assert_eq!(z & mask, mask);
+            let g0 = eq_point_lsb(&u, z, n);
+            let slot = bucket_slot(&mut open, z >> i, i, n);
+            add_term(&mut open[slot], i, &bound_r, z, mask,
+                [g0, Goldilocks::ZERO, p, Goldilocks::ZERO]);
+            let acc = flush_bucket(&mut open[slot], &mut accumulator);
+            if i == n {
+                last_flush = Some(acc);
+            }
+        }
+        // All buckets must have flushed (every completion label arrived).
+        debug_assert!(open.iter().all(|b| b.m == u64::MAX));
+
+        // ---- the round message ----
+        let evals = accumulator;
+        let sum01 = evals[0].add(&evals[1]);
+        if sum01 != current_claim {
+            return Err(GrandProductError::RoundCheckFailed { round: i });
+        }
+        transcript
+            .append_field_slice(b"sumcheck-round", &evals)
+            .map_err(GrandProductError::Transcript)?;
+        let r = transcript
+            .challenge_field(b"sumcheck-challenge")
+            .map_err(GrandProductError::Transcript)?;
+        current_claim = interpolate_nodes(&evals, &r);
+        bound_r.push(r);
+        challenges.push(r);
+        rounds.push(evals.to_vec());
+    }
+
+    // ---- the g-claims from the last round's flush ----
+    // last_flush[k][s] = g_k(r_1..r_{n−1}, α_s): interpolate the two
+    // Boolean nodes at r_n. (k=0 is the eq factor; k=1..3 are g1..g3.)
+    let lf = last_flush.ok_or(GrandProductError::ShapeMismatch {
+        expected: 1,
+        got: 0,
+    })?;
+    let rn = challenges[n - 1];
+    let interp2 = |v0: &Goldilocks, v1: &Goldilocks| -> Goldilocks {
+        v0.mul(&Goldilocks::ONE.sub(&rn)).add(&rn.mul(v1))
+    };
+    let g_claims = [
+        interp2(&lf[1][0], &lf[1][1]),
+        interp2(&lf[2][0], &lf[2][1]),
+        interp2(&lf[3][0], &lf[3][1]),
+    ];
+    
+    // Terminal identity: current_claim = eq(u, r)·(g1(r) − g2(r)·g3(r)).
+    let eq_ur = {
+        let mut acc = Goldilocks::ONE;
+        for (ub, rb) in u.iter().zip(challenges.iter()) {
+            acc = acc.mul(
+                &ub.mul(rb).add(&Goldilocks::ONE.sub(ub).mul(&Goldilocks::ONE.sub(rb))),
+            );
+        }
+        acc
+    };
+    let terminal = eq_ur.mul(&g_claims[0].sub(&g_claims[1].mul(&g_claims[2])));
+    if terminal != current_claim {
+        return Err(GrandProductError::TerminalIdentityFailed);
+    }
+
+    Ok(GrandProductProof {
+        product,
+        rounds,
+        challenges,
+        g_claims,
+    })
+}
+
+/// Find or open the bucket for key `m` (≤ `n + 1 − i` live at once).
+fn bucket_slot(open: &mut Vec<OpenBucket>, m: u64, i: usize, n: usize) -> usize {
+    if let Some(pos) = open.iter().position(|b| b.m == m) {
+        return pos;
+    }
+    open.push(OpenBucket { m, acc: [[Goldilocks::ZERO; 4]; 4] });
+    let cap = n + 2 - i;
+    debug_assert!(
+        open.iter().filter(|b| b.m != u64::MAX).count() <= cap,
+        "live buckets exceed n+1-i"
+    );
+    open.len() - 1
+}
+
+/// Add `eq((r_{<i}, α_s), y)·g_k(z)` for all `(k, s)` into the bucket,
+/// where `y = z & mask` and `gs = [g0, g1, g2, g3]`.
+fn add_term(
+    bucket: &mut OpenBucket,
+    i: usize,
+    bound_r: &[Goldilocks],
+    z: u64,
+    mask: u64,
+    gs: [Goldilocks; 4],
+) {
+    let y = z & mask;
+    // eq over the bound prefix: r_{b+1} vs y's LSB-position-b bit, b < i−1.
+    let mut eq_prefix = Goldilocks::ONE;
+    for (b, rb) in bound_r.iter().take(i.saturating_sub(1)).enumerate() {
+        let f = if (y >> b) & 1 == 1 { *rb } else { Goldilocks::ONE.sub(rb) };
+        eq_prefix = eq_prefix.mul(&f);
+    }
+    let y_top = (y >> (i - 1)) & 1 == 1;
+    let alphas = [
+        Goldilocks::ZERO,
+        Goldilocks::ONE,
+        Goldilocks::from_u64(2),
+        Goldilocks::from_u64(3),
+    ];
+    for (s, alpha) in alphas.iter().enumerate() {
+        let node_w = if y_top { *alpha } else { Goldilocks::ONE.sub(alpha) };
+        let w = eq_prefix.mul(&node_w);
+        for (acc_k, gk) in bucket.acc.iter_mut().zip(gs.iter()) {
+            acc_k[s] = acc_k[s].add(&w.mul(gk));
+        }
+    }
+}
+
+/// Flush a completed bucket into the round accumulator; returns the
+/// bucket's accumulated values (the bound g-evaluations at the α nodes).
+fn flush_bucket(bucket: &mut OpenBucket, accumulator: &mut [Goldilocks; 4]) -> [[Goldilocks; 4]; 4] {
+    for (s, acc_s) in accumulator.iter_mut().enumerate() {
+        let t = bucket.acc[0][s]
+            .mul(&bucket.acc[1][s].sub(&bucket.acc[2][s].mul(&bucket.acc[3][s])));
+        *acc_s = acc_s.add(&t);
+    }
+    let out = bucket.acc;
+    *bucket = OpenBucket::free();
+    out
+}
+
+/// `eq(u, z)` with `u` in LSB-first order (u[b] ↔ LSB-position b).
+fn eq_point_lsb(u: &[Goldilocks], z: u64, n: usize) -> Goldilocks {
+    let mut acc = Goldilocks::ONE;
+    for (b, ub) in u.iter().take(n).enumerate() {
+        let f = if (z >> b) & 1 == 1 { *ub } else { Goldilocks::ONE.sub(ub) };
+        acc = acc.mul(&f);
+    }
+    acc
+}
+
 /// Verify the grand-product proof: replay the round chain (the honest
 /// messages are zero, so the chain stays at the initial zero claim) and
 /// check the terminal identity from the claimed `g` evaluations.
@@ -358,6 +658,176 @@ mod tests {
     use super::*;
     use crate::oracle::OwnedOracle;
     use lattice_core::DenseMle;
+
+    /// The bucketed Algorithm-3 prover: prove/verify roundtrip at several
+    /// sizes, with the derived-product mode and the caller-claim mode.
+    #[test]
+    fn bucketed_roundtrip() {
+        for n in [1usize, 2, 3, 5, 7, 8] {
+            let data: Vec<Goldilocks> = (0..(1u64 << n))
+                .map(|i| g(i.wrapping_mul(29) + 5))
+                .collect();
+            let true_p = data.iter().fold(Goldilocks::ONE, |acc, v| acc.mul(v));
+            // Derived mode.
+            let mut stream = OwnedOracle::new(data.clone());
+            let mut ts = Transcript::new_default(b"gp-b");
+            let proof = prove_grand_product_bucketed(&mut stream, None, &mut ts).unwrap();
+            assert_eq!(proof.product, true_p, "derived product n={n}");
+            let mut ts2 = Transcript::new_default(b"gp-b");
+            assert!(verify_grand_product(&proof, &mut ts2).unwrap(), "verify n={n}");
+            // Caller-claim mode (same seed: the protocol is identical
+            // given the same claim input).
+            let mut stream2 = OwnedOracle::new(data);
+            let mut ts3 = Transcript::new_default(b"gp-b");
+            let proof2 =
+                prove_grand_product_bucketed(&mut stream2, Some(true_p), &mut ts3).unwrap();
+            let mut ts4 = Transcript::new_default(b"gp-b");
+            assert!(verify_grand_product(&proof2, &mut ts4).unwrap());
+            // The two modes' proofs agree on the product and g-claims
+            // (identical protocol given the same claim input).
+            assert_eq!(proof.g_claims, proof2.g_claims);
+        }
+    }
+
+    /// The bucketed prover's g-claims match the independently rebuilt
+    /// g2-table evaluated at the challenges in **LSB-first** order (the
+    /// bucketed protocol binds the least-significant variable first —
+    /// reverse the point for the DenseMle's MSB-first convention).
+    #[test]
+    fn bucketed_g_claims_match_tables() {
+        let n = 6;
+        let data: Vec<Goldilocks> = DenseMle::random(n, b"gp-bk").evaluations;
+        let mut stream = OwnedOracle::new(data.clone());
+        let mut ts = Transcript::new_default(b"gp-bt");
+        let proof = prove_grand_product_bucketed(&mut stream, None, &mut ts).unwrap();
+        // Rebuild the g tables independently.
+        let mut stream2 = OwnedOracle::new(data);
+        let mut triples = Vec::new();
+        let p = dfs_grand_product(&mut stream2, Some(&mut triples)).unwrap();
+        let len = 1usize << n;
+        let mut t1 = vec![Goldilocks::ZERO; len];
+        let mut t2 = vec![Goldilocks::ZERO; len];
+        let mut t3 = vec![Goldilocks::ZERO; len];
+        for (z, a, b, c) in &triples {
+            t1[*z as usize] = *a;
+            t2[*z as usize] = *b;
+            t3[*z as usize] = *c;
+        }
+        t2[len - 1] = p;
+        // The challenges are LSB-first; DenseMle points are MSB-first.
+        let pt_msb: Vec<Goldilocks> = proof.challenges.iter().rev().cloned().collect();
+        let m1 = DenseMle::new(t1).unwrap();
+        let m2 = DenseMle::new(t2).unwrap();
+        let m3 = DenseMle::new(t3).unwrap();
+        assert_eq!(m1.evaluate(&pt_msb).unwrap(), proof.g_claims[0]);
+        assert_eq!(m2.evaluate(&pt_msb).unwrap(), proof.g_claims[1]);
+        assert_eq!(m3.evaluate(&pt_msb).unwrap(), proof.g_claims[2]);
+    }
+
+    /// The bucketed prover's round messages are the true Quarks
+    /// sum-check messages: an independent in-memory evaluation of the
+    /// summand at round 1 (α ∈ {0,1,2,3}) matches, computed directly from
+    /// the g-tables — the bit-identical cross-validation at round 1.
+    #[test]
+    fn bucketed_round1_matches_reference() {
+        let n = 5;
+        let data: Vec<Goldilocks> = (0..(1u64 << n))
+            .map(|i| g(i.wrapping_mul(37) + 11))
+            .collect();
+        let mut stream = OwnedOracle::new(data.clone());
+        let mut ts = Transcript::new_default(b"gp-r1");
+        let proof = prove_grand_product_bucketed(&mut stream, None, &mut ts).unwrap();
+        // Rebuild the g tables and the u point from the transcript.
+        let mut ts2 = Transcript::new_default(b"gp-r1");
+        let product = proof.product;
+        ts2.append_field(b"grand-product", &product).unwrap();
+        let u: Vec<Goldilocks> = (0..n)
+            .map(|_| ts2.challenge_field(b"grand-product-u").unwrap())
+            .collect();
+        // The reference in-memory engine over the SAME tables, binding
+        // LSB-first, must produce the same round-1 message: this is the
+        // recorded-table prover restricted to round 1.
+        let mut stream2 = OwnedOracle::new(data);
+        let mut triples = Vec::new();
+        let p = dfs_grand_product(&mut stream2, Some(&mut triples)).unwrap();
+        let len = 1usize << n;
+        let mut g1 = vec![Goldilocks::ZERO; len];
+        let mut g2 = vec![Goldilocks::ZERO; len];
+        let mut g3 = vec![Goldilocks::ZERO; len];
+        for (z, a, b, c) in &triples {
+            g1[*z as usize] = *a;
+            g2[*z as usize] = *b;
+            g3[*z as usize] = *c;
+        }
+        g2[len - 1] = p;
+        // Round 1 binds the LSB (LSB-position 0): the correct message is
+        // f^1(α) = Σ_m eq(u_0,α)·eq(u_{1..},m)·[g1^α − g2^α·g3^α] with
+        // g^α = (1−α)·g(0,m) + α·g(1,m) — the multilinear expansion.
+        let mut expect = [Goldilocks::ZERO; 4];
+        for s in 0..4usize {
+            let alpha = Goldilocks::from_u64(s as u64);
+            let eq_u0 = u[0]
+                .mul(&alpha)
+                .add(&Goldilocks::ONE.sub(&u[0]).mul(&Goldilocks::ONE.sub(&alpha)));
+            for m in 0..(len / 2) {
+                let z0 = 2 * m;
+                let z1 = 2 * m + 1;
+                let mut eq_rest = Goldilocks::ONE;
+                for b in 1..n {
+                    let ub = u[b];
+                    let f = if (z0 >> b) & 1 == 1 { ub } else { Goldilocks::ONE.sub(&ub) };
+                    eq_rest = eq_rest.mul(&f);
+                }
+                let lin = |t0: &Goldilocks, t1: &Goldilocks| -> Goldilocks {
+                    Goldilocks::ONE.sub(&alpha).mul(t0).add(&alpha.mul(t1))
+                };
+                let g1b = lin(&g1[z0], &g1[z1]);
+                let g2b = lin(&g2[z0], &g2[z1]);
+                let g3b = lin(&g3[z0], &g3[z1]);
+                let term = g1b.sub(&g2b.mul(&g3b));
+                expect[s] = expect[s].add(&eq_u0.mul(&eq_rest).mul(&term));
+            }
+        }
+        // The bucketed round-1 message must equal the direct evaluation.
+        assert_eq!(proof.rounds[0], expect.to_vec());
+        let _ = p;
+    }
+
+    /// A wrong product claim is rejected (fail-closed DFS check).
+    #[test]
+    fn bucketed_wrong_product_rejected() {
+        let n = 4;
+        let data: Vec<Goldilocks> = (0..(1u64 << n))
+            .map(|i| g(i.wrapping_mul(23) + 7))
+            .collect();
+        let true_p = data.iter().fold(Goldilocks::ONE, |acc, v| acc.mul(v));
+        let mut stream = OwnedOracle::new(data);
+        let mut ts = Transcript::new_default(b"gp-bw");
+        assert!(prove_grand_product_bucketed(&mut stream, Some(true_p.add(&Goldilocks::ONE)), &mut ts).is_err());
+    }
+
+    /// Tampered proofs fail verification.
+    #[test]
+    fn bucketed_tampered_rejected() {
+        let n = 5;
+        let data: Vec<Goldilocks> = (0..(1u64 << n))
+            .map(|i| g(i.wrapping_mul(41) + 3))
+            .collect();
+        let mut stream = OwnedOracle::new(data);
+        let mut ts = Transcript::new_default(b"gp-bt2");
+        let mut proof = prove_grand_product_bucketed(&mut stream, None, &mut ts).unwrap();
+        // Tamper 1: a round message.
+        proof.rounds[2][1] = proof.rounds[2][1].add(&Goldilocks::ONE);
+        let mut ts2 = Transcript::new_default(b"gp-bt2");
+        assert!(!verify_grand_product(&proof, &mut ts2).unwrap());
+        // Tamper 2: a g-claim (breaks the terminal identity).
+        let mut stream2 = OwnedOracle::new((0..(1u64 << n)).map(|i| g(i * 41 + 3)).collect());
+        let mut ts3 = Transcript::new_default(b"gp-bt3");
+        let mut proof2 = prove_grand_product_bucketed(&mut stream2, None, &mut ts3).unwrap();
+        proof2.g_claims[0] = proof2.g_claims[0].add(&Goldilocks::ONE);
+        let mut ts4 = Transcript::new_default(b"gp-bt3");
+        assert!(!verify_grand_product(&proof2, &mut ts4).unwrap());
+    }
 
     fn g(x: u64) -> Goldilocks {
         Goldilocks::from_u64(x)

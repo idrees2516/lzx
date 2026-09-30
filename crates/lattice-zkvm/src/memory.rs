@@ -50,6 +50,7 @@ pub const INC_OFFSET: u64 = 1 << 17;
 pub enum MemoryError {
     Ledger(LedgerError),
     Sumcheck(lattice_sumcheck::SumcheckError),
+    Batch(lattice_sumcheck::batch::BatchError),
     Virtual(lattice_sumcheck::VirtualPolyError),
     Transcript(lattice_core::transcript::TranscriptError),
     Mle(lattice_core::mle::MleError),
@@ -239,7 +240,7 @@ pub struct MemoryProof {
     pub legs: Vec<LegProof>,
 }
 
-fn absorb(
+pub(crate) fn absorb(
     transcript: &mut Transcript,
     inst: usize,
     leg: &str,
@@ -714,18 +715,251 @@ fn next_leg<'b>(
 
 /// Which virtual matrix a matrix-eval leg addresses.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MatrixKind {
+pub(crate) enum MatrixKind {
     Ra,
     Wa,
     Inc,
 }
 
-fn matrix_kind(name: &str) -> MatrixKind {
+pub(crate) fn matrix_kind(name: &str) -> MatrixKind {
     match name {
         "Ma" => MatrixKind::Ra,
         "Mb" => MatrixKind::Wa,
         _ => MatrixKind::Inc,
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// The leg-polynomial builders (shared between the per-instance protocol
+// above and the Stage-4 leg batching in `legbatch.rs`).
+// ---------------------------------------------------------------------------
+
+/// B at a concrete `r_bool` (the eq factor is `eq(r_bool, ·)`): the
+/// digit-booleanity virtual polynomial over the `(log_rows + log_ts)`
+/// cube, `Σ eq(r_bool)·D·(D−1)`.
+pub(crate) fn booleanity_vp_at(
+    m: &MemoryInstance,
+    r_bool: &[Goldilocks],
+) -> Result<VirtualPolynomial, MemoryError> {
+    let digits = m.digit_tensor();
+    let log_rows = m.log_rows();
+    let r_len = log_rows + m.log_ts;
+    let d_minus_1: Vec<Goldilocks> =
+        digits.evaluations.iter().map(|v| v.sub(&Goldilocks::ONE)).collect();
+    let dm = DenseMle { num_vars: r_len, evaluations: d_minus_1 };
+    let eq = DenseMle::eq_extension(r_bool);
+    let mut vp = VirtualPolynomial::new(r_len);
+    let di = vp.add_factor(digits).map_err(MemoryError::Virtual)?;
+    let dmi = vp.add_factor(dm).map_err(MemoryError::Virtual)?;
+    let ei = vp.add_factor(eq).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![di, dmi, ei])
+        .map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// R: the raf virtual polynomial: `Σ eq(r′, j)·w(row)·D(row, j)`.
+pub(crate) fn raf_vp(
+    m: &MemoryInstance,
+    r_prime: &[Goldilocks],
+) -> Result<VirtualPolynomial, MemoryError> {
+    let digits = m.digit_tensor();
+    let log_rows = m.log_rows();
+    let eq_j = DenseMle::one(log_rows).tensor(&DenseMle::eq_extension(r_prime));
+    let w_ext = m.raf_weights().tensor(&DenseMle::one(m.log_ts));
+    let mut vp = VirtualPolynomial::new(log_rows + m.log_ts);
+    let ei = vp.add_factor(eq_j).map_err(MemoryError::Virtual)?;
+    let wi = vp.add_factor(w_ext).map_err(MemoryError::Virtual)?;
+    let di = vp.add_factor(digits).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ei, wi, di])
+        .map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// C: the read-checking virtual polynomial: `Σ eq(r_c, j)·ra·Val`.
+pub(crate) fn read_vp(
+    m: &MemoryInstance,
+    r_c: &[Goldilocks],
+) -> Result<VirtualPolynomial, MemoryError> {
+    let ra = m.one_hot(false);
+    let val = m.val_matrix();
+    let val_factor = match &m.table {
+        Some(table) => DenseMle::new(table.clone())
+            .map_err(MemoryError::Mle)?
+            .tensor(&DenseMle::one(m.log_ts)),
+        None => val,
+    };
+    let eq_j = DenseMle::one(m.log_k).tensor(&DenseMle::eq_extension(r_c));
+    let mut vp = VirtualPolynomial::new(m.log_k + m.log_ts);
+    let ei = vp.add_factor(eq_j).map_err(MemoryError::Virtual)?;
+    let ri = vp.add_factor(ra).map_err(MemoryError::Virtual)?;
+    let vi = vp.add_factor(val_factor).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ei, ri, vi])
+        .map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// W: the write-checking virtual polynomial (zero form):
+/// `Σ eq(r_w)·[Inc − wa·(wv − Val)]`.
+pub(crate) fn write_vp(
+    m: &MemoryInstance,
+    r_w: &[Goldilocks],
+) -> Result<VirtualPolynomial, MemoryError> {
+    let eq = DenseMle::eq_extension(r_w);
+    let wa = m.one_hot(true);
+    let inc = m.inc_matrix();
+    let wv_lift = DenseMle::one(m.log_k).tensor(&m.wv_col());
+    let val = m.val_matrix();
+    let mut vp = VirtualPolynomial::new(m.log_k + m.log_ts);
+    let ei = vp.add_factor(eq).map_err(MemoryError::Virtual)?;
+    let ii = vp.add_factor(inc).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ei, ii])
+        .map_err(MemoryError::Virtual)?;
+    let wi = vp.add_factor(wa).map_err(MemoryError::Virtual)?;
+    let wvi = vp.add_factor(wv_lift).map_err(MemoryError::Virtual)?;
+    let vali = vp.add_factor(val).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE.neg(), vec![ei, wi, wvi])
+        .map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ei, wi, vali])
+        .map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// T: the telescoping virtual polynomial: `Σ eq(r_t, k)·Inc`.
+pub(crate) fn telescoping_vp(
+    m: &MemoryInstance,
+    r_t: &[Goldilocks],
+) -> Result<VirtualPolynomial, MemoryError> {
+    let eq_k = DenseMle::eq_extension(r_t).tensor(&DenseMle::one(m.log_ts));
+    let inc = m.inc_matrix();
+    let mut vp = VirtualPolynomial::new(m.log_k + m.log_ts);
+    let ei = vp.add_factor(eq_k).map_err(MemoryError::Virtual)?;
+    let ii = vp.add_factor(inc).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ei, ii])
+        .map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// The telescoping claim: `Σ_k eq(r_t, k)·(Final − Init)` — public.
+pub(crate) fn tel_claim(
+    m: &MemoryInstance,
+    r_t: &[Goldilocks],
+) -> Result<Goldilocks, MemoryError> {
+    let eq_k = DenseMle::eq_extension(r_t);
+    let mut acc = Goldilocks::ZERO;
+    for (k, (f, i)) in m.final_state.iter().zip(m.init.iter()).enumerate() {
+        acc = acc.add(&eq_k.evaluations[k].mul(&f.sub(i)));
+    }
+    Ok(acc)
+}
+
+/// The matrix-eval virtual polynomial (Ma/Mb/Mc/Md/Mu0/Mu1 share this).
+pub(crate) fn matrix_vp(
+    m: &MemoryInstance,
+    rho_k: &[Goldilocks],
+    rho_j: &[Goldilocks],
+    kind: MatrixKind,
+) -> Result<VirtualPolynomial, MemoryError> {
+    let inc_case = kind == MatrixKind::Inc;
+    let write_activity = kind != MatrixKind::Ra;
+    let log_ts = m.log_ts;
+    let mut vp = VirtualPolynomial::new(log_ts);
+    let eq = DenseMle::eq_extension(rho_j);
+    let ei = vp.add_factor(eq).map_err(MemoryError::Virtual)?;
+    let mut term = vec![ei];
+    let activity = DenseMle {
+        num_vars: log_ts,
+        evaluations: (0..m.t_s())
+            .map(|j| {
+                let a = if write_activity { m.wactive[j] } else { m.ractive[j] };
+                fe(a as u64)
+            })
+            .collect(),
+    };
+    let ai = vp.add_factor(activity).map_err(MemoryError::Virtual)?;
+    term.push(ai);
+    for b in 0..m.log_k {
+        let rho_b = rho_k[b];
+        let affine: Vec<Goldilocks> = (0..m.t_s())
+            .map(|j| {
+                let bit = fe((m.addr[j] >> (m.log_k - 1 - b)) & 1);
+                bit.mul(&rho_b.double().sub(&Goldilocks::ONE))
+                    .add(&Goldilocks::ONE.sub(&rho_b))
+            })
+            .collect();
+        let fi = vp
+            .add_factor(DenseMle { num_vars: log_ts, evaluations: affine })
+            .map_err(MemoryError::Virtual)?;
+        term.push(fi);
+    }
+    if inc_case {
+        let inc_part: Vec<Goldilocks> =
+            m.inc_off.iter().map(|v| v.sub(&fe(INC_OFFSET))).collect();
+        let ci = vp
+            .add_factor(DenseMle { num_vars: log_ts, evaluations: inc_part })
+            .map_err(MemoryError::Virtual)?;
+        term.push(ci);
+    }
+    vp.add_term(Goldilocks::ONE, term).map_err(MemoryError::Virtual)?;
+    Ok(vp)
+}
+
+/// The Val-evaluation virtual polynomial (V0/V1) + its claims.
+/// Returns `(vp, val_at, sumcheck_claim)` with
+/// `sumcheck_claim = val_at − init_at`.
+pub(crate) fn val_vp(
+    m: &MemoryInstance,
+    point: &[Goldilocks],
+) -> Result<(VirtualPolynomial, Goldilocks, Goldilocks), MemoryError> {
+    let (r_a, r_c) = point.split_at(m.log_k);
+    let init_mle = DenseMle::new(m.init.clone()).map_err(MemoryError::Mle)?;
+    let init_at = init_mle.evaluate(r_a).map_err(MemoryError::Mle)?;
+    let val = m.val_matrix();
+    let val_at = val.evaluate(point).map_err(MemoryError::Mle)?;
+    let u: Vec<Goldilocks> = (0..m.t_s())
+        .map(|j| {
+            let sel = eq_of_addr(r_a, m.addr[j], m.log_k);
+            let inc = if m.wactive[j] != 0 {
+                m.inc_off[j].sub(&fe(INC_OFFSET))
+            } else {
+                Goldilocks::ZERO
+            };
+            sel.mul(&inc)
+        })
+        .collect();
+    let lt: Vec<Goldilocks> = (0..m.t_s())
+        .map(|j| {
+            let bits: Vec<Goldilocks> =
+                (0..m.log_ts).map(|b| fe((j >> (m.log_ts - 1 - b)) as u64 & 1)).collect();
+            DenseMle::lt_extension(&bits, r_c).map_err(MemoryError::Mle)
+        })
+        .collect::<Result<_, _>>()?;
+    let claim = val_at.sub(&init_at);
+    let mut vp = VirtualPolynomial::new(m.log_ts);
+    let ui = vp
+        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: u })
+        .map_err(MemoryError::Virtual)?;
+    let li = vp
+        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: lt })
+        .map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![ui, li])
+        .map_err(MemoryError::Virtual)?;
+    Ok((vp, val_at, claim))
+}
+
+/// The (virtual) matrix's evaluation at `point` — the matrix-eval leg's
+/// claimed sum (prover-side; the verifier never calls this).
+pub(crate) fn matrix_claim(
+    m: &MemoryInstance,
+    point: &[Goldilocks],
+    kind: MatrixKind,
+) -> Result<Goldilocks, MemoryError> {
+    let matrix = match kind {
+        MatrixKind::Ra => m.one_hot(false),
+        MatrixKind::Wa => m.one_hot(true),
+        MatrixKind::Inc => m.inc_matrix(),
+    };
+    matrix.evaluate(point).map_err(MemoryError::Mle)
 }
 
 /// Prove a matrix-evaluation leg: the (virtual) matrix's evaluation at
@@ -910,7 +1144,7 @@ fn check_matrix_terminal(
 }
 
 /// The affine digit factor: `eq(ρ, row) = row·(2ρ − 1) + (1 − ρ)`.
-fn digit_affine(row: Goldilocks, rho_b: Goldilocks) -> Goldilocks {
+pub(crate) fn digit_affine(row: Goldilocks, rho_b: Goldilocks) -> Goldilocks {
     row.mul(&rho_b.double().sub(&Goldilocks::ONE))
         .add(&Goldilocks::ONE.sub(&rho_b))
 }

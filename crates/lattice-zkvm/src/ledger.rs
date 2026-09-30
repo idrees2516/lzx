@@ -178,7 +178,20 @@ pub struct Ledger<'a> {
     claims: Vec<BaseClaim>,
     seen: HashMap<(u8, usize, Vec<u8>), Goldilocks>,
     queue: VecDeque<BaseClaim>,
+    /// **`fix_last_variables` cache** (the prover-throughput design): the
+    /// per-factor tensor bound at the most recent claim tail. The hot
+    /// claim pattern — the digit-row claims `idx_point(log_rows, b) ∥
+    /// terminal` for `b = 0..log_k` — shares the tail across `b`, so ONE
+    /// binding pass (`O(N·|tail|)`, the cost of a single evaluate) serves
+    /// the whole `b`-loop at `O(2^HEAD)` per claim instead of a fresh
+    /// `O(N·vars)` evaluate each — the `(log_k + 1)×` resolution win the
+    /// prover profile identified.
+    tail_cache: HashMap<(u8, usize), (Vec<Goldilocks>, DenseMle)>,
 }
+
+/// The head size for the tail cache: claims whose points agree beyond the
+/// first `HEAD_VARS` coordinates share one bound tensor.
+const HEAD_VARS: usize = 6;
 
 /// A values-only claim record: (factor, value) — the point is
 /// verifier-derived from the leg replay (the compact mode's compressed
@@ -197,6 +210,7 @@ impl<'a> Ledger<'a> {
             claims: Vec::new(),
             seen: HashMap::new(),
             queue: VecDeque::new(),
+            tail_cache: HashMap::new(),
         }
     }
 
@@ -207,6 +221,7 @@ impl<'a> Ledger<'a> {
             claims: Vec::new(),
             seen: HashMap::new(),
             queue: claims.into_iter().collect(),
+            tail_cache: HashMap::new(),
         }
     }
 
@@ -262,13 +277,36 @@ impl<'a> Ledger<'a> {
         Ok(claim.value)
     }
 
-    fn eval_tensor(&self, factor: Factor, point: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {
+    fn eval_tensor(&mut self, factor: Factor, point: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {
         let tensor = self
             .table
             .iter()
             .find(|(f, _)| *f == factor)
             .map(|(_, m)| *m)
             .ok_or_else(|| LedgerError::Layout(format!("factor {factor:?} not in table")))?;
+        // The tail cache: claims sharing the coordinates beyond the head
+        // reuse one bound tensor.
+        if point.len() > HEAD_VARS {
+            let key = (factor.discriminant(), factor.payload());
+            let head = &point[..HEAD_VARS];
+            let tail = &point[HEAD_VARS..];
+            let hit = match self.tail_cache.get(&key) {
+                Some((cached_tail, bound)) if cached_tail.len() == tail.len() => {
+                    cached_tail.iter().zip(tail.iter()).all(|(a, b)| a == b)
+                        && bound.num_vars == HEAD_VARS
+                }
+                _ => false,
+            };
+            if !hit {
+                let bound = tensor.fix_last_variables(tail).map_err(LedgerError::Mle)?;
+                self.tail_cache.insert(key, (tail.to_vec(), bound));
+            }
+            if let Some((_, bound)) = self.tail_cache.get(&key) {
+                return bound.evaluate(head).map_err(LedgerError::Mle);
+            }
+            // Unreachable: the entry was just inserted.
+            return Err(LedgerError::Layout("tail cache".into()));
+        }
         tensor.evaluate(point).map_err(LedgerError::Mle)
     }
 
@@ -287,6 +325,7 @@ impl<'a> Ledger<'a> {
                     value: vc.value,
                 })
                 .collect(),
+            tail_cache: HashMap::new(),
         }
     }
 

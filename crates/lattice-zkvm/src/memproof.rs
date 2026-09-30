@@ -759,7 +759,9 @@ pub struct CompactMemoryProof {
     /// Values-only claims in ledger recording order (the points are
     /// verifier-derived from the leg replay).
     pub claims: Vec<ValueClaim>,
-    pub legs: Vec<MemoryProof>,
+    /// The Stage-4 batched legs (12 sumchecks replacing the ~117
+    /// per-instance legs; the DESIGN_50KB final cut).
+    pub legs: crate::legbatch::BatchedLegs,
     /// The per-bundle column commitments (r × k ring elements each).
     pub bits_commitment: Vec<u8>,
     pub values_commitment: Vec<u8>,
@@ -788,7 +790,10 @@ fn fold_params_for(total_values: usize, max_value_bytes: usize) -> (usize, usize
     while r < 64 && stream / (r * 2) > 8192 {
         r *= 2;
     }
-    (r, 2usize)
+    // k = 4: the estimator-run interim hardening (SECURITY.md's MSIS
+    // table — the rank-2 module is broken at every response length; the
+    // full sound posture is the second-level fold, Stage 5.2).
+    (r, 4usize)
 }
 
 /// Map claims to their flat-domain points (the ledger's flat_point
@@ -959,13 +964,8 @@ pub fn prove_memory_argument_compact(
         table.push((*f, m));
     }
     let mut ledger = Ledger::prover(table);
-    let mut all_legs: Vec<MemoryProof> = Vec::with_capacity(instances.len());
-    for (i, m) in instances.iter().enumerate() {
-        let mut inst_legs: Vec<crate::memory::LegProof> = Vec::new();
-        prove_memory(i, m, &mut ledger, &mut inst_legs, &mut transcript)
-            .map_err(MemProofError::Memory)?;
-        all_legs.push(MemoryProof { legs: inst_legs });
-    }
+    let all_legs = crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
+        .map_err(MemProofError::Memory)?;
     let full_claims: Vec<BaseClaim> = ledger.claims().to_vec();
     let claims: Vec<ValueClaim> = full_claims
         .iter()
@@ -1181,13 +1181,8 @@ pub fn verify_memory_argument_compact(
     // 4. Ledger (values-only verifier mode) + per-instance leg replay:
     //    the claim points are re-derived by the replay.
     let mut ledger = Ledger::verifier_values(proof.claims.clone());
-    if proof.legs.len() != 9 {
-        return Err(MemProofError::Shape);
-    }
-    for (i, m) in instances.iter().enumerate() {
-        verify_memory(i, m, &proof.legs[i], &mut ledger, &mut transcript)
-            .map_err(MemProofError::Memory)?;
-    }
+    crate::legbatch::verify_legs_batched(&instances, &proof.legs, &mut ledger, &mut transcript)
+        .map_err(MemProofError::Memory)?;
     if ledger.queue_len() != 0 {
         return Err(MemProofError::Shape);
     }
@@ -1372,10 +1367,8 @@ mod compact_tests {
         for _c in &proof.claims {
             bytes += 1 + 1 + 8; // disc + payload + value (points derived)
         }
-        for inst in &proof.legs {
-            for leg in &inst.legs {
-                bytes += leg.sc.rounds.len() * leg.sc.rounds[0].len().max(1) * 8 + 16;
-            }
+        for sc in proof.legs.sumchecks() {
+            bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
         }
         bytes += proof.bits_commitment.len();
         bytes += proof.values_commitment.len();
