@@ -172,3 +172,33 @@ verifier tables (5.3), the sparse prover + SIMD/RNS (5.4), and the
 instruction-semantics families (5.5 — the substrate and aux columns are
 built; the arith/logic/comparison/control/routing constraint
 polynomials are the next focused session).
+
+## §11 — The Π_CCS / SVSC-window / TTRP wave
+
+Three modules landed, closing the three gaps named in the session brief:
+
+1. **Π_CCS — the in-sumcheck norm products** (`lattice-folding/src/pi_ccs.rs`,
+   `docs/papers/implemented/pi-ccs.md`): the succinct CCS decider — the NC
+   term (the norm check) lives INSIDE the decider sum-check as
+   `Π_{a=−b+1}^{b−1}(Z̃(X)−a)` products over the stacked digit MLE; the
+   F/EvalK/EvalA terms carry relaxed satisfaction and the running claims;
+   the output is the per-level eval-claim API. No witness transmission in
+   the proof itself — the O(L·(t+2)) claims replace the O(n) reveal.
+2. **The ss-class weighting restructure over Fp256**
+   (`lattice-projsumcheck/src/svsc.rs`,
+   `docs/papers/implemented/svsc-window.md`): the SVSC windowed projective
+   prover — byte-identical transcripts, measured κ ≈ 61.6, 1.8–2.2×
+   speedups at d=2/33-bit values. **Plus the critical BN254_FR modulus
+   transposition fix** (the committed field was computing modulo a wrong
+   modulus — every prior Fp256 result was garbage in the true field).
+3. **TTRP + the digit-free opening** (`lattice-zkvm/src/ttrp.rs`,
+   `docs/papers/implemented/ttrp.md`): the tensor-train random projection
+   as the ledger's norm-check module (replacing the JL routes) with the
+   compact-mode linear-functional bridge (replacing the digit reveal) —
+   zero digits, the eval-claim API terminal.
+
+Honest residuals: the Π_DEC norm chain (the claim-witness growth across
+folds); the mixed-degree window message (the (d+2)-point grid); the
+MultiProductEval shared-extrapolation grid (the remaining gap to the
+paper's 2.5–4×); the Lift-and-Batch refinement; the full bundle-opening
+swap inside `prove_grouped_carrier`.
