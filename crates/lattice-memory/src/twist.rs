@@ -426,11 +426,13 @@ mod tests {
             observed[j] = witness.val.evaluations[(a.address as usize) * t + j];
         }
         let _read_mle = DenseMle::new(observed).ok().unwrap();
-        let mut resolver = WitnessResolver::default();
-        resolver.read_values = Some(&read_mle);
-        resolver.write_values = Some(&write_mle);
-        resolver.inc = Some(&witness.inc);
-        resolver.val = Some(&witness.val);
+        let resolver = WitnessResolver {
+            read_values: Some(&read_mle),
+            write_values: Some(&write_mle),
+            inc: Some(&witness.inc),
+            val: Some(&witness.val),
+            ..Default::default()
+        };
         let mut transcript = Transcript::new_default(b"lzx-twist");
         let proof = prove_twist(&witness, &resolver, &mut transcript)
             .map_err(|e| panic!("prove_twist err: {:?}", e))
@@ -474,7 +476,7 @@ mod tests {
         // the trace's claimed values, so the PIOP's read-checking leg
         // carries the discrepancy (the claim binds the observed column).
         let witness = build_twist_matrices(&stale, &init, 2, 2, 1).ok().unwrap();
-        let observed = witness.val.evaluations[0 * 4 + 1];
+        let observed = witness.val.evaluations[1];
         assert_ne!(
             observed,
             fe(0),

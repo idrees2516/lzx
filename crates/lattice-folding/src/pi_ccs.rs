@@ -1008,6 +1008,7 @@ mod tests {
     }
 
     /// Prove + verify round trip; returns the fresh claims.
+    #[allow(clippy::too_many_arguments)] // the test fixture's fixed set
     fn round_trip(
         pk: &AjtaiPublicKey,
         ccs: &Ccs,
@@ -1249,13 +1250,11 @@ mod tests {
         // A FOLDED commitment that does not match the presented values:
         // fold the commitments homomorphically with r, but present
         // values folded with a DIFFERENT r — the binding check fires.
-        let folded_inst = {
-            // r = 1 fold of commitments (fake via fold_public with E=0).
-            let e = vec![Goldilocks::ZERO; n];
-            let r = 1u32;
-            let folded = crate::superneo_committed::fold_public(&i1, &i2, &e, r).ok().unwrap();
-            folded
-        };
+        // r = 1 fold of commitments (fake via fold_public with E=0).
+        let e = vec![Goldilocks::ZERO; n];
+        let folded_inst = crate::superneo_committed::fold_public(&i1, &i2, &e, 1u32)
+            .ok()
+            .unwrap();
         let wrong_values: Vec<u32> = w1
             .iter()
             .zip(w2.iter())

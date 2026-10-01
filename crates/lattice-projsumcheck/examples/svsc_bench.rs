@@ -27,12 +27,12 @@ fn std_time<F: FnMut()>(mut f: F) -> std::time::Duration {
 fn claim_of(inst: &SvscInstance) -> Fp256 {
     let mut accs = vec![0u128; 1usize << inst.num_vars];
     for (c, ids) in &inst.terms {
-        for idx in 0..(1usize << inst.num_vars) {
+        for (idx, acc) in accs.iter_mut().enumerate() {
             let mut prod = *c as u128;
             for &fi in ids {
                 prod *= inst.factors[fi].coeffs[idx] as u128;
             }
-            accs[idx] += prod;
+            *acc += prod;
         }
     }
     let total: u128 = accs.iter().sum();

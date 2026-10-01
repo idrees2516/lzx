@@ -503,8 +503,8 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"w1");
         let w2 = bool_witness(8, b"w2");
-        let (i1, s1) = commit_instance(&pk, &w1, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
         let (folded, secret) =
             fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2).ok().unwrap();
         // π_CCS decider: opening + reconstruction + satisfaction.
@@ -521,8 +521,8 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"b1");
         let w2 = bool_witness(8, b"b2");
-        let (i1, s1) = commit_instance(&pk, &w1, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
         // The bit packing: 16 bits per value → 128 packed entries.
         assert_eq!(i1.packed_len, 128);
         let (folded, secret) =
@@ -546,8 +546,8 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let wa = bool_witness(8, b"a");
         let wb = bool_witness(8, b"b");
-        let (ia, _) = commit_instance(&pk, &wa, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (ib, _) = commit_instance(&pk, &wb, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (ia, _) = commit_instance(&pk, &wa, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (ib, _) = commit_instance(&pk, &wb, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
         assert_ne!(committed_digest(&ia), committed_digest(&ib));
         let r1 = fold_challenge(&cd, &committed_digest(&ia), &committed_digest(&ib))
             .ok()
@@ -559,7 +559,7 @@ mod tests {
         assert!(r1 < FOLD_CHALLENGE_BOUND);
         // Same digests with a third instance → different challenge.
         let wc = bool_witness(8, b"c");
-        let (ic, _) = commit_instance(&pk, &wc, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (ic, _) = commit_instance(&pk, &wc, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
         let r3 = fold_challenge(&cd, &committed_digest(&ia), &committed_digest(&ic))
             .ok()
             .unwrap();
@@ -578,13 +578,13 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"x1");
         let w2 = bool_witness(8, b"x2");
-        let (i1, s1) = commit_instance(&pk, &w1, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
         let d1 = committed_digest(&i1);
         let d2 = committed_digest(&i2);
         let r = fold_challenge(&cd, &d1, &d2).ok().unwrap();
         // A WRONG cross term (zeros): slack' misses r·E → π_CCS fails.
-        let folded_bad = fold_public(&i1, &i2, &vec![Goldilocks::ZERO; 8], r).ok().unwrap();
+        let folded_bad = fold_public(&i1, &i2, &[Goldilocks::ZERO; 8], r).ok().unwrap();
         let secret = fold_secret(&pk, &s1, &s2, r, false).ok().unwrap();
         assert!(decider_committed(&pk, &ccs, &folded_bad, &secret).is_err());
         // The honest cross term passes.
@@ -598,7 +598,7 @@ mod tests {
         let (pk, _ring) = setup(4, 8);
         let bad = vec![1u32 << 16; 8];
         assert!(matches!(
-            commit_instance(&pk, &bad, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false),
+            commit_instance(&pk, &bad, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false),
             Err(CommittedError::ValueOutOfBounds { .. })
         ));
     }
@@ -613,9 +613,9 @@ mod tests {
         let w1 = bool_witness(8, b"i1");
         let w2 = bool_witness(8, b"i2");
         let w3 = bool_witness(8, b"i3");
-        let (i1, s1) = commit_instance(&pk, &w1, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i3, s3) = commit_instance(&pk, &w3, &vec![Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i3, s3) = commit_instance(&pk, &w3, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
         let (acc_i, acc_s) =
             fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2).ok().unwrap();
         assert!(decider_committed(&pk, &ccs, &acc_i, &acc_s).is_ok());

@@ -1109,7 +1109,7 @@ mod tests {
         };
         // Dense proof.
         let mut t1 = Transcript::new_default(b"shout-test");
-        let dense_proof = prove_shout(&table, &[matrix.clone()], log_k, log_t, &resolver, &mut t1)
+        let dense_proof = prove_shout(&table, std::slice::from_ref(&matrix), log_k, log_t, &resolver, &mut t1)
             .ok().unwrap();
         // Sparse proof.
         let mut t2 = Transcript::new_default(b"shout-test");
@@ -1182,7 +1182,7 @@ mod tests {
             ..Default::default()
         };
         let mut t1 = Transcript::new_default(b"onehot-test");
-        let dense_proof = prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t1)
+        let dense_proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t1)
             .ok().unwrap();
         let mut t2 = Transcript::new_default(b"onehot-test");
         let (sparse_proof, _cl) =

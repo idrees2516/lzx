@@ -1527,8 +1527,8 @@ mod tests {
         // Adversary substitutes one quotient coefficient: the Fiat-Shamir
         // transcript binding (y is derived after the quotients are
         // absorbed) and/or the e*-check must reject.
-        if let Some((_, q)) = proof.quotients.iter_mut().next() {
-            if let Some((_, c)) = q.terms.iter_mut().next() {
+        if let Some((_, q)) = proof.quotients.first_mut() {
+            if let Some((_, c)) = q.terms.first_mut() {
                 *c = c.add(&ring.one()).ok().unwrap();
             }
         }
@@ -1689,8 +1689,8 @@ mod tests {
         let acc = make_acc(&pk, &cs, &w0);
         let (_, _, mut proof) = fig3_boot(&pk, &cs, &acc, &w0, 8, 3, &chal).ok().unwrap();
         // Tamper one block commitment: the Σ b^j·t_j = t check must fail.
-        if let Some(tb) = proof.t_blocks.iter_mut().next() {
-            if let Some(row) = tb.rows.iter_mut().next() {
+        if let Some(tb) = proof.t_blocks.first_mut() {
+            if let Some(row) = tb.rows.first_mut() {
                 *row = row.add(&ring.one()).ok().unwrap();
             }
         }

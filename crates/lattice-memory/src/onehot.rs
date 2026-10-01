@@ -324,9 +324,9 @@ mod tests {
         let m = one_hot_dim_matrix(&hot, 2, 2).ok().unwrap();
         assert_eq!(m.num_vars, 4);
         assert_eq!(m.evaluations.len(), 16);
-        for j in 0..4usize {
+        for (j, &hj) in hot.iter().enumerate().take(4) {
             for k in 0..4usize {
-                let expect = if k == hot[j] as usize {
+                let expect = if k == hj as usize {
                     lattice_core::Goldilocks::ONE
                 } else {
                     lattice_core::Goldilocks::ZERO

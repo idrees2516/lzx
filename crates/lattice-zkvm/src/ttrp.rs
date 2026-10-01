@@ -947,7 +947,7 @@ mod tests {
         // Ternary-ish small coefficients (the committed regime).
         (0..n)
             .map(|i| {
-                let h = Transcript::hash_domain(b"ttrp-x", &(seed.to_le_bytes()[..4].to_vec()));
+                let h = Transcript::hash_domain(b"ttrp-x", &seed.to_le_bytes()[..4]);
                 match h[0] % 4 {
                     0 | 1 => 0i64,
                     2 => -1,
@@ -1006,7 +1006,7 @@ mod tests {
             let x = small_coeff_vector(n, 11);
             let b2: u64 = x
                 .iter()
-                .map(|&v| (v.unsigned_abs() as u64).pow(2))
+                .map(|&v| v.unsigned_abs().pow(2))
                 .sum();
             let bound = completeness_bound(&params, b2).max(b2 * 4);
             let mut pt = Transcript::new_default(b"ttrp-prove");
@@ -1022,7 +1022,7 @@ mod tests {
     fn ttrp_rejects_tampered_y() {
         let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 2 };
         let x = small_coeff_vector(8, 13);
-        let b2: u64 = x.iter().map(|&v| (v.unsigned_abs() as u64).pow(2)).sum();
+        let b2: u64 = x.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&params, b2).max(b2 * 4);
         let mut pt = Transcript::new_default(b"ttrp-prove");
         let mut proof = prove_ttrp(&params, &x, &mut pt).ok().unwrap();
@@ -1035,7 +1035,7 @@ mod tests {
     fn ttrp_rejects_tampered_wr() {
         let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 2 };
         let x = small_coeff_vector(8, 17);
-        let b2: u64 = x.iter().map(|&v| (v.unsigned_abs() as u64).pow(2)).sum();
+        let b2: u64 = x.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&params, b2).max(b2 * 4);
         let mut pt = Transcript::new_default(b"ttrp-prove");
         let mut proof = prove_ttrp(&params, &x, &mut pt).ok().unwrap();
@@ -1104,7 +1104,7 @@ mod tests {
 
         // The honest ℓ2 bound of the flat coefficient vector.
         let flat = TtrpNormCheck::flat_of(&columns);
-        let b2: u64 = flat.iter().map(|&v| (v.unsigned_abs() as u64).pow(2)).sum();
+        let b2: u64 = flat.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&ttrp_params, b2).max(b2 * 4);
 
         let check = TtrpNormCheck { ttrp_params, bridge_params, bound };

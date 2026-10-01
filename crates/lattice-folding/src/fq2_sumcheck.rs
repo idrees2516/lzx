@@ -511,14 +511,14 @@ mod tests {
         for (i, factor) in vp.factors.iter().enumerate() {
             // Brute-force MLE evaluation of the factor at the challenge.
             let mut acc = Fq2::ZERO;
-            for p in 0..(1usize << vp.num_vars) {
+            for (p, fv) in factor.iter().enumerate() {
                 let mut w = Fq2::ONE;
                 for (var, rv) in out.challenges.iter().enumerate() {
                     let bit = (p >> (vp.num_vars - 1 - var)) & 1;
                     let term = if bit == 1 { *rv } else { Fq2::ONE.sub(rv) };
                     w = w.mul(&term);
                 }
-                acc = acc.add(&factor[p].mul(&w));
+                acc = acc.add(&fv.mul(&w));
             }
             assert_eq!(acc, out.factor_claims[i], "factor {i}");
         }

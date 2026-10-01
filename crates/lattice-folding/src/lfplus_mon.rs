@@ -959,8 +959,8 @@ mod tests {
         }
         // Zero is in M.
         assert_eq!(
-            ev_of_coeffs(&vec![0i64; 16], beta).square(),
-            ev_of_coeffs(&vec![0i64; 16], beta.square())
+            ev_of_coeffs(&[0i64; 16], beta).square(),
+            ev_of_coeffs(&[0i64; 16], beta.square())
         );
         // Non-monomials fail (2·X^0, 1+X, X²+X, 2·X^5): the Cor-4.1
         // soundness direction at a random challenge point.

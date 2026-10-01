@@ -764,7 +764,7 @@ mod tests {
         // f^1(α) = Σ_m eq(u_0,α)·eq(u_{1..},m)·[g1^α − g2^α·g3^α] with
         // g^α = (1−α)·g(0,m) + α·g(1,m) — the multilinear expansion.
         let mut expect = [Goldilocks::ZERO; 4];
-        for s in 0..4usize {
+        for (s, expect_s) in expect.iter_mut().enumerate() {
             let alpha = Goldilocks::from_u64(s as u64);
             let eq_u0 = u[0]
                 .mul(&alpha)
@@ -773,8 +773,7 @@ mod tests {
                 let z0 = 2 * m;
                 let z1 = 2 * m + 1;
                 let mut eq_rest = Goldilocks::ONE;
-                for b in 1..n {
-                    let ub = u[b];
+                for (b, &ub) in u.iter().enumerate().skip(1) {
                     let f = if (z0 >> b) & 1 == 1 { ub } else { Goldilocks::ONE.sub(&ub) };
                     eq_rest = eq_rest.mul(&f);
                 }
@@ -785,7 +784,7 @@ mod tests {
                 let g2b = lin(&g2[z0], &g2[z1]);
                 let g3b = lin(&g3[z0], &g3[z1]);
                 let term = g1b.sub(&g2b.mul(&g3b));
-                expect[s] = expect[s].add(&eq_u0.mul(&eq_rest).mul(&term));
+                *expect_s = expect_s.add(&eq_u0.mul(&eq_rest).mul(&term));
             }
         }
         // The bucketed round-1 message must equal the direct evaluation.

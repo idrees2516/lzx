@@ -1807,7 +1807,12 @@ mod tests {
                 vbtd = vbtd.add(&v_proj[a].scale_i64(wt as i64)).ok().unwrap();
             }
         }
-        assert!(trace_batching_ok(&lrp, &v_tr, &[vbtd.clone()], &[b_tilde.clone()]));
+        assert!(trace_batching_ok(
+            &lrp,
+            &v_tr,
+            std::slice::from_ref(&vbtd),
+            std::slice::from_ref(&b_tilde)
+        ));
         // Tampered v_tr fails.
         let mut bad_tr = v_tr.clone();
         bad_tr[0] += 1;
@@ -1843,14 +1848,14 @@ mod tests {
         let b0: Vec<Vec<RingElement>> = vp.factors.iter().map(|f| half_bind_ring(f, 0)).collect();
         // half_bind at t=0 must be the exact first half.
         for (fi, b) in b0.iter().enumerate() {
-            for p in 0..4usize {
-                assert_eq!(b[p], vp.factors[fi][p], "half_bind(0) factor {fi} point {p}");
+            for (p, bv) in b.iter().enumerate().take(4) {
+                assert_eq!(*bv, vp.factors[fi][p], "half_bind(0) factor {fi} point {p}");
             }
         }
         let b1: Vec<Vec<RingElement>> = vp.factors.iter().map(|f| half_bind_ring(f, 1)).collect();
         for (fi, b) in b1.iter().enumerate() {
-            for p in 0..4usize {
-                assert_eq!(b[p], vp.factors[fi][p + 4], "half_bind(1) factor {fi} point {p}");
+            for (p, bv) in b.iter().enumerate().take(4) {
+                assert_eq!(*bv, vp.factors[fi][p + 4], "half_bind(1) factor {fi} point {p}");
             }
         }
         let g0 = sum_products_ring(&b0, &vp.terms).ok().unwrap();
@@ -1945,13 +1950,16 @@ mod tests {
         assert!(ring_sc_verify(&ring, num_vars, vp.max_degree(), &wrong, &out.proof, &mut vt4).is_err());
     }
 
-    fn fold_fixture() -> (
+    /// The fixture type (kept explicit for the test module).
+    type FoldFixture = (
         AjtaiPublicKey,
         RingConfig,
         FoldConfig,
         Vec<(PikkuInstance, Vec<RingElement>)>,
         (PikkuInstance, Vec<RingElement>),
-    ) {
+    );
+
+    fn fold_fixture() -> FoldFixture {
         let (pk, ring) = setup(4, 8);
         let cfg = FoldConfig::kernel();
         let mut fresh = Vec::new();
@@ -1975,30 +1983,30 @@ mod tests {
         let w = small_w(&ring, b"mle");
         let s = vec![3u32, 1, 2];
         let mut direct = ring.zero();
-        for a in 0..8usize {
+        for (a, wa) in w.iter().enumerate().take(8) {
             let mut eqv = 1u32;
-            for k in 0..3 {
+            for (k, &sk) in s.iter().enumerate() {
                 let bit = (a >> (2 - k)) & 1;
                 let f = if bit == 1 {
-                    s[k]
+                    sk
                 } else {
-                    (ring.modulus.q + 1 - s[k] % ring.modulus.q) % ring.modulus.q
+                    (ring.modulus.q + 1 - sk % ring.modulus.q) % ring.modulus.q
                 };
                 eqv = ((eqv as u64 * f as u64) % ring.modulus.q as u64) as u32;
             }
-            direct = direct.add(&w[a].scale_i64(eqv as i64)).ok().unwrap();
+            direct = direct.add(&wa.scale_i64(eqv as i64)).ok().unwrap();
         }
         assert_eq!(mle_at(&ring, &w, &s).ok().unwrap(), direct);
         // eq_table entry check.
         let tab = eq_table_zq(&ring.modulus, &s);
-        for a in 0..8usize {
+        for (a, tv) in tab.iter().enumerate().take(8) {
             let mut eqv = 1u32;
-            for k in 0..3 {
+            for (k, &sk) in s.iter().enumerate() {
                 let bit = (a >> (2 - k)) & 1;
-                let f = if bit == 1 { s[k] } else { (ring.modulus.q + 1 - s[k]) % ring.modulus.q };
+                let f = if bit == 1 { sk } else { (ring.modulus.q + 1 - sk) % ring.modulus.q };
                 eqv = ((eqv as u64 * f as u64) % ring.modulus.q as u64) as u32;
             }
-            assert_eq!(tab[a], eqv, "eq_table entry {a}");
+            assert_eq!(*tv, eqv, "eq_table entry {a}");
         }
     }
 
@@ -2037,7 +2045,9 @@ mod tests {
         // Inflate one fresh witness past β_in: the JL gate must fail.
         let mut big = vec![ring.zero(); cfg.m];
         for (j, e) in big.iter_mut().enumerate() {
-            let coeffs: Vec<i64> = (0..ring.n()).map(|k| ((j + k) as i64 % 3) * 1 << 20).collect();
+            let coeffs: Vec<i64> = (0..ring.n())
+                .map(|k| (((j + k) as i64) % 3) << 20)
+                .collect();
             *e = RingElement::from_signed(&ring, &coeffs);
         }
         let y = pk.commit(&big).ok().unwrap();

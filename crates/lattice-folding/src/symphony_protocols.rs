@@ -664,6 +664,7 @@ mod tests {
         (pk, ring)
     }
 
+    #[allow(dead_code)] // kept as the shared test-vector helper
     fn small_w(ring: &RingConfig, m: usize, tag: &[u8]) -> Vec<RingElement> {
         lattice_commitment::ajtai::sample_small_secret(ring, m, 4, tag)
     }
@@ -737,9 +738,9 @@ mod tests {
         let f = hadamard_witness(&ring, 8, 4, b"h1");
         let c = pk.commit(&f).ok().unwrap();
         let mut t = Transcript::new_default(b"sym-had");
-        let proof = prove_had(&ring, &params, &[c.clone()], &[f.clone()], &mut t).ok().unwrap();
+        let proof = prove_had(&ring, &params, std::slice::from_ref(&c), std::slice::from_ref(&f), &mut t).ok().unwrap();
         let mut vt = Transcript::new_default(b"sym-had");
-        let outputs = verify_had(&ring, &params, &[c.clone()], &proof, &mut vt).ok().unwrap();
+        let outputs = verify_had(&ring, &params, std::slice::from_ref(&c), &proof, &mut vt).ok().unwrap();
         assert_eq!(outputs.len(), 1);
         // Decider: c opens f and ⟨M_i f, ts(r)⟩ = v_i.
         assert!(verify_had_opening(&pk, &params, &c, &f, &outputs[0]).is_ok());
@@ -771,7 +772,7 @@ mod tests {
         let f = hadamard_witness(&ring, 8, 4, b"h3");
         let c = pk.commit(&f).ok().unwrap();
         let mut t = Transcript::new_default(b"sym-had-t");
-        let mut proof = prove_had(&ring, &params, &[c.clone()], &[f.clone()], &mut t).ok().unwrap();
+        let mut proof = prove_had(&ring, &params, std::slice::from_ref(&c), std::slice::from_ref(&f), &mut t).ok().unwrap();
         // Tampered U: the Eq-25 terminal cross-check fails.
         proof.u[0] = proof.u[0].add(&ring.one()).ok().unwrap();
         let mut vt = Transcript::new_default(b"sym-had-t");

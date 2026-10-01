@@ -1930,7 +1930,7 @@ mod tests {
             let mut t5 = Transcript::new_default(b"hw-full-trait");
             assert!(
                 backend
-                    .prove_evaluations(&mle, &[claim.clone()], &mut t5)
+                    .prove_evaluations(&mle, std::slice::from_ref(&claim), &mut t5)
                     .is_ok()
             );
             let mut t6 = Transcript::new_default(b"hw-full-trait");

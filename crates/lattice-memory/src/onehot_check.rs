@@ -272,7 +272,7 @@ mod tests {
         };
         let mut t = Transcript::new_default(b"onehot-test");
         let proof = prove_onehot(
-            &[matrix.clone()],
+            std::slice::from_ref(&matrix),
             log_k,
             log_t,
             OneHotSide::Read,
@@ -339,7 +339,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
     }
 
     /// Soundness (the weight check): an all-zero row is Boolean, so the
@@ -365,7 +365,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(&[bad.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
+        let proof = prove_onehot(std::slice::from_ref(&bad), log_k, log_t, OneHotSide::Read, &resolver, &mut t)
             .ok()
             .unwrap();
         let mut t2 = Transcript::new_default(b"onehot-test");
@@ -390,7 +390,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
     }
 
     /// Soundness: a resolver that answers with a DIFFERENT matrix than
@@ -409,7 +409,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &prover_resolver, &mut t)
+        let proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &prover_resolver, &mut t)
             .ok()
             .unwrap();
         // Cheating resolver: different matrix at the booleanity points.
@@ -436,7 +436,7 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let mut proof = prove_onehot(&[matrix.clone()], log_k, log_t, OneHotSide::Read, &resolver, &mut t)
+        let mut proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t)
             .ok()
             .unwrap();
         if let Some(round) = proof.raf.rounds.first_mut() {
