@@ -54,6 +54,7 @@ pub mod onehot;
 pub mod onehot_check;
 pub mod shout;
 pub mod sparse;
+#[allow(clippy::needless_range_loop)]
 pub mod sparse_engine;
 pub mod twist;
 

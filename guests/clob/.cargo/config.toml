@@ -1,0 +1,28 @@
+# NOTE: `[build] target` is deliberately NOT set here: with it, plain
+# `cargo test` would target riscv64imac-unknown-none-elf (a no_std target —
+# the std test harness cannot build). Instead both task commands work as-is:
+#   * host tests:   cargo test
+#   * guest build:  cargo build --release --target riscv64imac-unknown-none-elf
+# The RISC-V linker script is injected by build.rs for that target only.
+
+[target.riscv64imac-unknown-none-elf]
+rustflags = [
+    "-C", "target-feature=-c",
+    "-C", "target-feature=-a",
+    # opt-level=3 (task's first choice) does NOT fit the 3 KiB text window:
+    #   3 -> .text = 4264 B (overflow by 1192), 2 -> 3240 B (overflow by 168),
+    #   s -> 2896 B, z -> 2776 B. The task's sanctioned fallback (opt-level=z)
+    # is used: 2776 B <= 3072 B with 296 B headroom.
+    "-C", "opt-level=z",
+    "-C", "panic=abort",
+    # lto=fat lives in [profile.release] (cargo owns embed-bitcode coordination)
+    "-C", "codegen-units=1",
+    # CRITICAL: rust-lld performs R_RISCV relaxation at link time and, because
+    # the riscv64imac triple's .riscv.attributes still advertise the C/A
+    # extensions (they describe the TARGET ISA, not the -C target-feature
+    # overrides), it re-compressed the clean 32-bit-only codegen into 16-bit
+    # c.* encodings (e.g. _start shrank 28 -> 26 bytes and kernel_main landed
+    # at the 2-byte-aligned 0x101a). --no-relax keeps the linked image exactly
+    # as emitted: 32-bit-only, ld/sd-only.
+    "-C", "link-arg=--no-relax",
+]

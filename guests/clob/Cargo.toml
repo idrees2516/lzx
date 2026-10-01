@@ -1,0 +1,31 @@
+# Standalone crate: deliberately NOT a member of the lzx workspace.
+[workspace]
+
+[package]
+name = "clob-guest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Guest A (perp CLOB kernel) for the lzx zkVM — no_std RV64IMAC port of perp-options-clob"
+
+[lib]
+name = "clob_guest"
+path = "src/lib.rs"
+
+# The binary is RISC-V-only (global_asm entry stub); never build it for host tests.
+[[bin]]
+name = "guest"
+path = "src/bin/guest.rs"
+test = false
+bench = false
+doc = false
+
+[profile.release]
+# LTO is set here (not in RUSTFLAGS): cargo must own the embed-bitcode
+# coordination, otherwise `-C lto=fat` in RUSTFLAGS collides with cargo's
+# `-C embed-bitcode=no` (same end result: whole-program fat LTO).
+lto = "fat"
+# Rounding/panic/opt flags are set via RUSTFLAGS in .cargo/config.toml
+# (kept there so host `cargo test` is unaffected).
+debug = false
+incremental = false
