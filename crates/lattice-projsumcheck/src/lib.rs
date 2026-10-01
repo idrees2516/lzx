@@ -50,6 +50,10 @@
 //!   dummy rounds (§B).
 //! * [`fp256`] — the 4-limb Montgomery CIOS field with the upper-limb
 //!   challenge short-circuit and grinding (§5).
+//! * [`svsc`] — the small-value windowed prover (2025/1117 §5): the
+//!   ss-class weighting restructure over `Fp256` where κ ≈ 33 makes the
+//!   window pay — one integer-arithmetic grid pass answers the first
+//!   `v` rounds, byte-identical transcripts to the reference prover.
 //!
 //! ## Conventions
 //!
@@ -66,6 +70,7 @@ pub mod fastprover;
 pub mod fp256;
 pub mod proj_mle;
 pub mod proj_sumcheck;
+pub mod svsc;
 pub mod tables;
 
 pub use proj_mle::{MonomialMle, ProjMleError};

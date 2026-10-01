@@ -436,6 +436,46 @@ impl Fp256 {
     pub fn from_limbs(limbs: [u64; 4]) -> Fp256 {
         Fp256 { limbs }
     }
+    /// Canonical `u128` value → Montgomery form (`v·R mod p`): the value
+    /// occupies the high half of the 512-bit workspace (`v·2^256`).
+    pub fn from_canonical_u128(value: u128) -> Fp256 {
+        let wide = [0, 0, 0, 0, value as u64, (value >> 64) as u64, 0, 0];
+        Fp256 { limbs: reduce_wide_ref(&wide) }
+    }
+
+    /// Montgomery exponentiation (square-and-multiply over the 256-bit
+    /// exponent) — used by [`Fp256::inverse`].
+    pub fn pow(&self, exp: &[u64; 4]) -> Fp256 {
+        let mut result = Fp256::one_mont();
+        let base = *self;
+        for limb in exp.iter().rev() {
+            for i in (0..64).rev() {
+                result = result.mul(&result);
+                if (limb >> i) & 1 == 1 {
+                    result = result.mul(&base);
+                }
+            }
+        }
+        result
+    }
+
+    /// Multiplicative inverse via Fermat little theorem (`a^{p−2}`) —
+    /// `BN254_FR` is prime. Returns `None` for zero.
+    pub fn inverse(&self) -> Option<Fp256> {
+        if self.is_zero() {
+            return None;
+        }
+        let mut e = BN254_FR;
+        let mut borrow = false;
+        for i in 0..4 {
+            let (v1, b1) = e[i].overflowing_sub(if i == 0 { 2 } else { 0 });
+            let (v2, b2) = v1.overflowing_sub(u64::from(borrow));
+            e[i] = v2;
+            borrow = b1 || b2;
+        }
+        Some(self.pow(&e))
+    }
+
 }
 
 fn geq_p(x: &[u64; 4]) -> bool {
