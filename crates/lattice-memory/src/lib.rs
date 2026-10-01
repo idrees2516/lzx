@@ -54,12 +54,19 @@ pub mod onehot;
 pub mod onehot_check;
 pub mod shout;
 pub mod sparse;
+pub mod sparse_engine;
 pub mod twist;
 
 pub use onehot::OneHotLayout;
 pub use onehot_check::{verify_onehot, OneHotProof};
 pub use shout::{verify_shout, verify_shout_core_d1, ShoutProof};
 pub use sparse::{SparseOneHotFactor, SparseShoutInstance, SparseStats};
+pub use sparse_engine::{
+    build_twist_ports, prove_onehot_sparse, prove_shout_sparse,
+    prove_twist_ports_sparse, verify_twist_ports_checked, FactorClaim,
+    ProjectedDense, SparseFactor, SparseInstance, SparseOutput, SparseTerm,
+    TwistPortsWitness,
+};
 pub use twist::{build_twist_matrices, prove_twist, verify_twist, TwistProof, TwistWitness};
 
 /// A memory access event (address, timestamp, value, is_write).
