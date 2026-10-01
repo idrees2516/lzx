@@ -37,10 +37,17 @@
 #![allow(clippy::needless_range_loop)]
 /// BN254 scalar field modulus, little-endian limbs:
 /// p = 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001.
+///
+/// (Limb 2 was previously mistyped `…58d2` for `…585d` — a digit
+/// transposition that silently replaced the prime field with a
+/// **composite** modulus; every local test still passed because the
+/// reference reducer shared the same wrong constant. Surfaced — and
+/// fixed — by the fast-prover port's cross-constants
+/// (`R`, `R²` computed against the true BN254 Fr).)
 pub const BN254_FR: [u64; 4] = [
     0x43e1_f593_f000_0001,
     0x2833_e848_79b9_7091,
-    0xb850_45b6_8181_58d2,
+    0xb850_45b6_8181_585d,
     0x3064_4e72_e131_a029,
 ];
 
@@ -63,6 +70,24 @@ const fn inv_neg_mod64(p: [u64; 4]) -> u64 {
 }
 
 const N0: u64 = inv_neg_mod64(BN254_FR);
+
+/// `R = 2^256 mod p` in canonical limbs — the Montgomery radix (the
+/// canonical value of the Montgomery form of 1).
+pub const R_C: [u64; 4] = [
+    0xac96_341c_4fff_fffb,
+    0x36fc_7695_9f60_cd29,
+    0x666e_a36f_7879_462e,
+    0x0e0a_77c1_9a07_df2f,
+];
+
+/// `R² = 2^512 mod p` in canonical limbs — the canonical→Montgomery
+/// conversion constant.
+pub const R2_C: [u64; 4] = [
+    0x1bb8_e645_ae21_6da7,
+    0x53fe_3ab1_e35c_59e3,
+    0x8c49_833d_53bb_8085,
+    0x0216_d0b1_7f4e_44a5,
+];
 
 /// A 256-bit prime field element in Montgomery form
 /// (`ã = a·R mod p`, `R = 2^256`), 4×u64 little-endian limbs.
@@ -94,6 +119,15 @@ impl Fp256 {
     /// phase 2: 4 reduction steps at 4+1 products = 36 native
     /// multiplications total (§5.1's count).
     ///
+    /// Zero-limb short-circuits (exact — the skipped products are zero):
+    /// * phase 1 skips the whole inner loop when `b[i] = 0`;
+    /// * phase 2 shifts only when `m = t[0]·n0 = 0`.
+    ///
+    /// This makes every multiplication whose second operand is a small
+    /// **canonical** integer (or an upper-limb challenge) cost ~12–24
+    /// native multiplications instead of 36 — the sb kernel of the
+    /// window fast prover (`crate::fastprover`).
+    ///
     /// Accumulator invariant: `t[0..5]` holds a value < `2^{64·5}·(small
     /// slack)`; the extra sixth word absorbs the phase-1 carry and is
     /// folded back by phase 2's right shift.
@@ -104,19 +138,31 @@ impl Fp256 {
         let mut t = [0u64; 6];
 
         for i in 0..4 {
-            // Phase 1: t += a · b[i].
-            let mut carry: u128 = 0;
-            for j in 0..4 {
-                let s = (t[j] as u128) + (a[j] as u128) * (b[i] as u128) + carry;
-                t[j] = s as u64;
-                carry = s >> 64;
+            // Phase 1: t += a · b[i] — skipped entirely when b[i] = 0.
+            if b[i] != 0 {
+                let mut carry: u128 = 0;
+                for j in 0..4 {
+                    let s = (t[j] as u128) + (a[j] as u128) * (b[i] as u128) + carry;
+                    t[j] = s as u64;
+                    carry = s >> 64;
+                }
+                let s = (t[4] as u128) + carry;
+                t[4] = s as u64;
+                t[5] = t[5].wrapping_add((s >> 64) as u64);
             }
-            let s = (t[4] as u128) + carry;
-            t[4] = s as u64;
-            t[5] = t[5].wrapping_add((s >> 64) as u64);
 
-            // Phase 2: m = t[0]·n0;  t = (t + m·p) >> 64.
+            // Phase 2: m = t[0]·n0;  t = (t + m·p) >> 64 — a pure shift
+            // when m = 0 (t[0] = 0, the previous step's invariant).
             let m = t[0].wrapping_mul(N0);
+            if m == 0 {
+                t[0] = t[1];
+                t[1] = t[2];
+                t[2] = t[3];
+                t[3] = t[4];
+                t[4] = t[5];
+                t[5] = 0;
+                continue;
+            }
             let mut c: u128 = (t[0] as u128) + (m as u128) * (p[0] as u128);
             for j in 1..4 {
                 let s = (t[j] as u128) + (m as u128) * (p[j] as u128) + (c >> 64);
@@ -236,6 +282,159 @@ impl Fp256 {
             r = sub_p(&r);
         }
         Fp256 { limbs: r }
+    }
+
+    /// Montgomery-domain subtraction (limb-wise with borrow, then a
+    /// conditional `+p` when the borrow fired — operands < p).
+    pub fn sub(&self, other: &Fp256) -> Fp256 {
+        let mut r = [0u64; 4];
+        let mut borrow = false;
+        for i in 0..4 {
+            let (v1, b1) = self.limbs[i].overflowing_sub(other.limbs[i]);
+            let (v2, b2) = v1.overflowing_sub(u64::from(borrow));
+            r[i] = v2;
+            borrow = b1 || b2;
+        }
+        if borrow {
+            // Add p back: (a − b) + p < p since a, b < p.
+            let mut c: u128 = 0;
+            for i in 0..4 {
+                let s = (r[i] as u128) + (BN254_FR[i] as u128) + c;
+                r[i] = s as u64;
+                c = s >> 64;
+            }
+        }
+        Fp256 { limbs: r }
+    }
+
+    /// Negation (`p − self`, zero maps to zero) — valid for either form.
+    pub fn neg(&self) -> Fp256 {
+        if self.limbs.iter().all(|&l| l == 0) {
+            return *self;
+        }
+        let mut r = [0u64; 4];
+        let mut borrow = false;
+        for i in 0..4 {
+            let (v1, b1) = BN254_FR[i].overflowing_sub(self.limbs[i]);
+            let (v2, b2) = v1.overflowing_sub(u64::from(borrow));
+            r[i] = v2;
+            borrow = b1 || b2;
+        }
+        Fp256 { limbs: r }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.limbs.iter().all(|&l| l == 0)
+    }
+
+    // -----------------------------------------------------------------
+    // The canonical ↔ Montgomery bridge (the fast prover's field layer)
+    // -----------------------------------------------------------------
+
+    /// The canonical representative of 1 (limb 0 = 1).
+    pub const ONE_CANON: Fp256 = Fp256 { limbs: [1, 0, 0, 0] };
+
+    /// `self` (a **canonical** value, limbs < p) → Montgomery form.
+    /// `CIOS(a, R²) = a·R²·R^{-1} = a·R`.
+    pub fn to_mont(&self) -> Fp256 {
+        self.mul(&Fp256 { limbs: R2_C })
+    }
+
+    /// `self` (a **Montgomery** value) → canonical.
+    /// `CIOS(ã, 1) = a·R·R^{-1} = a`.
+    pub fn from_mont(&self) -> Fp256 {
+        self.mul(&Fp256::ONE_CANON)
+    }
+
+    /// The TRUE product `a·b mod p` of two **canonical** values, returned
+    /// in canonical form (`CIOS(to_mont(a), b) = a·b`). Two CIOS calls —
+    /// for the verifier's O(d²)-per-round interpolation work only; the
+    /// prover's hot loops use the Montgomery-constant kernels.
+    pub fn mul_canon(&self, other: &Fp256) -> Fp256 {
+        self.to_mont().mul(other)
+    }
+
+    /// The canonical limbs of a signed small integer `|s| < 2^127 < p/2`
+    /// (positive: plain limbs; negative: `p − |s|`).
+    pub fn canon_i128(s: i128) -> Fp256 {
+        if s >= 0 {
+            let u = s as u128;
+            Fp256 { limbs: [u as u64, (u >> 64) as u64, 0, 0] }
+        } else {
+            let u = s.unsigned_abs();
+            let small = [u as u64, (u >> 64) as u64, 0, 0];
+            let mut r = [0u64; 4];
+            let mut borrow = false;
+            for i in 0..4 {
+                let (v1, b1) = BN254_FR[i].overflowing_sub(small[i]);
+                let (v2, b2) = v1.overflowing_sub(u64::from(borrow));
+                r[i] = v2;
+                borrow = b1 || b2;
+            }
+            Fp256 { limbs: r }
+        }
+    }
+
+    /// The signed small value back (valid when the canonical value's
+    /// magnitude < 2^127); `None` otherwise.
+    pub fn to_i128(&self) -> Option<i128> {
+        let c = self.limbs;
+        if c[2] == 0 && c[3] == 0 {
+            let u = (c[0] as u128) | ((c[1] as u128) << 64);
+            if u < (1u128 << 127) {
+                return Some(u as i128);
+            }
+        }
+        // Negative branch: p − |x| with |x| < 2^127 ⟺ self + 2^127 > p.
+        let neg = self.neg();
+        let n = neg.limbs;
+        if n[2] == 0 && n[3] == 0 {
+            let u = (n[0] as u128) | ((n[1] as u128) << 64);
+            if u < (1u128 << 127) {
+                return Some(-(u as i128));
+            }
+        }
+        None
+    }
+
+    /// The **sb kernel**: TRUE product `x·s` in canonical form, where
+    /// `self = x̄` is MONTGOMERY and `s` is a signed small integer
+    /// (`CIOS(x̄, s_canonical) = x·s`). Phase-1/phase-2 skip the zero
+    /// limbs of `|s|` — ~12 native multiplications for one-limb `s`.
+    pub fn mul_small(&self, s: i128) -> Fp256 {
+        let neg = s < 0;
+        let u = s.unsigned_abs(); // < 2^127
+        let b = Fp256 { limbs: [u as u64, (u >> 64) as u64, 0, 0] };
+        let r = self.mul(&b);
+        if neg {
+            r.neg()
+        } else {
+            r
+        }
+    }
+
+    /// A canonical challenge from 32 transcript bytes: mapped into the
+    /// upper-limb challenge set (limbs 0–1 zero — always < p, no
+    /// rejection, and every later multiplication by its Montgomery form
+    /// takes the CIOS short-circuit; §5 of ePrint 2026/762).
+    pub fn challenge_upper(hash32: &[u8; 32]) -> Fp256 {
+        Self::sample_upper_limb(hash32)
+    }
+
+    /// Fixed-width big-endian canonical byte encoding (the transcript
+    /// encoding for round messages; caller keeps values canonical).
+    pub fn canon_bytes(&self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for i in 0..4 {
+            out[i * 8..i * 8 + 8].copy_from_slice(&self.limbs[3 - i].to_be_bytes());
+        }
+        out
+    }
+
+    /// Little-endian canonical limbs (unchecked reduction; callers that
+    /// need canonical form must supply limbs < p).
+    pub fn from_limbs(limbs: [u64; 4]) -> Fp256 {
+        Fp256 { limbs }
     }
 }
 

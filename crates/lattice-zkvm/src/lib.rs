@@ -28,6 +28,7 @@ pub mod constraints;
 pub mod memproof;
 pub mod compact;
 pub mod ledger;
+pub mod norm_check;
 pub mod envelope;
 pub mod prove;
 pub mod legbatch;

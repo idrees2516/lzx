@@ -37,3 +37,22 @@ Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`
 (the full 831-line gap analysis with per-paper tables and the Wave 6–8
 roadmap), `PERFORMANCE.md`, `SECURITY.md`, `AUDIT_CHECKLIST.md`.
+
+## Session updates (2026-10-01)
+
+- **Fp256 window fast prover** (2025/1117 + 2026/587, the SV setting):
+  `lattice-projsumcheck/fastprover.rs` — see
+  `implemented/sumcheck-speedups-fp256.md` (includes the pre-existing
+  composite-modulus defect found and fixed in `fp256.rs`).
+- **The streaming window schedule** (`EvalProductStream_k`, 2026/587
+  §5.2/C.4.2): `lattice-streaming/window_schedule.rs` — the Figure-2
+  schedule with emulated prefix access, `O(M^{1/k})`-class space,
+  bit-identical round messages.
+- **TTRP as the zkVM ledger's norm-check module** (2026/2146):
+  `lattice-zkvm/norm_check.rs` — the eval-claim API wired into the
+  bundle openings, replacing the JL-projection/digit-gadget norm
+  semantics.
+- **Neo** (2025/294): `lattice-folding/neo.rs` — the pay-per-bit Ajtai
+  commitments (popcount-scaled), `Decomp_b`/`split_b`, the strong
+  sampling set with the expansion-factor bound, `Π_RLC` + `Π_DEC`, and
+  the CCS decider — see `partially-implemented/neo.md`.

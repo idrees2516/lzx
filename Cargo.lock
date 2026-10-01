@@ -232,5 +232,6 @@ dependencies = [
  "lattice-ring",
  "lattice-streaming",
  "lattice-sumcheck",
+ "lattice-ttrp",
  "lattice-vm",
 ]

@@ -19,6 +19,11 @@
 //!   witness generators, and **checkpointed regeneration** (the
 //!   client-side random-access realization with parallelizable chunk
 //!   replay).
+//! * [`window_schedule`] — **the streaming window schedule**
+//!   (2026/587 §5.2/C.4.2, Figure 2): `EvalProductStream_{k},SC` —
+//!   geometrically-growing then space-capped windows with the bound
+//!   tables *emulated* by eq-folds, `O(M^{1/k})`-class space,
+//!   bit-identical round messages.
 //! * [`small_space`] — **Algorithm 1**: the `O(n + ℓ²)`-space sum-check
 //!   prover with Gray-coded eq walks; round messages bit-identical to
 //!   the in-memory engine.
@@ -51,3 +56,4 @@ pub mod pcs_stream;
 pub mod prefix_suffix;
 pub mod oracle;
 pub mod small_space;
+pub mod window_schedule;

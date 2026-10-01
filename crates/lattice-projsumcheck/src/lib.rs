@@ -62,6 +62,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod dummy;
+pub mod fastprover;
 pub mod fp256;
 pub mod proj_mle;
 pub mod proj_sumcheck;

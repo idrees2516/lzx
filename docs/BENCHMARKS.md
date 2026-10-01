@@ -166,6 +166,51 @@ Goldilocks today: the multiproduct engine's bb-count wins for
 high-degree products, the split-eq memory win (no 2^ℓ eq
 materialisation), and byte-identical drop-in transcripts.
 
+## 2e. The Fp256 window + streaming-schedule + TTRP-ledger + Neo waves (2026-10-01, this session)
+
+**The Fp256 window fast prover** (`lattice-projsumcheck/examples/fastprover_bench`,
+release build): the measured kernel ratios on this container —
+bb (full CIOS) 27 ns, sb (zero-limb-skipped CIOS, `mul_small`) 11.8 ns
+(**2.7×** vs bb), ss (native `i128`) sub-ns — against the papers'
+`κ ≈ 2N²+N = 36` at N = 4 limbs. The honest finding: the window's
+*weighting* multiplications are **sb-class** (big Montgomery weights ×
+small grid sums), not the ss-class the Lemma-5 optimum assumes, so the
+measured optimum collapses to `v* ≈ 2` and digit-table instances
+(`d = 2..3`, `M = 2^{13..14}`) come out **break-even** vs the
+linear-time baseline (byte-identity holds at every window). The grid
+construction itself is pure `i128` and essentially free — confirming
+that half of the papers' claim; the 2.5–4× end-to-end needs ss-class
+weighting (small challenges or Appendix C.2's grid-based binding),
+documented as the follow-up in
+`papers/implemented/sumcheck-speedups-fp256.md`. The port also
+**found and fixed a pre-existing composite-modulus defect** in
+`fp256.rs` (limb 2 mistyped `…58d2` for `…585d` — every local test had
+passed against the wrong constant).
+
+**The streaming window schedule** (`lattice-streaming/window_schedule.rs`):
+the Figure-2 `EvalProductStream_{k},SC` — geometric-then-capped windows
+with the bound tables *emulated* by eq-folds (never materialized), one
+pass-equivalent of `Θ(d·M)` oracle work per window, peak storage
+grid+scratch (`(d+2)^{⌊ℓ/(kδ)⌋} ≈ M^{1/k}`; the `space_profile` test
+pins peak < M/8 at `ℓ = 12, k = 2`), bit-identical round messages to
+the in-memory engine across 6 shape/k combinations.
+
+**The TTRP norm-check module** (`lattice-zkvm/norm_check.rs`): the
+ledger's bundle openings gain the `Π_TTRP` shortness layer — the
+statement digest binds (commitment, shape, bound, carrier terminal),
+the eval claim `mle(v)(conj(r)) = w_r` cross-checks the reconstructed
+response (the soundness glue the JL/digit-gadget layer never had), and
+the ABDLOP `LinearRelation` adapter is exposed for constraint
+absorption. Tamper tests: digits, TTRP proof, wrong context, eval
+mismatch all rejected.
+
+**Neo** (`lattice-folding/neo.rs`): the pay-per-bit cost profile
+measured — a binary witness commits with ≥ 4× fewer column-additions
+than a full-width one, both bit-identical to the naive reference; the
+strong sampling set's expansion factor stays within Theorem 3's
+`2·φ(η)·max‖ρ‖∞`; the commit → `Π_RLC` → `Π_DEC` → decider round trip
+and both tamper paths are test-pinned.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

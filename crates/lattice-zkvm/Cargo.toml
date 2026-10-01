@@ -13,6 +13,7 @@ lattice-ring = { workspace = true }
 lattice-commitment = { workspace = true }
 lattice-sumcheck = { workspace = true }
 lattice-akita = { workspace = true }
+lattice-ttrp = { workspace = true }
 lattice-vm = { workspace = true }
 lattice-memory = { workspace = true }
 lattice-labinius = { workspace = true }

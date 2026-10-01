@@ -14,3 +14,6 @@ lattice-sumcheck = { workspace = true }
 
 [[example]]
 name = "proj_bench"
+
+[[example]]
+name = "fastprover_bench"

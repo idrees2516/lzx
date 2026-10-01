@@ -9,6 +9,7 @@ description = "Streaming, small-space, client-side proving: stream oracles, O(n)
 [dependencies]
 lattice-core = { workspace = true }
 lattice-projsumcheck = { workspace = true }
+lattice-sumcheck = { workspace = true }
 
 [dev-dependencies]
 lattice-sumcheck = { workspace = true }
