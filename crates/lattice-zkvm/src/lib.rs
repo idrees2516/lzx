@@ -35,6 +35,7 @@ pub mod legbatch;
 pub mod streaming;
 pub mod pipeline;
 pub mod pipeline2;
+pub mod ttrp;
 
 #[cfg(test)]
 mod fuzz;
