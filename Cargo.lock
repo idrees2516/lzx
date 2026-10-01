@@ -195,6 +195,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-ttrp"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-ring",
+]
+
+[[package]]
 name = "lattice-vm"
 version = "0.2.0"
 dependencies = [

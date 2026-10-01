@@ -30,6 +30,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Twist & Shout (2025/105) | lattice-memory + zkvm | 7.3, 7.4 | partial/unimplemented (oracles + envelope strong; PIOPs + response-layer swap open) | — |
 | **Monomial-basis sum-check (2026/762)** | lattice-projsumcheck | — | **implemented** (projective protocol + structured tables + claim-preserving batching + Fp256 upper-limb challenges + grinding) | 27 |
 | **Small-space CPU proving (2025/611)** | lattice-streaming + zkvm/streaming.rs | — | **implemented** (oracles + Algorithm 1 + hybrid + prefix-suffix + grand product + matrix commitment + client facade + e2e path) | 25 |
+| Tensor-Train Random Projections (2026/2146) | lattice-ttrp | Tier-0 (TTRP shortness) | **implemented** (cores, both projection paths, Π_TTRP RoK + verifier tensor evaluation + bounds/search) | 15 |
+| Speeding Up Sum-Check (2025/1117 + 2026/587) | lattice-sumcheck/{extrapolate,multiproduct,fastprover} | Tier-0 (prover speedups) | **implemented** (window prover + multiproduct engine + split-eq, byte-identical transcripts; Goldilocks κ≈1 documented) | 10 |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`

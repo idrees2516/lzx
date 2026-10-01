@@ -32,6 +32,7 @@ impl core::fmt::Display for TranscriptError {
 }
 
 /// A Fiat–Shamir transcript bound to a protocol name.
+#[derive(Clone)]
 pub struct Transcript {
     sponge: KeccakSponge,
     /// Number of random-oracle query-equivalents consumed so far.

@@ -135,6 +135,37 @@ paths are drop-in prover strategies, not protocol variants. The end-to-end
 the streaming witness commitment, and the memory-fingerprint grand
 products over one VM execution.
 
+## 2d. The 2026/2146 + 2025/1117+2026/587 waves (2026-10-01, this session)
+
+**lattice-ttrp** (`examples/ttrp_bench.rs`, release, this container):
+
+| instance | m̄r | φ | d | µ₁+µ₂ | c | k | prove | verify (tensor) | naive row pass | proof |
+|---|---|---|---|---|---|---|---|---|---|---|
+| small | 2^8 | 16 | 4 | 6 | 4 | 16 | 5 ms | 2 ms | 1 ms | 1.8 KB |
+| mid | 2^12 | 64 | 4 | 9 | 8 | 32 | 1.5 s | 79 ms | 233 ms | 10.6 KB |
+| large | 2^14 | 64 | 4 | 10 | 8 | 48 | 4.6 s | 139 ms | 1405 ms | 12.2 KB |
+
+The verifier's tensor-structured MLE evaluation (Lemma 6: core-MLE
+chunks → boundary chain → γ̃-scaled coefficient chains) beats the
+JL-style row materialisation **10× at m̄r = 2^14** — the paper's Table-1
+axis (6492 MB → sub-MB core tensors). The prover runs the honest
+O(k·c·m̄r·φ) integer-contraction + S/W-split cost of Lemma 6.
+
+**lattice-sumcheck fast prover** (`examples/fastprover_bench.rs`): the
+multiplication-count instrumentation confirms the papers' asymptotics
+exactly — at d = 2, M = 2^14, the total big-by-big count drops
+65 528 → 3 153 as the window grows 1→4 (the 2^v tail factor) while the
+small-by-big count grows `M·((d+2)/2)^v` per C.4.1 — but the wall-clock
+trade is negative on Goldilocks: a 64-bit field has κ ≈ 1 (no limb
+hierarchy), so the window's sb work costs the same as bb and the
+baseline's SIMD 8-lane kernels win. The regime the papers target
+(κ ≈ 33 for 256-bit Montgomery fields) is realised by
+`lattice-projsumcheck`'s Fp256 — the port target for the real
+2.5–4× small-value and 1.7–2.2× high-degree wins. What transfers to
+Goldilocks today: the multiproduct engine's bb-count wins for
+high-degree products, the split-eq memory win (no 2^ℓ eq
+materialisation), and byte-identical drop-in transcripts.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

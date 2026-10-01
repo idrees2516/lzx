@@ -159,7 +159,7 @@ pub fn prove(
 /// g(t): sum over the remaining hypercube of the virtual polynomial with
 /// the current (first) variable of every factor set to t. Factors are
 /// half-bound on the fly: `f_t(p) = f[p] + t·(f[p + points] − f[p])`.
-fn sum_products(
+pub(crate) fn sum_products(
     bound: &[DenseMle],
     terms: &[(Goldilocks, Vec<usize>)],
     t: Goldilocks,
@@ -204,7 +204,7 @@ fn sum_products(
 
 /// Lagrange-evaluate the round polynomial (given its values at 0..d) at r.
 #[allow(clippy::needless_range_loop)]
-fn interpolate_at(evals: &[Goldilocks], r: &Goldilocks) -> Goldilocks {
+pub(crate) fn interpolate_at(evals: &[Goldilocks], r: &Goldilocks) -> Goldilocks {
     // Univariate Lagrange interpolation over nodes 0..d.
     let n = evals.len();
     let mut acc = Goldilocks::ZERO;

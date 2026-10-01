@@ -1,0 +1,13 @@
+[package]
+name = "lattice-ttrp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Tensor Train Random Projections for succinct shortness checks (ePrint 2026/2146): TT cores, the modular TTRP projection, the Pi_0 / Pi_TTRP reductions of knowledge with sumcheck linearisation, statistical bounds and parameter search."
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-ring = { workspace = true }
+
+[dev-dependencies]

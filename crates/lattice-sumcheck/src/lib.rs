@@ -19,6 +19,9 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod batch;
+pub mod extrapolate;
+pub mod fastprover;
+pub mod multiproduct;
 pub mod sumcheck;
 pub mod virtual_poly;
 pub mod zerocheck;
