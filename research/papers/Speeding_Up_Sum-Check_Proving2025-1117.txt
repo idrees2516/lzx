@@ -1,0 +1,2554 @@
+                            Speeding Up Sum-Check Proving⋆
+
+                       Suyash Bagad1 , Quang Dao2 , Yuval Domb1 , and Justin Thaler3
+                                                   1
+                                                      Ingonyama
+                                            2
+                                             Carnegie Mellon University
+                                 3
+                                   a16z crypto research and Georgetown University
+
+
+        Abstract. At the core of the fastest known SNARKs is the sum-check protocol. In this paper, we
+        describe two complementary optimizations that significantly accelerate sum-check proving in key
+        applications.
+
+        The first targets scenarios where polynomial evaluations involve small values, such as unsigned 32-bit
+        integers or elements of small subfields within larger extension fields. This setting is common in
+        applications such as Jolt, a state-of-the-art zero-knowledge virtual machine (zkVM) built on the
+        sum-check protocol. Our core idea is to replace expensive multiplications over large fields with cheaper
+        operations over smaller domains, yielding both asymptotic speedups and significant constant-factor
+        improvements. The second optimization addresses a common pattern where sum-check is applied to
+        polynomials of the form g(x) = eq(r, x) · p(x), where eq is the multilinear extension of the equality
+        function. We present a technique that substantially reduces the prover’s cost associated with the
+        equality polynomial component. We also describe how to combine both optimizations, which is
+        essential for applications like Spartan within Jolt.
+
+        We have implemented and integrated our optimizations into the Jolt zkVM. Our benchmarks show
+        consistent 2-3× speedups for proving the first sum-check of Spartan within Jolt, with performance
+        gains reaching 20× or more when baseline methods approach their memory limits.
+
+
+1     Introduction
+
+The sum-check protocol [33] is a fundamental tool in the design of succinct interactive proofs. It provides
+an information-theoretically sound method for verifying claims of the form
+                                                    X
+                                                             g(x) = t,
+                                                  x∈{0,1}ℓ
+
+
+where g is a multivariate polynomial over a finite field F and t is a specified value. From the verifier’s
+perspective, the sum-check protocol acts as a reduction from the expensive task of summing 2ℓ evaluations
+of g to the (hopefully) much cheaper task of evaluating g at a single random point in Fℓ .
+When used in standalone interactive settings, the sum-check protocol is information theoretically secure,
+meaning it requires no cryptographic commitments whatsoever. When used within SNARKs, the polynomial
+g is typically derived in some manner from a committed witness. In this context, the sum-check protocol
+generally minimizes (but does not eliminate) the amount of data the SNARK prover must commit to,
+and also minimizes the time required to prove that this committed data is well-formed.
+These features have made sum-check a cornerstone of modern SNARK constructions. It underpins
+SNARKs for proving satisfiability of arithmetic circuits [26,49,53], R1CS [38], Plonkish and CCS [15,41],
+the fastest known lookup arguments [40,42], polynomial commitment schemes [3,21,22,37], folding schemes
+[11,30,31,12,36], and zero-knowledge virtual machines (zkVMs) like Jolt [4].
+A key motivating application for our work is Jolt, a zkVM targeting the RISC-V instruction set. Sum-check
+lies at the core of every part of Jolt. The system consists of three main components:
+⋆
+    This manuscript combines and improves upon results from [6,20].
+2         Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+    • A read-only memory checking protocol, also known as a lookup argument or batch-function-evaluation
+      protocol. Currently Jolt uses Lasso [42] for read-only memory checking, but is imminently switching to
+      Shout [40]),
+    • A read/write memory checking protocol (Jolt is currently using Spice [39], but is imminently switching
+      to Twist [40]),
+    • And a highly structured R1CS instance, which is proven using a variant of Spartan [38] optimized for
+      constraint systems with repeated structure.
+Roughly, Jolt uses read-only memory checking to process reads into program bytecode and to execute
+primitive instructions, read/write memory checking to process reads and writes to the VM’s registers and
+RAM, and Spartan to capture the “fetch-decode” logic of the VM’s “fetch-decode-execute” loop (i.e., to
+make sure that at each cycle, the correct primitive instruction is applied to the correct inputs and written
+to the correct destination register or memory cell).
+All three components use sum-check as their core protocol. As the memory-checking components have been
+optimized, the Spartan subprotocol within Jolt has become a major bottleneck. This reflects a broader
+trend in SNARK design: the sum-check protocol is so effective at reducing commitment costs that its own
+proving time now dominates the prover’s end-to-end cost.
+Virtually every application of the sum-check protocol in SNARK design, Jolt included, uses it to prove
+that a polynomial of the form
+                                                e X) · p(X)
+                                        g(X) = eq(r,
+                                  e is the multilinear extension4 of the equality function and p(X) is a
+sums to a specified value, where eq
+product of multilinear polynomials. This includes every one (of several dozen) invocations of the sum-check
+protocol within Jolt.
+Even more can be said about one of the key prover bottlenecks in Jolt, namely its application of the
+                                                                             e X) · (a(X) · b(X) − c(X)).
+sum-check protocol within Spartan. In this application, g(X) has the form eq(r,
+Here, a, b, and c are multilinear extensions derived from a committed “execution trace” vector z via public
+matrices A, B, and C (i.e., a = Az,f b = Bz,
+                                           f and c = Cz.  f 5 ). The equality polynomial is not committed
+because it can be evaluated directly by the verifier in time O(ℓ) (which is logarithmic in the instance size,
+2ℓ ).
+We make the crucial observation that the values being summed up by Spartan’s sum-check (ignoring the
+eq
+ e factor) are small. This is because execution traces contain values that are storable within the VM’s
+registers. In Jolt today, these registers store 32-bit words. In fact, many values within an execution trace
+are much smaller than 32 bits (e.g., binary flags for instruction selection). Yet, the proving field used in
+Jolt is very large (e.g., 256-bit prime fields used for elliptic curve-based polynomial commitments, and
+128-bit fields for other commitment schemes).
+With the above context in mind, the focus of our work is the following question:
+        Can we speed up the sum-check prover, both asymptotically and in practice, in common
+                               settings in modern SNARKs and zkVMs?
+
+
+1.1     Our Results
+
+We present new algorithms for the sum-check prover that improve upon existing methods in the following
+settings:
+• Small-value sum-check, where the values being summed are small relative to the field size,
+4
+  The multilinear extension fe of a function f : {0, 1}ℓ → F denotes the unique multilinear polynomial satisfying
+  fe(x) = f (x) for all x ∈ {0, 1}ℓ .
+5
+  A tilde over a vector such as Az of length 2ℓ denotes the multilinear extension of the function over domain
+  {0, 1}ℓ whose evaluation table is given by vector.
+                                                                     Speeding Up Sum-Check Proving        3
+
+
+
+
+Fig. 1: Overview of existing sum-check algorithms and our optimization in the small-value setting. Here
+g(X) = p(X) · q(X) for multilinear polynomials p, q, and we illustrate our small-value optimization on
+round 2 of the sum-check protocol.
+
+
+• Eq-poly sum-check, where the polynomial being summed includes an eq
+                                                                   e factor,
+• The combination of the above two settings, as arises in Spartan-in-Jolt.
+Our algorithms give an asymptotic speedup to the prover when applied in the above settings. Our speedups
+in practice range between 2.5-4× for the Spartan-in-Jolt sum-check invocation.
+Beyond speed, our results substantially reduce memory usage. Our eq-polynomial optimization eliminates
+the 2n -sized equality polynomial table common in prior work [47,44]. Furthermore, our small-value
+algorithm enables a streaming prover, using small space by processing values on-the-fly, as in Spartan-
+in-Jolt. Subsequent work [35] has leveraged this to achieve a small-space Jolt prover with minimal time
+overhead.
+Our optimizations have been integrated into the Jolt zkVM.6 We also provide a standalone implementation
+for testing a wider range of algorithms and field settings, though it is not yet fully optimized.7
+
+
+Small-Value Sum-Check Optimization. Our first optimization targets scenarios where the values
+being summed are small relative to the field size. In such settings, field multiplications fall into three
+categories:
+
+                        ss : small × small,   sl : small × large,   ll : large × large.
+
+Empirically (and asymptotically as well), ss ≪ sl ≪ ll, with large-large multiplications being an order of
+magnitude more expensive than the ss.8 Our optimization reduces the number of ll multiplications from
+O(N ) (where N = 2ℓ is the size of the summation domain) based on prior work [18,38] to O(N/poly(κ)),
+where κ is the factor difference between ll and ss multiplications.
+The precise poly(κ) factor prover savings depends on: (1) the number d of multilinear factors in g(x), and
+(2) the relative cost of ll versus sl versus ss multiplications. For example, in the Spartan-in-Jolt setting
+mentioned above, where d = 2 and ll multiplications are κ := λ2 times more expensive than ss (as with
+6
+  See https://github.com/a16z/jolt/pull/690
+7
+  See https://github.com/ingonyama-zk/smallfield-super-sumcheck/tree/sb/eq-optimized
+8
+  The difference between sl and ll depends on the specific field setting; see Section 2.1.
+4          Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+Montgomery multiplication for λ-bit prime fields [34,23]), our algorithm reduces the dominant cost of ll
+multiplications by a factor of roughly λ0.63 .
+To achieve this speedup, we need both our new sum-check proving algorithm and an optimized imple-
+mentation for sl multiplications in large prime fields, which we view as an independent contribution
+(see Section 7). Specifically, we show how to multiply a small value (fitting in a single machine word) by a
+large value (requiring N > 1 machine words) in time linear in N , improving upon standard Montgomery
+multiplication for two N -word values, which takes O(N 2 ) time.9
+
+Small-value algorithm overview. Figure 1 illustrates the different algorithms for the sum-check prover
+(existing ones as well as our new algorithms for the small-value setting, for the special case where g is the
+product of two multilinear polynomials). To explain the figure, we first recall what the sum-check prover
+needs to send the verifier in each round. For round i, the prover needs to compute:
+
+                                                X      d
+                                                       Y
+                                  si (u) =                    pk (r1 , . . . , ri−1 , u, x),                      (1)
+                                             x∈{0,1}n−i k=1
+
+
+where r1 , . . . , ri−1 are the verifier’s challenges from previous rounds and u ranges over a large enough set
+of evaluation points (e.g., u ∈ {0, 1, . . . , d} suffices).
+While the prover’s computation of its first-round message s1 (u) trivially benefits from the fact that all
+pk (u, x) are small, starting from round i ≥ 2, the evaluations pk (r1 , . . . , ri−1 , u, x) are no longer small, due
+to the presence of the random challenges r1 , . . . , ri−1 ∈ F. This means that the standard linear-time prover
+(Algorithm 1 in Figure 1) exclusively performs ll multiplications from round 2 onward. The (previously
+known) small-space proving algorithm (Algorithm 2 in Figure 1) recomputes the products “from scratch”
+each round (instead of using a linear-sized caching data structure), which involves many cheaper sl
+multiplications but remains inefficient due to redundant recalculations.
+As Algorithm 1’s cost is concentrated in the first few rounds, our key idea is to replace these rounds with
+cheap ss and sl multiplications. By expanding out the products in Algorithm 2, we can re-express the
+computation as an inner product of a coefficient vector (depending on large field elements r1 , . . . , ri−1 ) of
+length (d + 1)i−1 , with a vector of small-value elements (obtained via summation over various products of
+pi ). This gives Algorithm 3 in Figure 1.
+A downside of Algorithm 3 is that one replaces each ll multiplication performed by Algorithm 1 with
+O(2d·i ) ss multiplications for each round i. As the round number increases, eventually we hit a point
+where Algorithm 1 (the linear-time prover) is more efficient than our Algorithm 3; at that point, we simply
+switch back to Algorithm 1. More precisely, to switch back to Algorithm 1, the prover requires arrays
+that store evaluations {pk (r[<i] , x)}k∈[d],x∈{0,1}n−i , where r[<i] is shorthand for (r1 , . . . , ri−1 ). These can
+be quickly computed by running Algorithm 2 for one round (see Section 4.1 for details).
+We can improve Algorithm 3 further, reducing the O(2d·iQ              ) overhead in ss multiplications to O((d + 1)i )
+for the same round i. The idea is to treat the product k pk (r1 , . . . , ri−1 , u, x) as the evaluation of a
+polynomial F (X1 , . . . , Xi−1 ) on (r1 , . . . , ri−1 ), then use polynomial interpolation (in each variable Xi ) to
+compute F instead. This approach, which we call Algorithm 4, draws from the Toom-Cook multiplication
+algorithm for polynomials [46] (see Section 4.2 for details).
+
+
+Eq-Poly Sum-Check Optimization. Our second optimization targets the ubiquitous scenario where
+g(x) includes an eq(w,
+                 e     X) term. In this setting, we leverage the decomposition of eq
+                                                                                  e into a product:
+            Qℓ
+eq(w,
+e     X) = i=1 eq(w[i],
+                 e      Xi ). Because of this, we may rewrite the computation of the i-th sum-check
+ 9
+     While our techniques are standard (e.g., optimized Barrett reduction), we know of no existing exposition or
+     implementation for this specific setting.
+                                                                                Speeding Up Sum-Check Proving      5
+
+message si (X) as:
+                                            X
+                              si (X) =                e [<i] , r[<i] ) · eq(w
+                                                      eq(w               e i , X) · ti (X),                      (2)
+                                         x∈{0,1}ℓ−i
+
+where ti (X) is given by the iterated sum:
+                         X                            X                       d
+                                                                              Y
+                                     eq(w
+                                     e L , xL )                  eq(w
+                                                                 e R , xR )         pk (r[<i] , X, xL , xR ).
+                    xL ∈{0,1}ℓ/2−i                xR ∈{0,1}ℓ/2                k=1
+
+We perform two rewritings in the above equation: first, exploiting the fact that eqe can be written as a
+product of three terms, and second, rewriting the sum in Equation (2) as an iterated sum. While the first
+property was previously exploited by Gruen [28] to reduce the prover cost contributed by the eq
+                                                                                             e factor (in
+a way that is orthogonal to, and can be combined with, our own optimization)10 , the second rewriting is
+our novel contribution.
+Our sum-check prover now pre-computes the smaller tables
+                  n                            o  n                               o
+                    e R , xR ) : xR ∈ {0, 1}ℓ/2 ,
+                   eq(w                             e [<i] , x) : x ∈ {0, 1}ℓ/2−i
+                                                    eq(w
+
+for all i = 0, . . . , ℓ/2 − 1. The prover then uses these tables to compute the sum-check message in each of
+the first ℓ/2 rounds of the protocol. The final ℓ/2 rounds then follow the standard linear-time sum-check
+prover algorithm. This is in contrast to prior sum-check prover implementations [18,44], which require
+pre-computing the 2ℓ -sized table {eq(w, e    x)}x∈{0,1}ℓ . See Section 5 for details.
+This optimization is especially impactful because almost all applications of the sum-check protocol in
+SNARKs involve the eq e polynomial. In particular, it benefits all three components of Jolt: the Spartan-
+based subprotocol for proving R1CS, the Twist/Spice protocols for read-write memory checking, and the
+Shout/Lasso protocols for read-only memory checking (i.e., lookups).
+
+Combining Both: Optimizing Spartan-in-Jolt. We show how the two optimizations can be combined
+to achieve a speedup in the combined eq-poly and small-value setting. Our speedup here is not as large,
+since most of the ss multiplications in Algorithms 3 and 4 are now sl multiplications, due to the extra eq  e
+factor lying in the large field. Asymptotically, this gives a speedup of about the square root of the speedup
+we get in the small-value-only setting.11 See Section 6.1 for details.
+In the case of Spartan’s first sum-check, we describe two further optimizations. First, we observe that for
+the particular relation arising in Spartan, the honest prover’s first-round message s1 (X) is a univariate
+polynomial whose evaluations at 0 and 1 are always equal to 0. Hence, the prover does not have to invest
+any work to compute these two evaluations. Second, the fact that we may use evaluation “at infinity”
+12
+   when specifying each prover message si means that we can omit the lower-degree term Cz        f in any
+calculation the prover performs involving evaluation at infinity. For more details, see Section 6.2.
+
+Implementation and Concrete Speedups. In Section 8, we describe our implementation and the
+demonstrated speedups. To summarize, our optimization gives a 3× speedup for the first sum-check of
+Spartan-in-Jolt, growing to 20× or more when the linear-time algorithm gets memory-bound. Future
+extensions to our implementation will also handle a streaming prover without much overhead. As Jolt
+is currently a moving target (switching from Lasso-Spice to Twist-Shout), we leave benchmarking the
+end-to-end performance improvement of our optimization to future work.
+10
+   See also a small variation proposed by Setty and Thaler [40] that avoids altering the prover’s message in each
+   round of sum-check
+11
+   sl costs are typically geometrically between ss and ll costs. For example, when applying Montgomery multiplication
+   to N -word values, ss multiplications incur one machine multiplication, sl multiplications incur O(N ) (see
+   Section 7), while ll multiplications incur O(N 2 ).
+12
+   The evaluation of si at infinity refers to the highest-degree coefficient of si in the standard monomial basis.
+   See Lemma 2.2 for details.
+6        Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+1.2   Related Work
+
+Origins of the Sum-Check Protocol. The sum-check protocol was introduced by Lund, Fortnow, Karloff,
+and Nisan [33] as a key component in an interactive proof for #P and later PSPACE [43]. The prover’s in
+these protocols took superpolynomial time even when applied to very simple problems (e.g., those solvable
+in logarithmic space). The sum-check protocol was later harnessed by Goldwasser, Kalai, and Rothblum
+(GKR) [26], who used it to construct an interactive proof for any arithmetic circuit of polylogarithmic
+depth and polynomial size, with a prover that runs in polynomial time.
+
+Efficient Sum-Check Provers. Cormode, Thaler, and Yi [18] introduced a linear-time implementation of
+the sum-check prover when applied to a product of multilinear polynomials, along with a space-efficient
+variation that runs in quasilinear time using only logarithmic space. These algorithms have since been
+refined and deployed in a variety of systems. For example, they were used in a long line of works to
+implement linear-time variants of the GKR protocol [17,47,44,48,49,55,53,54]. They also form the prover
+backbone in Spartan [38], which underlies one of the major components of Jolt. A line of works has also
+applied the sum-check protocol to obtain efficient memory-checking arguments, meaning a way of forcing
+an untrusted prover to correctly process reads and writes to a large memory (or just reads, in the case of
+real-only memories) [56,39,42]. Most recent in this line of work is Twist and Shout [40].
+
+Gruen’s Optimizations. A recent work of Gruen [28] also seeks to optimize the sum-check prover when
+working over fields of small characteristic. Two optimizations in that work are relevant. The first reduces
+prover overhead in the eq-poly setting. This optimization is orthogonal to our result in this setting. We
+discuss both Gruen’s optimization and how ours can be combined with it in Section 5.
+
+The second of Gruen’s optimizations is a technique Gruen calls the “univariate skip”. This technique
+targets the same “small value” setting that we do, but has several downsides relative to our algorithms.
+The univariate skip technique applies sum-check to a multivariate polynomial g that has high degree in its
+first variable–roughly d · 2i for some i ≥ 1 and some constant d, and degree d in each of its remaining
+variables. The sum-check protocol then needs to be modified so that the sum over the first variable is over
+a larger set of size d · 2i . In this setting, all of the prover’s work in round 1 can occur over the base field.
+
+Most importantly, it is applicable only in small-characteristic fields, i.e., when values reside in a small
+subfield of a larger extension field. In contrast, our small-value optimization applies whenever the values
+being summed are small (even when those small values reside within large prime fields). Without this
+generality, our optimization would not apply to the current Jolt implementation. In addition, our approach
+yields a lower proof size, stemming from the high degree of g’s first variable in the univariate skip. Finally,
+many SNARKs derive g from committed polynomials; applying the univariate skip technique would
+require modifying the commitment scheme to support polynomials with a high-degree first variable, which
+may add costs. In contrast, our techniques apply “as is” to existing sum-check-based SNARKs, yielding
+functionally equivalent implementations.
+
+Sparse-Dense and Related Protocols. The sparse-dense sum-check prover algorithm [42] achieves a general
+time-space tradeoff, running in O(cn) time and O(n1/c ) space for any integer c > 0, but applies only
+to structured sum-check instances, involving the product of an arbitrary multilinear polynomial and a
+structured multilinear polynomial. Its refinement, the prefix-suffix inner product algorithm [35], further
+generalizes applicability and improves efficiency for these structured scenarios. Jolt employs these protocols
+wherever possible as they consistently provide efficiency gains; however, their applicability remains limited
+to specific structured sum-check instances (in particular, they do not apply to many of the sum-check
+instances in Jolt, including those arising in Spartan). The Blendy protocol [16] rediscovered a special case
+of sparse-dense sum-check that applies only in the degenerate scenario where g(x) is a single multilinear
+polynomial.
+
+The above protocols benefit from our eq-poly optimization, but not from our small-value optimization.
+                                                                           Speeding Up Sum-Check Proving              7
+
+Subsequent work. As mentioned above, after the release of an initial version of our results [6,20], Nair,
+Thaler, and Zhu [35] described an efficient small-space implementation of the Jolt prover (without invoking
+SNARK composition or recursion), whose concrete efficiency benefits substantially from both of our
+optimizations.
+An exciting upcoming manuscript of Baweja et al. [10] implements the sum-check prover (applied to a
+product of a constant number of multilinear polynomials) in sublinear space and slightly superlinear time
+(i.e., in O(N · log log N ) field operations and using space N 1/k for any constant integer k > 1, where
+N = 2ℓ is the size of the sum being computed). Our techniques can be combined with the algorithm of
+Baweja et al. in nontrivial ways to obtain a more efficient streaming version of the Jolt prover, which
+we will detail in a future version of this manuscript. Assuming natural conjectures, Baweja et al. also
+prove a matching lower bound of Ω(N log log N ) field multiplications for the sum-check prover applied to
+a product of arbitrary multilinear polynomials, when using sublinear space.
+Two recent works also focus on the sum-check protocol applied in the small-characteristic setting (like the
+univariate skip technique [28], these algorithms do not apply when summing small values that reside within
+a large-characteristic field). Liu and Zhang [32] focus on the setting of binary tower fields, building on a
+technique of Dao and Thaler [19] to give a sum-check prover algorithm for products of d Boolean-valued
+multilinear polynomials. However, for the most common settings of d, namely d ∈ {2, 3}, their algorithm is
+asymptotically slower than ours, and no implementation is provided. Wei et al. [50] obtain a fast sum-check
+prover implementation by combining parallel repetition with NeutronNova’s [31] “sumfold” scheme that
+reduces many independent instances of the sum-check protocol to a single one.
+
+
+2     Preliminaries
+
+Notation. We denote ranges as follows: [a, b] := {a, . . . , b}, [n] := {1, . . . , n}, [< i] := {1, . . . , i − 1}, and
+[> i] := {i + 1, . . . , n} (where n is assumed to be clear from context). We write GF[q] for the (unique)
+                                         Pℓ
+finite field of order q, and natb (x) := i=1 xi · bi−1 for the natural number in base b corresponding to the
+                        ℓ
+vector x ∈ [0, b − 1] , abbreviating nat(x) when b = 2. We index vectors from 1.
+We denote the multiplication of two small field elements by ss, of a small field element by a large field
+element by sl, and of two large field elements by ll, and use the same notation for their cost. We occasionally
+use the shorthand “mults” for field multiplications.
+
+
+2.1   Field Arithmetic
+
+We recall relevant facts about the performance of field operations in the small-value setting. The particular
+cases we consider are: (1) w-bit (signed or unsigned) integers, considered inside a large prime field
+F = GF[p], and (2) A base field B = GF[p], considered inside a degree-k extension field F = GF[pk ] of B.
+Case (1) is relevant to the current implementation of Jolt [4] because Jolt currently uses elliptic curve
+commitment schemes that operate over a 256-bit prime-order field. Future versions of Jolt may instead
+use binary fields and hashing-based commitment schemes [21,22,13], for which Case (2) will be relevant.
+Alternative future versions of Jolt may be based on lattice commitments [36] and use an extension of the
+64-bit Goldilocks field; in this case, both Cases (1) and (2) may be applicable.
+Small values inside large prime fields. This setting is exemplified by when the values are (say) 64-bit,
+and the big field is roughly 256-bit (or more), represented as four (or more) limbs of 64-bits each. These
+fields are subfields of the scalar group of elliptic curves, such as BN254 [8], BLS12-381 [7], or others.
+In this setting, ss multiplications can be done using native ALU instructions, though unlike case (2),
+the magnitude of the values grow as we perform more ss multiplications. Thus, our optimizations work
+best when there are few consecutive ss multiplications (in Spartan, for instance, we only do one such
+multiplication).
+8        Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+On the other hand, ll multiplications are typically done using Montgomery multiplication [34,23], which
+costs about 2N 2 + 1 ss multiplications, where N is the number of limbs representing a field element (e.g.,
+N = 4 limbs are needed to represent a 256-bit field element on a machine with 64-bit words).13
+Finally, sl multiplications can be done using a more optimized algorithm that uses a single round of
+Barrett reduction [9] instead of full Montgomery reduction. We work out the details of this algorithm
+in Appendix 7, which only requires roughly 2N ss multiplications, and is thus 2.5-3 times faster than ll
+multiplications in settings of interest (i.e. multiplying a BN254 scalar by a u64 value).
+Base field inside extension fields. An element of the extension field F can be represented as a vector
+of coefficients (a1 , . . . , ak ) ∈ Bk relative to some basis β1 , . . . , βk of the vector space F over B. The choice
+of basis affects which algorithms can be used to compute field multiplication and can substantially impact
+performance.
+A standard choice of basis is the monomial basis, in which the extension field F can be viewed as the set
+of all degree-k polynomials over the base field B, modulo a degree-k irreducible polynomial over B. In this
+basis, an extension field element’s representation is its coefficients when viewed as such a polynomial.
+An alternative that can lead to faster multiplication algorithms is the tower basis. A degree-2ℓ extension
+field F of B is said to be a tower extension if it is constructed from B by first constructing a degree-2
+extension B(1) , and then constructing a degree-2 extension B(2) of B(1) , and so on for ℓ iterations. This
+leads to a basis for F in which, for any integer j ≥ 0, the first 2j basis elements are in the degree-2j
+extension field obtained after j iterations of the tower construction. Particularly fast and elegant tower
+field constructions are known for fields of characteristic two [51,24].
+There are (at least) two benefits to tower basis that are important to applications of the sum-check
+protocol in SNARK design [21]. First, (intermediate) subfield elements are compressed: for any degree-2j
+extension B(j) in the tower construction, one can represent any element x ∈ B(j) via just 2j elements of
+                                                                                                   ′
+B. Second, one obtains fast subfield-by-subfield multiplication: for any two subfields B(j) and B(j ) in the
+                                                                                                    ′
+tower construction with j < j ′ , one can multiply any element x ∈ B(j) by any element y ∈ B(j ) using
+       ′
+just 2j −j multiplications in B(j) . Both of these benefits are not present for the standard monomial basis
+(see [21,22] for details).
+ll multiplications. In both choices of basis (monomial and tower), ll multiplications can be done using
+variants of Karatsuba’s algorithm [29], which costs O(k log2 (3) ) = O(k 1.58496... ) base-times-base multi-
+plications for each extension-times-extension multiplication. In particular, for the monomial basis, we
+apply Karatsuba’s algorithm for multiplying two polynomials, while for the tower basis, we apply it for
+recursively multiplying smaller subfield elements.
+Hardware Considerations. In FPGAs and ASICs, multiplication in binary fields is highly efficient
+when field elements are represented using a tower basis. Current CPUs, however, do not natively support
+efficient multiplication in the tower basis, but they do support fast multiplication in a different (monomial)
+basis for GF(2128 ), known as POLYVAL. For instance, ARMv8 provides the PMULL instruction, which
+efficiently multiplies two 64-bit inputs. To extend multiplication to 128-bit inputs, one can apply the
+techniques described in [27, Algorithms 2 and 3], which invoke PMULL multiple times. Indeed, BearSSL14
+contains optimized implementations of GF(2128 ) multiplication in the POLYVAL basis for both x86_64
+and ARM64 architectures, utilizing the PMULL instruction for ARM64 and the PCLMULQDQ instruction
+for x86_64 [21]. Additionally, Intel’s Galois Field instruction set (GFNI), originally targeting GF(28 )
+multiplications for AES computations, can be leveraged—together with Karatsuba’s algorithm—to achieve
+reasonably efficient GF(2128 ) multiplications by decomposing larger operations into sequences of smaller
+ones.
+13
+   The rough idea is that we store field elements in Montgomery form, so that a mod p is stored as aR mod p, for
+   a suitably chosen R that is a power of two. Multiplication then first compute (aR) · (bR) = abR2 as integers,
+   then use Montgomery reduction, which roughly divides by R and takes the remainder mod p, to reduce to abR
+   mod p.
+14
+   https://bearssl.org/
+                                                                                       Speeding Up Sum-Check Proving    9
+
+Recap of relevant fields and their performance. Most SNARKs need to work over fields of size
+at least 2128 . Working over smaller fields and applying repetition generally does not lead to adequate
+security without major performance overheads, and this is always the case for sum-check-based SNARKs.
+Given this context, popular fields in SNARK design today fall into the following three categories: (1)
+256-bit prime order fields, for use with elliptic curve commitments, (2) A 128-bit extension of a 64-bit
+field such as Goldilocks, or a 31-bit field such as M31 or Babybear, (3) A binary tower field like GF(2128 ).
+
+
+2.2   Multilinear polynomials
+
+We state some facts about multilinear polynomials needed in our algorithms. We refer to standard
+references, e.g. [45], for derivations.
+Multilinear extension. An ℓ-variate polynomial p is multilinear if it has degree at most 1 in each
+variable. The multilinear extension of a function f : {0, 1}ℓ → F is the unique multilinear polynomial p
+such that p(x) = f (x) for all x ∈ {0, 1}ℓ .
+In particular, we have that the equality polynomial eq
+                                                    e defined as
+                                                    ℓ
+                                                    Y
+                                  eq(X,
+                                  e     Y)=                (Xi · Yi + (1 − Xi ) · (1 − Yi ))                           (3)
+                                                    i=1
+
+                                                                          ?
+is the multilinear extension of the equality function (· = ·) : {0, 1}ℓ × {0, 1}ℓ → {0, 1}, as we can verify
+that                                  (
+                                       1 if x = y
+                           eq(x,
+                           e     y) =                 , for all x, y ∈ {0, 1}ℓ .
+                                       0 otherwise
+
+Lemma 2.1. Let p : Fℓ → F be a multilinear polynomial. Then for any 0 ≤ i ≤ ℓ, any (r1 , . . . , ri ) ∈ Fi ,
+and any x′ ∈ {0, 1}ℓ−i ,
+                                                            X
+                             p(r1 , . . . , ri , x′ ) =              e 1 , . . . , ri ), y) · p(y, x′ ).
+                                                                     eq((r                                             (4)
+                                                          y∈{0,1}i
+
+
+
+Setting i = 1, Equation (4) simplifies to
+
+                                    p(r1 , x′ ) = (1 − r1 ) · p(0, x′ ) + r1 · p(1, x′ ).                              (5)
+
+Setting i = ℓ, we get the multilinear extension formula
+                                                    X
+                              p(r1 , . . . , rℓ ) =   e 1 , . . . , rℓ , y) · p(y).
+                                                      eq(r                                                             (6)
+                                                          y∈{0,1}ℓ
+
+
+
+Lagrange Interpolation. A (univariate) polynomial s(X) of degree d is uniquely determined by its
+values at d + 1 distinct evaluation points U = {x0 , . . . , xd } ⊂ F via the Lagrange interpolation formula:
+
+                                 d
+                                 X                                                             Y X − xj
+                       s(X) =          s(xi ) · LU,i (X),            where      LU,i (X) =                       .     (7)
+                                 i=0
+                                                                                                      xi − x j
+                                                                                               j̸=i
+
+
+In our algorithms, we use a variant of Lagrange interpolation that takes into account the “evaluation
+at infinity” of a polynomial, defined as s(∞) := the highest-degree coefficient of s(X). We obtain the
+following variant of Lagrange interpolation with ∞ as one of the points.
+10            Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+ Parameters:
+        – ℓ = number of variables (and rounds of sum-check)
+        – ℓ0 = number of rounds for small-value optimization
+        – d = number of multilinear polynomials
+        – n = 2ℓ is the number of variables of g.
+
+ Input:
+        – Multilinear polynomials p1 , . . . , pd specified via their evaluations over {0, 1}ℓ .
+        – For Algorithm 5 and 6, we also know w ∈ Fℓ which defines eq(w,    e     X).
+        – Targets Ci ∈ F for the i-th round of sum-check, with C0 being the initial sum-check target.
+                                                       cd := Ud \ {1}.a
+ Evaluation points: Ud := (∞, 0, 1, 2, . . . , d − 1), U
+    a
+        For binary tower fields, we use the embedding i 7→ bits(i), so that 2 7→ z1 , 3 7→ z1 + 1, 4 7→ z2 , and so
+        on, where bits(i) is the binary representation of i, and z1 , z2 , . . . are “multiplication-friendly” extension field
+        elements [52,19].
+
+                                        Fig. 2: Shared notation for our algorithms
+
+
+Lemma 2.2. Let s(X) = a · X d + · · · ∈ F[X] be a polynomial of degree d. Then for any distinct evaluation
+points x1 , . . . , xd ∈ F, setting U = {∞} ∪ {x1 , . . . , xd }, we have the identity:
+                                                  d
+                                                  Y                   d
+                                                                      X
+                                     s(X) = a ·         (X − xk ) +         s(xk ) · L{xi },k (X).                          (8)
+                                                  k=1                 k=1
+
+                                          Qd
+Thus, we can define LU,0 (X) :=             k=1 (X − xk ) and LU,k+1 (X) := L{xi },k (X) for k ∈ [0, d − 1].
+
+                                       Qd−1
+Proof. Consider t(X) := s(X) − a · i=0 (X − xi ). Then t(X) is of degree ≤ d − 1, and t(xi ) = s(xi ) for all
+i ∈ {0, . . . , d − 1}. We thus conclude using Lagrange interpolation formula (Equation 7) applied to t(X).
+                          Qd                                                                     Qd
+Note that if s(X) = i=1 pi (X) is a product of linear polynomials, then we have s(∞) = i=1 pi (∞) =
+Qd
+  i=1 (pi (1) − pi (0)). More generally, when s(X) = G(p1 (X), . . . , pd (X)) for some polynomial G and linear
+polynomials p1 , . . . , pd , we can calculate s(∞) by evaluating only the terms of G of highest total degree.
+Streaming model. For algorithms that rely on streaming access to data, we assume that the evaluations
+p1 (x), . . . , pd (x) for x ∈ {0, 1}ℓ can be enumerated in linear time and small space, in lexicographic order
+from x = 0ℓ to x = 1ℓ . This assumption holds in most SNARKs using the sum-check protocol, since
+p1 , . . . , pd are typically the multilinear extensions of functions f1 , . . . , fd : {0, 1}ℓ → F, whose evaluations
+over the Boolean hypercube can themselves be enumerated in linear time and small space. For example,
+in systems like Jolt, these functions are often derived from the execution trace of a virtual machine and
+can be enumerated simply by emulating the computation cycle by cycle.
+
+
+3         Existing Algorithms for Sum-Check
+3.1        Background on the sum-check protocol
+In Figure 3, we describe the sum-check protocol that reduces checking a claim of the form
+                                            X
+                                                  g(x) = C,
+                                                         x∈{0,1}ℓ
+
+for a polynomial g of degree at most d in each variable, to checking the evaluation of g at a random point:
+g(r) = v.
+                                                                                     Speeding Up Sum-Check Proving   11
+
+
+ Setup: Assume that the verifier has oracle access to the polynomial g, and knows the value C0 claimed to equal
+                                                 X
+                                                        g(x) = C0 .
+                                                        x∈{0,1}ℓ
+
+
+ For each round i = 1, . . . , ℓ:
+
+ 1. P sends the univariate polynomial si (X) claimed to equal
+                                      X
+                                                  g(r1 , . . . , ri−1 , X, xi+1 , . . . , xℓ ).
+                                    (xi+1 ,...,xℓ )∈{0,1}ℓ−i
+
+
+ P does so by sending the evaluations {si (u) : u ∈ U
+                                                    bd } to V.
+ 2. V sends a random challenge ri ← F to P.
+ 3. V derives si (1) := Ci−1 − si (0), then sets Ci := si (ri ).
+
+ After ℓ rounds, we reduce to the claim that
+
+                                                        g(r1 , . . . , rℓ ) = Cℓ .
+
+ V checks this claim by making a single oracle query to g.
+
+                                              Fig. 3: The sum-check protocol
+
+In each round j, the honest prover sends a univariate polynomial sj of degree d. As any degree-d
+univariate polynomial is specified by its evaluations on any set of d + 1 points, computing sj (c) for all
+c ∈ {∞} ∪ {0, 1, . . . , d − 1} suffices to uniquely specify sj .15 In fact, the prover can omit the evaluation
+sj (1), and instead let the verifier derive it from the previous round using the equation sj (1) = Cj−1 − sj (0),
+which holds for an honest protocol execution. This variant is the one we present in Figure 3.
+
+Theorem 3.1. The sum-check protocol applied to a polynomial g of individual degree at most d is perfectly
+complete and has soundness error of dℓ/|F|.
+
+See, e.g., [45] for a proof of this standard result, attributed to Lund, Fortnow, Karloff, and Nisan [33].16
+We recall two existing algorithms for the sum-check prover [18,44], with a focus on their cost profile in the
+small value setting. That is, we specialize to the case where the polynomial g(x) is given as
+                                             g(X) = p1 (X) · p2 (X) · · · pd (X),                                    (9)
+where p1 , . . . , pd are d multilinear polynomials in ℓ variables such that pi (x) has small values for all
+i ∈ {1, . . . , d} and x ∈ {0, 1}ℓ .
+
+3.2    Algorithm 1: Linear Time and Linear Space
+In Algorithm 1 (see Figure 4), the prover maintains d arrays P1 , . . . , Pd , which initially store all evaluations
+of p1 , . . . , pd over {0, 1}ℓ , e.g., we have Pk [x] = pk (x) for all k ∈ [d] and x ∈ {0, 1}ℓ . The prover halves the
+size of the arrays after each round i, via “binding” the arrays {Pk }k∈[d] to the challenge ri received from
+the verifier.
+15
+   We assume a mapping from {0, 1, . . . , d − 1} to distinct field elements. In large prime fields, these integers
+   are naturally identified with their corresponding field elements. In binary extension fields, any d distinct field
+   elements can be chosen, but a natural choice is to use those whose binary representation (in the chosen basis)
+   matches that of each integer in 0, 1, . . . , d − 1.
+16
+   Not only does the sum-check protocol have soundness error at most dℓ/|F|, it satisfies a stronger property: it
+   has round-by-round soundness at most d/|F| in each round. This ensures that the protocol remains secure (in
+   the random oracle model) even after it is rendered non-interactive via the Fiat-Shamir transformation. See [14]
+   for details.
+12         Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+                                                Algorithm 1: LinearTimeSC
+                          ℓ           (0)          (0)
+ Initialize: Length-2         arrays P1 , . . . , Pd such that
+                                     (0)
+                                    Pk [x] = pk (x)          for all k = 1, . . . , d and x ∈ {0, 1}ℓ .
+
+ For each round i = 1, . . . , ℓ:
+ 1. For u ∈ U
+            bd , compute si (u) using the formula
+
+                                             X        d 
+                                                      Y                                             
+                                                          Pk [1, x′ ] − Pk [0, x′ ] · u + Pk [0, x′ ]
+                                                           (i)           (i)               (i)
+                              si (u) :=
+                                          x′ ∈{0,1}ℓ−i k=1
+
+        n               o
+ 2. Send si (u) : u ∈ U
+                      bd to the verifier.
+
+ 3. Receive challenge ri ∈ F from the verifier.
+ 4. For k = 1, . . . , d and x′ ∈ {0, 1}ℓ−i , update arrays:
+                                                                        
+                                   (i+1) ′
+                                        [x ] := Pk [1, x′ ] − Pk [0, x′ ] · ri + Pk [0, x′ ].
+                                                  (i)          (i)                (i)
+                                 Pk
+
+                    (i)
+// Invariant: Pk [x′ ] = pk (r[1:i] , x′ )        for all k ∈ [d], i ∈ [0, ℓ], x′ ∈ {0, 1}ℓ−i .
+
+
+                                             Fig. 4: Linear time, linear space prover
+
+Cost Analysis of Algorithm 1 In round 1, since the initial evaluations {pk (x) : k ∈ [d], x ∈ {0, 1}ℓ } are
+small, all multiplications are ss. Since we need to compute d evaluations {s1 (u) : u ∈ U      bd }, and each
+evaluation is a sum over 2ℓ−1 products of d small values, the total cost is d · (d − 1) · 2ℓ−1 ss mults. We
+then take d · 2ℓ−1 sl multiplications for updating the arrays. From round i ≥ 2, all array values are large,
+so we incur d · (d − 1) · 2ℓ−i ll mults for computing all evaluations, and d · 2ℓ−i ll mults for updating the
+arrays. Thus, we can summarize the cost of Algorithm 1 as follows.
+
+Lemma 3.2. When the evaluations of p1 , . . . , pd are small, Algorithm 1’s dominant cost is d2 · 2ℓ−1 ll
+multiplications, followed by d · 2ℓ−1 sl mults, d(d − 1) · 2ℓ−1 ss mults, and O(n) field additions.
+
+3.3      Algorithm 2: Quasilinear Time and Square-Root Space
+Next, we describe Algorithm 2 (see Figure 5), a sum-check prover implementation with O(ℓ · 2ℓ ) time
+and O(2ℓ/2 ) space. While [17] presented an algorithm with better, logarithmic O(ℓ) space complexity, we
+opt to present this simpler, square-root space variant for two reasons. First, its structure facilitates the
+explanation of our optimizations later in the paper. Second, it leads to a faster prover in practice, with
+negligible increase in memory usage compared to the log-space approach, even for large instance sizes
+(ℓ ≈ 30).17
+The main idea is to avoid updating the arrays P1 , . . . , Pd in each round i ≤ ℓ/2, and instead compute
+Qd                                ′
+  k=1 pk (r1 , . . . , ri−1 , u, x ) directly from Equation (4). The cost of these rounds is dominated by two
+                       ℓ
+sources: (1) d · 2 sl mults per round to compute the product between the eq          e terms and the evaluations
+           ′                                             ℓ−i
+                                                                                                Qd
+pk (b, u, x ) (counting over u), and (2) (d − 1) · 2         ll multiplications for the product k=1 (·). Besides
+these, we have lower-order costs of d(d − 1) · 2ℓ−1 ss mults to compute the evaluations {pk (b, u, x′ )}k,b,u,x′ ,
+and 2i−1 ll mults to compute the evaluations {eq(r     e [<i] , b)}b∈{0,1}i−1 and store them in an array.
+After ℓ/2 rounds, as both the time and space needed for the eq  e evaluations goes past 2ℓ/2 , we will switch
+to Algorithm 1, which incurs a negligible cost of d2 · 2ℓ/2 ll mults. Note that in practice, one could switch
+as soon as the prover is no longer space-constrained, which may happen well before round ℓ/2.
+17
+     For instance, when ℓ = 30, square root space becomes ≈ 215 = 32768 field elements, and if the field size is ≈ 256
+     bits, this is only about 1MB.
+                                                                                               Speeding Up Sum-Check Proving     13
+
+
+                                             Algorithm 2: SqrtSpaceSC
+For each round i = 1, . . . , ℓ/2:
+1. For u ∈ U
+           bd , compute si (u) using the formula
+                                                                                                               
+                                     X      Yd                    X                                           ′ 
+                        si (u) =                                               e [<i] , b) · pk (b, u, x )
+                                                                                eq(r                                ,          (10)
+                                       x′ ∈{0,1}ℓ−i k=1       b∈{0,1}i−1
+
+
+        e [<i] , b) b∈{0,1}i−1 is computed using Procedure 2, and {pk (b, u, x′ )}k,b,u,x′ is computed using Proce-
+      
+where eq(r
+dure 5.
+2. Send {si (u) : u ∈ U
+                      bd } to the verifier.
+3. Receive challenge ri ∈ F from the verifier.
+
+Store: the evaluations pk (r[<ℓ/2] , b, x′ ) for all k ∈ [d], b ∈ {0, 1}, and x′ ∈ {0, 1}ℓ/2 , obtained while computing
+round ℓ/2.
+For each round i = ℓ/2 + 1, . . . , ℓ: Follow Algorithm 1.
+
+                                 Fig. 5: Quasilinear time, square-root space prover
+
+Lemma 3.3. When the evaluations of p1 , . . . , pd are small, Algorithm 2’s cost is dominated by d · ℓ/2 ·
+2ℓ sl mults (spread over the first ℓ/2 rounds), and (d − 1) · 2ℓ ll mults. The lower-order costs include
+d(d − 1) · ℓ/2 · 2ℓ−1 ss mults and O(n) field additions.
+
+
+4     First Optimization: Sum-Check for Polynomials with Small Values
+
+In the linear-time prover implementation (Algorithm 1), the prover performs exclusively ll multiplications
+starting from round 2, due to the need to bind the multilinear polynomials after round 1. If we want
+to reduce the number of ll multiplications, we must delay this binding process. A natural attempt at
+this leads to Algorithm 3, which is typically faster than Algorithm 1 in the first few rounds, and uses
+significantly less memory. We then optimize this further via polynomial interpolation (i.e., techniques
+similar to the Toom-Cook algorithm), leading to Algorithm 4.
+
+
+4.1   Algorithm 3: A Warm-up Attempt
+
+We obtain Algorithm 3 (see Figure 6) by expanding the product in Equation (10), and re-arranging the
+terms to group together those with the same factors. In other words, we rewrite Equation (10) as
+
+                                 X                X              d
+                                                                 Y
+                                                                      e [<i] , bk ) · pk (bk , u, x′ )
+                                                                                                      
+                                                                      eq(r
+                           x′ ∈{0,1}ℓ−i b1 ,...,bd ∈{0,1}i−1 k=1
+                                                                                                                       
+                               d                      i−1
+                                                      Y                                       
+                                                                                    1−bk [j]
+                           X X Y
+                       =                                   (1 − rj )bk [j] · rj                    · pk (bk , u, x′ )
+                            x′   b1 ,...,bd k=1       j=1
+                                          i−1                                                       d
+                                                                            d− d
+                                                            Pd                P
+                                                                                k=1 bk [j]
+                           X X            Y                                                         Y
+                       =                        (1 − rj )     k=1 bk [j]   rj                   ·         pk (bk , u, x′ ).
+                            x′ b1 ,...,bd j=1                                                       k=1
+
+
+In the above, the first sum is obtained from Equation (10) by exchanging the product with the inner sum;
+the second sum is obtained by unfolding the definition of eq;
+                                                          e the third sum is obtained by exchanging the
+two products; and the fourth sum is obtained by “pulling in” the sum over x′ , which do not affect the sum
+over {bk }k∈[d] and the product over j ∈ [i − 1].
+14         Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+                                   Algorithm 3: SmallValue-UnoptimizedSC
+ Pre-computation: Use Procedure 4 to compute the accumulators
+                                   X            X             X
+                     Ai (v, u) :=
+                                           x′ ∈{0,1}ℓ−i b1 ,...,bd ∈{0,1}i−1 b∗       ∗
+                                                                              1 ,...,bd ∈{0,1}
+                                                             v= d
+                                                                 P
+                                                                    k=1 b
+                                                                                                                             (11)
+                                                                                                d
+                                                       Pd    ∗                       ∗
+                                                                             d− d
+                                                                               P                Y
+                                                   u    k=1 bk   · (1 − u)      k=1 bk      ·         pk (bk , b∗k , x′ ).
+                                                                                                k=1
+
+
+ for all i ∈ [ℓ0 ], v ∈ [0, d]i−1 , and u ∈ U
+                                            bd .
+ Initialize: R1 = (1).
+ For each round i = 1, . . . , ℓ0 :
+ 1. For u ∈ U
+            bd , compute si (u) via
+                                                            X
+                                          si (u) :=                  Ri [natd+1 (v)] · Ai (v, u).
+                                                        v∈[0,d]i−1
+
+           n               o
+ 2. Send    si (u) : u ∈ U
+                         bd to the verifier.
+
+ 3. Receive challenge ri ∈ F from the verifier.
+                                            d
+ 4. Compute Ri+1 := Ri ⊗ (1 − ri )k · rid−k k=0 .
+
+ For round ℓ0 + 1: Follow Algorithm 2, storing the evaluations pk (r[1:ℓ0 −1] , b, x′ ) for all k ∈ [d], b ∈ {0, 1}, and
+ x′ ∈ {0, 1}ℓ−ℓ0 .
+ Receive challenge rℓ0 +1 ∈ F from the verifier, and perform updates to get pk (r[1:ℓ0 ] , x′ ) for all k and x′ , similar
+ to Algorithm 1.
+ For each round i = ℓ0 + 2, . . . , ℓ: Follow Algorithm 1.
+
+                                   Fig. 6: First attempt to reduce ll multiplications
+
+At this point, we have rewritten the computation of si (u) as an inner product between two vectors of length
+2d(i−1) (indexed by b1 , . . . , bd ): one dependent on the challenges r1 , . . . , ri−1 , and the other dependent on
+the multilinear polynomials p1, . . . , pd . We can do slightly better by noticing that the challenge-dependent
+                                      Pd
+terms only depend on v :=                k=1 bk [j]       and not on the individual {bk }k∈[d] —there are only
+                                                            j∈[i−1]
+(d + 1)i−1 distinct such terms. By re-indexing based on v ∈ [0, d]i−1 , we can further rewrite
+                                                        i−1
+                                                                               d−v[j]
+                                            X           Y
+                             si (u) =                         (1 − rj )v[j] rj          ·
+                                         v∈[0,d]i−1 j=1
+
+                                                        X                    X                  d
+                                                                                                Y
+                                                                                                      pk (bk , u, x′ ),
+                                                   x′ ∈{0,1}ℓ−i b1 ,...,bd ∈{0,1}i−1 k=1
+                                                                         Pd
+                                                                   v=       k=1 bk
+
+
+which is equal to the inner product
+                          * i−1                                                                                   +
+                            O                      d
+                                                d−v
+                                 (1 − rj )vj · rj j                            , (Ai (v, u))v∈[0,d]i−1                .
+                                                                       vj =0
+                                   j=1
+
+Since the accumulators Ai (v, u) do not depend on the challenges r1 , . . . , ri−1 , the prover can precompute
+them before the protocol begins. The final change needed to obtain the pre-computation step in Figure 6
+is to notice that, when computing the accumulators A1 (v, u), . . . , Aℓ0 (v, u) over the first ℓ0 rounds, we
+                                                                                       Speeding Up Sum-Check Proving   15
+
+
+                                           Algorithm 4: SmallValueSC
+Pre-computation: Use Procedure 7 to compute the accumulators
+
+                                                             X          d
+                                                                        Y
+                                          Ai (v, u) :=                       pk (v, u, x′ )
+                                                         x′ ∈{0,1}ℓ−i k=1
+
+
+for all i ∈ [ℓ0 ], v ∈ Ud i−1 , and u ∈ U
+                                        bd .
+Initialize: R1 = (1).
+For each round i = 1, . . . , ℓ0 :
+1. For u ∈ U
+           bd , compute si (u) via
+                                                       X
+                                        si (u) :=                Ri [natd+1 (v)] · Ai (v, u).
+                                                    v∈[0,d]i−1
+
+          n               o
+2. Send    si (u) : u ∈ U
+                        bd to the verifier.
+
+3. Receive challenge ri ∈ F from the verifier.
+4. Compute Ri+1 := Ri ⊗ (LUd ,k (ri ))dk=0 .
+
+For round ℓ0 + 1: Follow Algorithm 2, storing the evaluations pk (r[1:ℓ0 −1] , b, x′ ) for all k ∈ [d], b ∈ {0, 1}, and
+x′ ∈ {0, 1}ℓ−ℓ0 .
+Receive challenge rℓ0 +1 ∈ F from the verifier, and perform updates to get pk (r[1:ℓ0 ] , x′ ) for all k and x′ , similar
+to Algorithm 1.
+For each round i = ℓ0 + 2, . . . , ℓ: Follow Algorithm 1.
+
+Fig. 7: Small-value sum-check prover. This improves upon Algorithm 3 by using ideas from Toom-Cook
+multiplication.
+
+
+actually repeat a lot of the same computations for the product of the evaluations {pk (b1 , u, x′ )}k∈[d] . For
+instance, when d = ℓ0 = 2, we compute the product p1 (0, 0, x′ ) · p2 (0, 0, Q
+                                                                             x′ ) in both A1 (0) and A2 (0). To
+save on unnecessary computations, we can instead compute each product k pk (bk , u, x′ ) once, then insert
+the result into the appropriate accumulators over all ℓ0 rounds. We work out the details of this process
+in Section A.2.
+
+
+Cost Analysis. Algorithm 3 uses O((d + 1)ℓ0 ) space for rounds 1 to ℓ0 (accumulators and challenge vectors)
+and d · 2ℓ−ℓ0 space thereafter (cached results). Since (d + 1)ℓ0 ≪ d · 2ℓ−ℓ0 in practice, the overall space
+complexity is dominated by the latter term, representing a space saving factor of roughly 2ℓ0 compared to
+Algorithm 1.
+
+Regarding runtime, Algorithm 3 is bottlenecked by the (d − 1) · 2d·ℓ0 · 2ℓ−ℓ0 = (d − 1) · 2ℓ+(d−1)ℓ0 ss
+                                            Qd
+mults needed to compute the products { k=1 pk (bk , x′ )}b,x′ that go into the accumulators Ai (v, u) in
+Equation (11). We also incur roughly d · 2ℓ sl mults when using Algorithm 2 for the (ℓ0 + 1)-th round,
+and roughly d2 · 2ℓ−ℓ0 −1 ll mults for the remaining rounds using Algorithm 1.
+
+
+4.2   Algorithm 4: Optimizing with Toom-Cook Multiplication
+
+While Algorithm 3 almost eliminates ll multiplications for the first few rounds and slashes memory usage,
+we still end up performing a lot of ss multiplications (namely, by a factor of ≈ 2(d−1)·ℓ0 compared to the
+number of ll mults in Algorithm 1). To reduce this cost, we need another way to rewrite the products
+Qd                    ′
+  k=1 pk (r[<i] , u, x ).
+16       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+The idea is to see the product as the evaluation of the polynomial
+                                                                d
+                                                                Y
+                                    F (Y1 , . . . , Yi−1 ) =          pk (Y1 , . . . , Yi−1 , u, x′ )               (12)
+                                                                k=1
+at the challenge point (r1 , . . . , ri−1 ). Since F has individual degree d, we can apply Lagrange interpolation
+to each variable to rewrite F (Y1 , . . . , Yi−1 ) as
+
+                           X                                X                                d
+                                                                                             Y
+                                   LUd ,v1 (Y1 ) · · ·               LUd ,vi−1 (Yi−1 )             pk (v, u, x′ )   (13)
+                          v1 ∈Ud                         vi−1 ∈Ud                            k=1
+
+                                X        i−1
+                                         Y                       d
+                                                                 Y
+                          =                    LUd ,vj (Yj ) ·         pk (v, u, x′ ).                              (14)
+                              v∈Ud   i−1 j=1                     k=1
+
+As a result, when we plug in the evaluation (r1 , . . . , ri−1 ), we can rewrite the i-th sum-check polynomial
+si (X) as
+
+                                           X               X         i−1
+                                                                     Y                       d
+                                                                                             Y
+                         si (X) =                                          LUd ,vj (rj ) ·         pk (v, u, x′ )
+                                       x′ ∈{0,1}ℓ−i    v∈Ud   i−1 j=1                        k=1
+
+                                         X       i−1
+                                                 Y                              X            d
+                                                                                             Y
+                                   =                     LUd ,vj (rj ) ·                         pk (v, u, x′ ),
+                                       v∈Ud i−1 j=1                         x′ ∈{0,1}ℓ−i k=1
+
+which is equal to the inner product
+                               * i−1                                         +
+                                 O                
+                             =       LUd ,vj (rj ) v ∈U , (Ai (v, u))v∈Ud i−1 .
+                                                                 j     d
+                                       j=1
+
+Just like with Algorithm 3, we can precompute the accumulators Ai (v, u) by computing each of the
+≈ (d + 1)ℓ0 product      ( d                                                   )
+                           Y
+                                         ′          i−1          ′         ℓ−i
+                              pk (v, u, x ) : v ∈ Ud , u ∈ Ud , x ∈ {0, 1}
+                                                           b
+                               k=1
+
+once, then inserting the result into the appropriate Ai (v, u) terms over all i ∈ [ℓ0 ] rounds. For details,
+see Section A.3.
+
+Cost Analysis. Similar to Algorithm 3, Algorithm 4 also saves a factor of 2ℓ0 in space. Unlike Algorithm
+3, however, it incurs only (d − 1) · (d + 1)ℓ0 · 2ℓ−ℓ0 ss mults, instead of (d − 1) · 2d·ℓ0 · 2ℓ−ℓ0 . This factor
+can be roughly 5 times smaller for common parameters (e.g. d = 2 and ℓ0 = 5). The cost of sl and ll mults
+are the same as in Algorithm 3.
+
+Theorem 4.1. Algorithm 4’s cost is dominated by (d − 1)((d + 1)/2)ℓ0 · N ss mults, followed by d · N sl
+mults and d2 /2ℓ0 +1 · N ll mults.
+
+Optimal Switchover Point. Determining the best switchover point ℓ0 is dependent on the cost analysis we
+presented above. Essentially, we want to find the point ℓ0 that makes the cost equal between the ss and ll
+mults. If we denote κ as the factor difference between ss and ll mults, then we want to find ℓ0 that satisfies
+                                    (d − 1)((d + 1)/2)ℓ0 · N = κ · d2 /2ℓ0 +1 · N,
+which simplifies to
+                                                                                                           
+                                                                                                    κ·d2
+                                                                                        log        2(d−1)
+                              (d − 1)(d + 1)ℓ0 = κ · d2 /2 ⇐⇒ ℓ0 =                                              .
+                                                                                             log(d + 1)
+                                                                                     Speeding Up Sum-Check Proving    17
+
+Given this optimal choice of ℓ0 , we get a speedup factor of ≈ 2ℓ0 compared to Algorithm 1. This matters
+both asymptotically and for practical parameters.
+In terms of asymptotics, we can see that 2ℓ0 ≈ κ1/ log(d+1) for constant d; concretely, for d = 2 we get a
+κ0.63 speedup, while for d = 3 we get a κ0.5 speedup.
+Concretely, if we work over elliptic curve scalar fields, then we have κ ≈ 2N 2 ≈ 30 (for u64 mults versus
+BN254 mults). If we further set d = 2, then we get ℓ0 ≈ 3.72 and a speedup of about 4 times. We refer
+to Section 8 for concrete numbers which fall short of this estimate, due to our implementation not yet
+having incorporated all available optimizations.
+
+
+5      Second Optimization: Sum-Check involving Equality Polynomials
+
+Our second optimization applies to the setting
+                                                                      d
+                                                                      Y
+                                              g(X) = eq(w,
+                                                     e     X) ·             pk (X),                                  (15)
+                                                                      k=1
+
+
+with w ∈ Fℓ a vector of verifier’s challenges, and p1 (X), . . . , pd (X) are multilinear polynomials. As our
+algorithm builds on top of another optimization by Gruen [28], we first present Gruen’s optimization,
+followed by our contribution.
+
+
+5.1      Recap: Existing Optimization from Gruen
+
+The main idea of this optimization by Gruen [28] (and a variant thereof in [40]) is to reduce the computation
+of the degree-(d + 1) polynomial si (X) sent by the prover in each round i, to the computation of a degree-d
+factor ti (X) and a linear factor li (X). This way, the linear term is “free” to compute, and the prover saves
+an evaluation when computing ti (X) instead of si (X).
+                                                     e polynomial, which for every i ∈ [ℓ] can be decomposed
+This is possible due to the special structure of the eq
+as
+
+                          eq(w,
+                          e     (r[<i] , X, x′ )) = eq(w
+                                                    e [<i] , r[<i] ) · eq(w       e [>i] , x′ ).
+                                                                       e i , X) · eq(w
+
+                          e [<i] , r[<i] ) · eq(w
+Thus, if we set li (X) := eq(w               e i , X) and
+
+                                               X                            d
+                                                                            Y
+                               ti (X) :=                  e [>i] , x′ ) ·
+                                                          eq(w                    pk (r[<i] , X, x′ ),
+                                           x′ ∈{0,1}ℓ−i                     k=1
+
+
+then we have si (X) = li (X) · ti (X).18 The sum-check prover now proceeds to compute d evaluations of
+ti (u) at u ∈ U
+              bd , then rely on the equality si (0) + si (1) = Ci to compute
+
+                                           ti (1) = li (1)−1 · (Ci − li (0) · ti (0)).                               (16)
+
+The prover now has d + 1 evaluations of ti , and thus can interpolate ti (X) and compute si (X). Note that
+computing {ti (u) : u ∈ U
+                        bd } can be done generically using either Algorithm 1 or Algorithm 2; since our
+focus is on optimizing time rather than space, we assume that Algorithm 1 is used.
+18
+     Gruen’s writeup computes and sends ti directly to the verifier, which modifies the sum-check protocol itself and
+     increases the verifier’s costs. Setty and Thaler [40] suggest instead computing ti and then quickly deriving si
+     from it, and only sending si to the verifier. This ensures that the sum-check verifier is unchanged, and we follow
+     this approach.
+18      Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+                                                 Algorithm 5: EqPolySC
+                      ℓ           (0)          (0)
+Initialize: Length-2      arrays P1 , . . . , Pd such that
+                                    (0)
+                                Pk [x] = pk (x)            for all k = 1, . . . , d and x ∈ {0, 1}ℓ .
+
+Pre-computation: Use Procedure 3 to compute the evaluations
+                               
+                                 eq(w
+                                 e [1:i] , xL ), eq(w
+                                                 e [ℓ/2:ℓ/2+i] , xR )
+
+for all i ∈ [ℓ/2], xL ∈ {0, 1}ℓ/2−i , and xR ∈ {0, 1}ℓ/2−i .
+For each round i = 1, . . . , ℓ:
+
+1. For u ∈ U
+           bd , if i < ℓ/2, compute ti (u) using the formula
+                             X                        X
+                                    e R , xR ) ·
+                                   eq(w                      e L , xL ) ·
+                                                             eq(w
+                           xR ∈{0,1}ℓ/2                      xL ∈{0,1}ℓ/2−i
+                              d 
+                              Y                                                                    
+                                           (i)                (i)                    (i)
+                                          Pk [1, xL , xR ] − Pk [0, xL , xR ] · u + Pk [0, xL , xR ] .
+                              k=1
+
+If i ≥ ℓ/2, compute ti (u) using the formula
+                                   X
+                                          eq(w
+                                           e R , xR )·
+                                xR ∈{0,1}ℓ/2−i
+                                          d 
+                                          Y                                                
+                                                  (i)           (i)               (i)
+                                                 Pk [1, xR ] − Pk [0, xR ] · u + Pk [0, xR ] .
+                                          k=1
+                                                            
+2. Use Procedure 8 to compute si (X) from {ti (u)}, w, r[<i] .
+        n              o
+3. Send si (u) : u ∈ U
+                     bd to the verifier.
+
+4. Receive challenge ri ∈ F from the verifier.
+5. For k ∈ [d] and x′ ∈ {0, 1}ℓ−i , update arrays:
+                                                                   
+                             (i+1) ′
+                                   [x ] := Pk [1, x′ ] − Pk [0, x′ ] · ri + Pk [0, x′ ].
+                                             (i)          (i)                (i)
+                           Pk
+
+
+Fig. 8: Eq-poly sum-check prover, including Gruen’s optimization, and using Algorithm 1 for the non-eq
+terms
+
+5.2   Algorithm 5: Additional Speedup via Splitting Eq-Poly
+We now present our optimization (see Figure 8), which leads to a further reduction of roughly 2ℓ−1 ll
+multiplications associated with the eq polynomial. Our insight is that we can further split off the eq
+                                                                                                    e terms
+in Equation (16) for the first i < ℓ/2 rounds, so that
+                                     X                       X
+                         ti (u) =           e R , xR ) ·
+                                            eq(w                      e L , xL ) ·
+                                                                      eq(w                              (17)
+                                           xR ∈{0,1}ℓ/2                    xL ∈{0,1}ℓ/2−i
+                                                   d
+                                                   Y
+                                                          pk (r[<i] , u, xL , xR ).                      (18)
+                                                   k=1
+
+for all u ∈ U
+            bd , where wR = w[i+1:ℓ/2] and wL = w[ℓ/2+1:n] . The sum-check prover now computes all inner
+sums over xL , then all outer sums over xR . For rounds i ≥ ℓ/2, we no longer have the inner sum, and
+proceed similarly to Algorithm 1. Note that we put the left part eq(w
+                                                                 e L , xL ) in the inner sum, since it leads
+to better memory locality in practice, assuming the evaluations of pk are streamed in big-endian order (so
+that xL are low-order bits compared to xR , which means their chunks are contiguous in memory).
+                                                                                           Speeding Up Sum-Check Proving   19
+
+
+                                      Algorithm 6: EqPoly-SmallValueSC
+ Pre-computation: Use Procedure 9 to compute the accumulators
+                                       X                   X
+                       Ai (v, u) :=           eq(w
+                                              e R , xR )                                        eq(w
+                                                                                                e L , xL )
+                                                xR ∈{0,1}ℓ/2−i                   xL ∈{0,1}ℓ/2
+                                                                       d
+                                                                       Y
+                                                                   ·         pk (v, u, xL , xR )
+                                                                       k=1
+
+
+ for all i ∈ [ℓ0 ], v ∈ Ud i−1 , and u ∈ U
+                                         bd .
+ Initialize: R1 = (1).
+ For each round i = 1, . . . , ℓ0 :
+ 1. For u ∈ U
+            bd , compute ti (u) via
+                                                        X
+                                         ti (u) :=                Ri [natd+1 (v)] · Ai (v, u).
+                                                     v∈[0,d]i−1
+
+                                                             
+ 2. Use Procedure 8 to compute sj (X) from {tj (u)}, w, r[<i] .
+         n              o
+ 3. Send sj (u) : u ∈ U
+                      bd to the verifier.
+ 4. Receive challenge rj ∈ F from the verifier.
+ 5. Compute Ri+1 := Ri ⊗ (LUd ,k (rj ))dk=0 .
+
+ For round ℓ0 + 1: Follow Algorithm 2, storing the evaluations pk (r[1:ℓ0 −1] , b, x′ ) for all k ∈ [d], b ∈ {0, 1}, and
+ x′ ∈ {0, 1}ℓ−ℓ0 .
+ Receive challenge rℓ0 +1 ∈ F from the verifier, and perform updates to get pk (r[1:ℓ0 ] , x′ ) for all k and x′ , similar
+ to Algorithm 1.
+ For rounds ℓ0 + 2, . . . , ℓ: Follow Algorithm 5.
+
+               Fig. 9: Combined small-value and equality-polynomial sum-check optimizations
+
+
+                                                                                          e [>i] , x′ ) : x′ ∈
+Cost Analysis. Our optimization avoids computing the 2ℓ−i -sized table of evaluations {eq(w
+{0, 1} } for each round i, and instead only compute two square-root-sized tables, which costs 2ℓ/2 ll
+      ℓ−i
+
+          e R , xR ) and 2ℓ/2−i ll mults for eq(w
+mults for eq(w                               e L , xL ). In Procedure 3, we show that with memoization,
+these evaluations can be computed for all rounds i in 2ℓ/2 ll mults total. The (negligible) downside is that
+we need to compute an extra 2ℓ/2 ll mults when computing the outer sum over xR .
+
+Using the same process for cost analysis as in Lemma 3.2, we have the following cost breakdown for
+Algorithm 5.
+
+
+Lemma 5.1. Algorithm 5’s dominant cost is d(d + 1)/2 · N ll mults, reducing from Algorithm 1’s cost in
+the same setting by roughly N ll mults.
+
+
+
+6    Combined Optimizations
+
+
+In this section, we present Algorithm 6, our optimization in the combined eq-poly and small value settings.
+The presence of the extra eq-poly term means that Algorithm 6 is less efficient than Algorithm 4, which is
+in the simpler setting (without eq-poly). We then present details of how Algorithm 6 specializes to the
+case of Spartan-in-Jolt.
+20      Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+6.1   Algorithm 6: Combined Eq-Poly and Small Value Optimization
+
+Our starting point is Equation (17) in the exposition of Algorithm 5. We then apply the multivariate
+                                                                   Qd
+Lagrange decomposition formula in Equation (14) to the evaluations k=1 pk (r, u, xL , xR ), which gives
+                                              X                                 X
+                        ti (u) =                          e R , xR ) ·
+                                                          eq(w                               e L , xL ) ·
+                                                                                             eq(w
+                                       xR   ∈{0,1}ℓ/2−i                   xL   ∈{0,1}ℓ/2
+
+                                                   X       i−1
+                                                           Y                       d
+                                                                                   Y
+                                                                 LUd ,vj (rj ) ·         pk (v, u, xL , xR )
+                                                v∈Ud i−1 j=1                       k=1
+                                       * i−1                                    +
+                                        O
+                                   =           (LUd ,v (rj ))v∈Ud , Ai (u) ,
+                                        j=1
+
+
+where the accumulators Ai (v, u) are now of the form
+
+                                   X                                X                            d
+                                                                                                 Y
+              Ai (v, u) =                      eq(w
+                                               e R , xR )                      eq(w
+                                                                               e L , xL )             pk (v, u, xL , xR ).
+                            xR   ∈{0,1}ℓ/2−i                  xL   ∈{0,1}ℓ/2                    k=1
+
+
+Unlike the small-value only case, here because of the presence of the eq(w,
+                                                                        e    ·) terms, we need to use sl
+(instead of ss) multiplications in computing the accumulators, and the additions are over the big field as
+well. We also note that we have swapped the lengths of the vectors xR and xL in the accumulator formula.
+This is so that we can compute the same inner sum across the accumulators over all rounds, and we can
+dispatch these inner sums to different accumulators in different rounds afterwards, with negligible cost.
+See Section A.4 for more details.
+Cost Analysis. Besides the extra subtleties as noted above, the cost estimate of Algorithm 6 is fairly
+straightforward and follows directly from combining the estimates of Algorithm 4 and Algorithm 5. In
+particular, the small-value precomputation process is now dominated by (d + 1)ℓ0 · 2ℓ−ℓ0 sl mults. Next,
+the streaming round takes roughly d · 2ℓ sl mults, and the rest of the linear-time sumcheck rounds cost
+roughly d2 · 2ℓ−ℓ0 −1 ll mults. We thus summarize as follows.
+                                                                                        
+                                                                        d+1 ℓ0
+                                                                           
+Theorem 6.1. Algorithm 6’s cost is dominated by                          2     +d            N sl mults and d2 /2ℓ0 +1 N ll mults.
+
+Optimal Switchover Point. Our analysis here is similar to that of Section 4.2, except for the fact that
+the relevant ratio κ is now between sl and ll mults. This ratio is about square-root worse than the ratio
+between ss and ll mults (refer to Section 2.1 for details), making our asymptotic speedups a square-root
+factor worse. Our concrete speedups are also more modest, as can be seen in Section 8.
+
+
+6.2   Improving Spartan-in-Jolt
+                                                                               P
+Recall that the first sum-check in Spartan involves proving                        x∈{0,1}ℓ G(x) = 0 for
+                                                                        
+                                  G(X) = eq(w,
+                                         e     X) · Az(X)
+                                                     f    · Bz(X)
+                                                            f     − Cz(X)
+                                                                    f      ,                                                   (19)
+
+where Az(X),
+       f       Bz(X),
+               f       Cz(X)
+                       f      are multilinear extensions of the R1CS vectors A · Z, B · Z, and C · Z. Our
+combined Algorithm 6 can be specialized to this setting. In particular, we make two key observations that
+drastically simplify the precomputation phase (e.g., Procedure 9):
+ – Binary points yield zero: If an accumulator Ai (v, u) corresponds to an evaluation point (v, u)
+   consisting entirely of binary values (0s and 1s), then Ai (v, u) = 0. This follows directly from the R1CS
+   relation, which implies that Az(x) · Bz(x) = Cz(x) for all x ∈ {0, 1}n , and the formula for Ai (v, u).
+                                                                          Speeding Up Sum-Check Proving            21
+
+ – Linear term vanishes for ∞ points: If the evaluation point (v, u) contains at least one ∞ coordinate,
+   then the linear term Cz(X) does not contribute to the accumulator Ai (v, u). This is because the
+   evaluation at ∞ only considers the highest-degree term, which precludes the linear term Cz(X).
+                                                                                             f
+
+These observations allow for significant optimization. For instance, setting ℓ0 = 3, the precomputation only
+needs to explicitly calculate the 19 non-zero accumulator terms for round 3 (as detailed in Appendix A.4),
+which are derived solely from combinations of Az and Bz evaluations. The accumulators for rounds 1 and
+2 can be reconstructed from these.
+Cost Analysis. By specializing our cost analysis of Algorithm 6 to the case of Spartan-in-Jolt, taking into
+account the optimizations above, we get the following cost breakdown (with details of our derivation
+in Section B.2):
+– The optimal number of small-value rounds for Spartan-in-Jolt is 3. With this configuration, we incur
+roughly 4.5 N sl mults and N/4 ll mults.19
+– In contrast, for Algorithm 5 with the same Spartan-specific optimizations, we incur roughly 3.5 N ll
+mults.
+We stress that these numbers are rough estimates. In practice (as with our implementation), we need
+to take into account the relative sparsity of the R1CS vectors Az, Bz, and Cz, and their expected
+bit-lengths.20 We also do not count the cost of building the Az, Bz, and Cz evaluations from the program
+trace, nor any potential overhead related to data handling and parallelization.
+
+
+7     Optimized Field Multiplication with Small Integers
+
+We present an optimized algorithm for multiplying an element in a large prime field, such as BN254, with a
+64-bit unsigned integer. The element is assumed to be in Montgomery form, and the multiplication result is
+also in Montgomery form. Our algorithm incurs only 2N +1 base (u64) multiplications, compared to 2N 2 +1
+for the full Montgomery multiplication, with practical speedup of ∼ 2.4× to ∼ 3× in micro-benchmarks,
+depending on the ∼ 256-bit field modulus.
+We first give a brief recap of Montgomery multiplication, and then present our optimized algorithm.
+
+
+7.1   Recap: Montgomery Multiplication
+
+Assume we work over a prime field Fp that is represented as N limbs of 64-bit unsigned integers (common
+values are N = 4 for ∼ 256-bit fields, or N = 6 for ∼ 384-bit fields). Assume further that elements in the
+prime field are represented in Montgomery form, namely that an element a is represented as aR mod p
+for R = 264N . In this setting, Montgomery [34] presented an algorithm that allows for faster multiplication
+of field elements. This multiplication happens in two stages:21
+ 1. Bignum Multiplication. Given a′ = aR mod p and b′ = bR mod p, consider them as big unsigned
+    integers, and perform an integer multiplication, giving a 2N -limb bignum c = a′ · b′ . This costs around
+    N 2 base (u64) multiplications.
+ 2. Montgomery Reduction. Given a 2N -limb bignum c mod p, compute cR−1 mod p, which would be
+    the Montgomery form abR mod p of the product a · b. This costs around N 2 + 1 base multiplications.22
+19
+   Here, N = 2ℓ is the total number of constraints in the R1CS instance, which is itself the product of the (padded)
+   number of constraints per cycle, and the (padded) number of cycles in a program.
+20
+   In more detail, the coefficients are only guaranteed to fit inside a signed 128-bit integer in the worst case.
+   However, this does not apply to most of the coefficients, which are much smaller, with most in {0, 1}.
+21
+   Some implementations intersperse these two stages for improved efficiency (i.e. finely-integrated operand scanning,
+   or FIOS). We present them separately for clarity.
+22
+   Traditionally, the cost is N 2 + N multiplications, but a recent blog post [23] shows a reduction to N 2 + 1
+   multiplications.
+22       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+Procedure 1 Optimized multiplication of a field element (in Montgomery form) by a 64-bit unsigned
+integer
+Input:
+    • r = 264 and R = 264N
+    • Field element a′ = aR mod p as N limbs a′0 , . . . , a′N −1 ∈ Z264 .
+    • Integer b ∈ Z264 .
+    • Modulus p as N limbs p0 , . . . , pN −1 .
+    • Precomputed Barrett reduction constant µ.
+Output: Product c′ = (a′ · b mod p), equivalent to abR mod p.
+                                                                        ▷ Stage 0: Precomputation (once and for all)
+ 1: Compute R′ = 2np , where np = ⌊log2 p⌋ + 1
+ 2: Compute µ = ⌊rR′ /(2p)⌋ ∈ Z264
+                                                                                   ▷ Stage 1: Bignum Multiplication
+ 3: Compute c = a′ · b as a (N + 1)-limb integer. Let c̃ = ⌊c/R′ ⌋.
+                                                 ▷ Stage 2: Barrett Reduction (optimized for (N + 1)-limb input)
+ 4: Compute m := ⌊(c̃ · µ)/r⌋.                                                  ▷ m ∈ {q − 1, q}, where q = ⌊c/(2p)⌋
+ 5: Compute r := c − m · 2p.                                       ▷ Result r < 4p is c (mod 2p) or c (mod 2p) + 2p
+ 6: Find k ∈ {0, 1, 2, 3} such that kp ≤ r < (k + 1)p, and compute c′ = r − kp.
+                                                                                             ▷ Result c′ is c (mod p)
+             ′
+ 7: return c
+
+
+
+
+Altogether, Montgomery multiplication costs around 2N 2 + 1 base multiplications, and other operations
+(e.g. base addition & subtraction) of second-order complexity.
+
+
+
+
+7.2   Optimizing Multiplication by u64
+
+
+
+While the above algorithm works best when multiplying two field elements in Montgomery form, we
+need a different approach for multiplying a field element (in Montgomery form as aR mod p) with a raw
+unsigned 64-bit number b. The first stage, bignum multiplication, is the same as above, and only incurs
+N base multiplications due to the single-limb input b. However, we do not want to apply Montgomery
+reduction on the result, as this would lead to the “wrong” answer ab mod p that is not in Montgomery
+form, and is also expensive as the reduction algorithm does not take advantage of the fact that b occupies
+a single limb.
+
+Instead, we will apply an optimized variant of Barrett reduction [9], which also performs a reduction
+modulo p, but do not divide by R at the same time. Barrett reduction typically performs multiple passes
+over the 2N limbs of the bignum multiplication, each time reducing the largest limb modulo p; the whole
+process takes N 2 + 1 base multiplications, similar to Montgomery reduction. However, since in our setting,
+we only get N + 1 limbs for the multiplication result, it suffices to do a single pass to reduce the highest
+limb, costing N + 1 multiplications.
+
+More details. Our algorithm is described in Procedure 1, and here we give some intuition for the Barrett
+reduction step.
+
+In this step, as c has N + 1 limbs, we may write it as c = cN rN + cN −1 rN −1 + · · · + c0 . We will compute
+c mod kp for some multiple k, which will then imply c mod p by a conditional subtraction (by the right
+multiple of 0, p, . . . , (k − 1)p). We get this quantity by finding the quotient m of c when divided by kp,
+                                                                      Speeding Up Sum-Check Proving         23
+
+and then computing r = c − m · kp. To find m, we use the following approximation process:
+                                           cN · rN + cN −1 rN −1 + · · · + c0
+                                                                           
+                                  c
+                          m=          =
+                                 kp                      kp
+                                                 
+                                           cN · R
+                                      ≈
+                                             kp
+                                               j k
+                                          c · r·R 
+                                          N      kp 
+                                      ≈              .
+                                                r
+                                                 j k
+At this point, we may precompute the value µ = r·R kp , then compute the product cN · µ and divide by r
+to get m. If we choose k to be the least multiple of p such that kp > R, then µ will be a 64-bit integer,
+and m is simply the high part of the product cN · µ.
+Of course, we will need to justify that the approximations above are actually equality, and we will do so
+in Lemma 7.1. However, before doing so, we give a further optimization in the case where k may be larger
+than 2 (i.e. p is less than half of R). This is the case for the scalar field of the BN254 curve, where p is a
+254-bit prime and k = 6. We wish to prevent having to perform conditional subtraction on 6 different
+multiples 0, p, . . . , 5p.
+We can do so by choosing k = 2 and modifying the algorithm to use a modified R′ = 2np < R,
+where np is the bit-length of p. This ensures that k ′ = ⌈R′ /p⌉ = 2, and we just need to precompute
+the modified constant µ′ = ⌊rR′ /(2p)⌋, and derive m′ = ⌊c/(2p)⌋. Intuitively, this works because (aR
+mod p) · b < p · b < R′ · r, so we can decompose c into chunks of size r, starting from the most significant
+digit:
+                                c = cN R′ + cN −1 R′ /r + · · · + c1 R′ /rN −1 + c0 ,
+where cN , . . . , c1 < r and c0 < R′ /rN −1 (assuming that rN −1 < R′ < R = rN , i.e. p fits in exactly N
+limbs). The rest of the approximation is the same as above, with R′ replacing R and 2 replacing k.
+
+Lemma 7.1. The multiplication algorithm in Procedure 1 is correct.
+
+Proof. We need to show the Barrett reduction (Stage 2) correctly computes c′ = c mod p, where c = a′ · b.
+Let q = ⌊c/(2p)⌋. The core of the reduction relies on approximating this quotient q.
+Line 4 computes an estimate m := ⌊(c̃ · µ)/r⌋, where µ = ⌊rR′ /(2p)⌋ and c̃ = ⌊c/R′ ⌋, so that c = c̃ · R′ + c′
+for some c′ < R′ . The key claim is that this estimate satisfies:
+                                               m ∈ {q − 1, q}.                                             (20)
+By expanding the definition of m and q, we get:
+                                               j ′ k
+                                             c̃ · r·R   
+                                    c                2p
+                                                         ≤ c .
+                                                         
+                                        −1≤                                                               (21)
+                                   2p                r      2p
+
+The second inequality is true since m is always an underestimate of the true quotient q:
+                                                                        j     k
+                                                $ r·R′        %  c̃ · r·R′ 
+                                  c̃ · R′ + c′    c̃ · 2p   c′
+                         
+                          c                                               2p  
+                              =                 =         +     ≥             .                          (22)
+                         2p             2p            r     2p            r
+
+The first inequality is true since m cannot underestimate q by more than 1. In other words, it suffices to
+show that
+                                                 j       k
+                                           c̃ · r·R′ 
+                                           c          2p  
+                                              <            + 2.                                     (23)
+                                          2p          r
+24       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+This is true since:
+                                              $ r·R′              %
+                                                  c̃ · 2p       c′
+                                      
+                                           c
+                                              =             +
+                                          2p          r        2p
+                                                 j ′ k                     
+                                                 c̃ · r·R + 1              ′ 
+                                                                              
+                                                         2p               c
+                                              <                        + 
+                                                            r              2p
+                                                 j ′k                     
+                                                 c̃ · r·R               ′
+                                                                           
+                                                        2p        c̃   c 
+                                              =               + + 
+                                                        r          r 2p
+                                                      j      k
+                                                 c̃ · r·R′ 
+                                                              
+                                                        2p    
+                                              <                + 2.
+                                                        r
+
+The first inequality follows from ⌊a⌋ < a + 1 for all a, and the second inequality follows from c̃ < r and
+c′ < R′ < 2p.
+We have proven the key estimate in (21). The rest of the algorithm then follows, since we now have
+r = c − m · 2p is equal to either c − ⌊c/2p⌋ · 2p = c mod 2p, or to c − (⌊c/2p⌋ − 1) · 2p = (c mod 2p) + 2p.
+This means that r < 2p + 2p = 4p, and that r mod p = (c mod 2p) mod p = c mod p. Hence, the final
+conditional subtraction in line 6 correctly computes c′ = r mod p.                                        ⊔
+                                                                                                          ⊓
+
+
+7.3   Extensions to Signed and 128-bit Integers
+
+We briefly note that our algorithm can easily be extended to the following settings:
+ – Signed 64-bit integers: we simply check the sign of b. If it is negative, we multiply by −b and negate
+   the result. This costs an amortized 0.5 field subtractions compared to the unsigned case.
+ – Unsigned 128-bit integers: we can perform two steps of Barrett reduction, after computing bignum
+   multiplication to get a (N + 2)-limb number.
+ – Signed 128-bit integers: we combine the above two cases. Namely, perform 128-bit unsigned multipli-
+   cation on the absolute value of b, and then negate the result if b was negative.
+More details on multiplications by u128. To expand on our above point, assume that we have computed
+the bignum multiplication of (aR mod p) with b, where b is a 128-bit unsigned integer. This costs 2N
+base (u64) multiplications, and gives us a (N + 2)-limb number
+
+                                   c = cN +1 rN +1 + cN rN + · · · + c1 r + c0 .
+
+We will perform one pass of Barrett reduction on the (N + 1)-high limbs of c, namely on chigh =
+cN +1 rN + cN rN −1 + · · · + c1 . The result will be a N -limb number c′ = chigh mod p. We now perform a
+second pass of Barrett reduction on the (N +1)-limb number c′ ·r +c0 , to get the final result c′′ = (c′ ·r +c0 )
+mod p. We can easily verify that
+
+                                 c′′ ≡ c′ · r + c0 ≡ chigh · r + c0 ≡ c     mod p,
+
+and hence the algorithm is correct. This algorithm takes 2N +(2N +2) = 4N +2 base (u64) multiplications.
+We leave to future work the task of further optimizing the above algorithms for these settings. This could
+be in the form of a “native” signed Barrett reduction, or a more optimized algorithm for the 128-bit case
+that fuses two Barrett reductions into a single pass.
+                                                                      Speeding Up Sum-Check Proving         25
+
+8     Implementation and Experiments
+In this section, we report on the implementation of our optimizations and associated speedups. Our
+implementation has two parts: (1) a standalone library implementing all algorithms over binary tower
+fields, and (2) an integration of our optimization into the Jolt zkVM, speeding up the first sum-check
+in Spartan (described in Section 6.2). We did so to demonstrate our optimizations in two different field
+settings: binary tower fields and large scalar prime fields (Jolt currently works over the BN254 scalar field).
+However, this splitting of efforts also means that our standalone library is not yet fully optimized—we
+hope to address this in the near future.
+
+8.1   Experimental Setup
+For our standalone implementation, we implemented binary tower fields from scratch, achieving the
+aforementioned optimal speedup factor between ss, sl, and ll multiplications (see Section 2.1).
+For Jolt, we build on the library tooling. Our main modification is to the Spartan proving subroutine,
+which we replace with our optimized algorithm described in Section 6.2. We also make minor modifications
+to enable comparisons between the old and new Spartan prover.
+We benchmark the prover runtimes on a M4 Pro Macbook with 24GB of RAM and 14 CPU cores.
+Small-value settings. For our standalone implementation, we draw values from the 32-bit tower subfield of
+the 128-bit binary tower field. For Jolt, we inherit the existing R1CS constraints and the 32-bit RISC-V
+trace structure. This means that the values of Az, Bz, Cz in Spartan are within the range {−264 , . . . , 264 }
+(necessitating their datatypes to be i128), though we stress that most of these values fit in i64 and hence
+benefit from the more optimized version of our multiplication algorithm (Section 7).
+List of Benchmarks. For our standalone implementation, we compare the following:
+ – Algorithm 1 versus Algorithm 4 (in the small-value-only setting). We experiment with various settings
+   of the number of small value optimization rounds ℓ0 , and for degree d = 2.
+ – Algorithm 5 versus Algorithm 6 (in the combined eq-poly and small-value setting), again varying ℓ0 .
+For Jolt, we benchmark proving repeated evaluations of SHA-2 (i.e. a SHA-2 chain) of increasing depth,
+from 8 to 2048 iterations, with factor of 2 increases. This corresponds to roughly 217 to 226 number of
+RISC-V cycles. We focus our benchmark on the first sum-check in Spartan (where our optimizations
+apply), and do not include a full end-to-end benchmark of the entire Jolt prover.
+When we started, the Spartan implementation in Jolt had the following drawbacks: (1) it only implements
+the split-eq-poly optimization, but not Gruen’s optimization (see Section 5 for the difference), (2) it
+does not incorporate our Spartan-specific optimizations described in Section 6.2, and (3) certain data
+movements are not optimized. For fair benchmarking, we have fixed these issues in an intermediate version
+of the Spartan prover, where all optimizations in this paper have been applied except for the small-value
+optimization. This provides a fair baseline for the impact of the small-value optimization alone.
+
+8.2   Results
+We give the results of our Jolt benchmarks in Figure 10, and of our standalone benchmarks in Figure 11.
+The Jolt results reveal two distinct performance regimes. For smaller instances (8 to 256 iterations), our
+optimizations provide consistent speedups of around 3× over the original implementation and 1.5-2×
+over Gruen’s optimization alone. From 512 to 2048 iterations, Gruen+SVO demonstrates its memory
+efficiency (as discussed in our cost estimates), giving almost 20× speedup over both other methods for
+1024 iterations, and scaling smoothly to 2048 iterations while the other two algorithms run out of memory.
+Our standalone implementation shows more modest but consistent improvements, due to the lack of
+optimizations. Algorithm 6 (our combined approach) provides 20-40% speedups over Algorithm 5 (eq-poly
+26       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+
+
+                                                                                  (b) Speedup
+                   (a) Absolute Runtimes
+
+Fig. 10: Performance of the first Spartan sum-check in Jolt. (a) Runtimes for proving SHA-2 chain computation
+comparing Original Jolt, Jolt with Gruen’s optimization, and Jolt with Gruen’s & Small-Value Optimization
+(SVO). (b) Speedup factor of Gruen+SVO over Gruen-only and Original for SHA2 benchmarks.
+
+
+
+
+                   (a) Absolute Runtimes                                    (b) Percentage Speedup
+                                                                                     P
+Fig. 11: Performance of standalone sum-check algorithms. (a) Absolute runtimes for    eq(x) · p(x) · q(x) with base
+              32                             128
+field BF=GF2 and extension field EF=GF2 . "Algo1" is baseline; "Algo4 (ℓ0 = 4)" is small-value optimization;
+"Algo 5" is eq-polynomial optimization; "Algo 6 (ℓ0 = 3)" is combined. (b) Percentage improvement of Algorithm
+6 over Algorithm 5 for degree 2 and degree 3 polynomials, varying n.
+                                                                          Speeding Up Sum-Check Proving            27
+
+optimization alone) across n = 16 to n = 28 number of sum-check rounds, with degree-2 polynomials
+generally showing better improvements than degree-3. We also see the improvement in the non-eq-poly
+setting, with Algorithm 4 outperforming Algorithm 1 by roughly the same amount. While these gains are
+smaller than Jolt due to our implementation being less optimized, they help to partially validate our cost
+estimates, and demonstrate the potential for further improvements.
+
+
+Overall Impact on Jolt. We now discuss the implications of our benchmarks for the end-to-end
+performance of Jolt. Thanks to other optimizations [2], the proving time of Spartan-in-Jolt is dominated
+by the first sum-check—hence our 3× speedup is also for the whole Spartan proving process.
+When Jolt moves to a streaming prover, our optimization will give a significant speedup compared to the
+naive streaming algorithm (Algorithm 2). This because, instead of needing to stream O(ℓ) rounds until
+falling below a certain memory threshold, our optimization (and the improvements to [10] described in
+a future version of this manuscript) will allow us to stream for only O(log ℓ) rounds. Concretely, for a
+billion (≈ 230 ) RISC-V cycles, and keeping prover’s memory to 2GB or less, we only need to stream the
+input 3 times instead of 10 or more times. We will give more detailed cost estimates in a future version of
+this manuscript.
+
+
+9    Conclusion
+
+In this work, we present a suite of optimizations for the sum-check prover in two common settings: small-
+value evaluations, and involvement of the equality polynomial. Our optimizations reduce both proving
+time and memory usage. We have implemented our algorithms and demonstrate significant speedups in a
+relevant application, that of improving Spartan-in-Jolt.
+For future work, it would be valuable to investigate our algorithms in new contexts, such as in sum-check
+over rings (for lattice-based proof systems such as [11]), or in the sparse-dense setting. We also plan to
+revise our standalone implementation to incorporate more optimizations, which should fully realize our
+estimated speedups.
+
+Disclosure of Interests. Justin Thaler is a Research Partner at a16z crypto and is an investor in various
+blockchain-based platforms, as well as in the crypto ecosystem more broadly (for general a16z disclosures, see
+https://www.a16z.com/disclosures/.)
+
+
+References
+ 1. Jolt codebase (2025), https://github.com/a16z/jolt
+ 2. Arasu Arun: Simplified second-Spartan-sum-check (via simpler uniform R1CS product-vector MLE). https:
+    //github.com/a16z/jolt/issues/347 (2024), accessed: 2025-05-03
+ 3. Arnon, G., Chiesa, A., Fenzi, G., Yogev, E.: WHIR: Reed–solomon proximity testing with super-fast verification.
+    Cryptology ePrint Archive, Paper 2024/1586 (2024), https://eprint.iacr.org/2024/1586
+ 4. Arun, A., Setty, S., Thaler, J.: Jolt: Snarks for virtual machines via lookups. In: Annual International Conference
+    on the Theory and Applications of Cryptographic Techniques. pp. 3–33. Springer (2024)
+ 5. Attema, T., Fehr, S., Klooß, M.: Fiat-shamir transformation of multi-round interactive proofs. In: Theory of
+    Cryptography Conference. pp. 113–142. Springer (2022)
+ 6. Bagad, S., Domb, Y., Thaler, J.: The sum-check protocol over fields of small characteristic. Cryptology ePrint
+    Archive, Paper 2024/1046 (2024), https://eprint.iacr.org/2024/1046
+ 7. Barreto, P.S., Lynn, B., Scott, M.: Constructing elliptic curves with prescribed embedding degrees. In:
+    International conference on security in communication networks. pp. 257–267. Springer (2002)
+ 8. Barreto, P.S., Naehrig, M.: Pairing-friendly elliptic curves of prime order. In: International workshop on
+    selected areas in cryptography. pp. 319–331. Springer (2005)
+ 9. Barrett, P.: Implementing the rivest shamir and adleman public key encryption algorithm on a standard digital
+    signal processor. In: Conference on the Theory and Application of Cryptographic Techniques. pp. 311–323.
+    Springer (1986)
+28       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+10. Baweja, A., Fenzi, G., Chiesa, A., Mishra, P., Zitek-Estrada, A., Fedele, E., Mopuri, T.: Time-space trade-offs
+    for sumcheck (2025), manuscript
+11. Boneh, D., Chen, B.: LatticeFold: A lattice-based folding scheme and its applications to succinct proof systems.
+    Cryptology ePrint Archive, Paper 2024/257 (2024), https://eprint.iacr.org/2024/257
+12. Boneh, D., Chen, B.: Latticefold+: Faster, simpler, shorter lattice-based folding for succinct proof systems.
+    Cryptology ePrint Archive (2025)
+13. Brehm, M., Chen, B., Fisch, B., Resch, N., Rothblum, R.D., Zeilberger, H.: Blaze: Fast snarks from interleaved
+    raa codes. Cryptology ePrint Archive (2024)
+14. Canetti, R., Chen, Y., Holmgren, J., Lombardi, A., Rothblum, G.N., Rothblum, R.D.: Fiat-shamir from
+    simpler assumptions. Cryptology ePrint Archive (2018)
+15. Chen, B., Bünz, B., Boneh, D., Zhang, Z.: HyperPlonk: Plonk with linear-time prover and high-degree custom
+    gates (2023)
+16. Chiesa, A., Fedele, E., Fenzi, G., Zitek-Estrada, A.: A time-space tradeoff for the sumcheck prover. Cryptology
+    ePrint Archive, Paper 2024/524 (2024), https://eprint.iacr.org/2024/524
+17. Cormode, G., Mitzenmacher, M., Thaler, J.: Practical verified computation with streaming interactive proofs.
+    In: ITCS (2012)
+18. Cormode, G., Thaler, J., Yi, K.: Verifying computations with streaming interactive proofs. Proc. VLDB Endow.
+    5(1), 25–36 (2011). https://doi.org/10.14778/2047485.2047488, http://www.vldb.org/pvldb/vol5/p025
+    _grahamcormode_vldb2012.pdf
+19. Dao, Q., Thaler, J.: Constraint-packing and the sum-check protocol over binary tower fields. Cryptology ePrint
+    Archive, Paper 2024/1038 (2024), https://eprint.iacr.org/2024/1038
+20. Dao, Q., Thaler, J.: More optimizations to sum-check proving. Cryptology ePrint Archive, Paper 2024/1210
+    (2024), https://eprint.iacr.org/2024/1210
+21. Diamond, B.E., Posen, J.: Succinct arguments over towers of binary fields. Cryptology ePrint Archive, Paper
+    2023/1784 (2023), https://eprint.iacr.org/2023/1784, https://eprint.iacr.org/2023/1784
+22. Diamond, B.E., Posen, J.: Polylogarithmic proofs for multilinears over binary towers. Cryptology ePrint
+    Archive, Paper 2024/504 (2024), https://eprint.iacr.org/2024/504, https://eprint.iacr.org/2024/504
+23. Domb, Y.: The Barrett-Montgomery duality and a new multi-precision modular reduction scheme with only
+    n2 − 1 operations. https://medium.com/@ingonyama/the-barrett-montgomery-duality-and-a-new-multi
+    -precision-modular-reduction-scheme-with-only-n2-1-b40ede4792da (2024), accessed: 2025-04-09
+24. Fan, J.L., Paar, C.: On efficient inversion in tower fields of characteristic two. In: Proceedings of IEEE
+    International Symposium on Information Theory. p. 20. IEEE (1997)
+25. Fiat, A., Shamir, A.: How to prove yourself: Practical solutions to identification and signature problems. pp.
+    186–194 (1986)
+26. Goldwasser, S., Kalai, Y.T., Rothblum, G.N.: Delegating computation: interactive proofs for muggles. Journal
+    of the ACM (JACM) 62(4), 1–64 (2015)
+27. Gouvêa, C.P., López, J.: Implementing gcm on armv8. In: Topics in Cryptology—CT-RSA 2015: The Cryptog-
+    rapher’s Track at the RSA Conference 2015, San Francisco, CA, USA, April 20-24, 2015. Proceedings. pp.
+    167–180. Springer (2015)
+28. Gruen, A.: Some improvements for the piop for zerocheck. Cryptology ePrint Archive (2024)
+29. Karatsuba, A.A.: The complexity of computations. Proceedings of the Steklov Institute of Mathematics-
+    Interperiodica Translation 211, 169–183 (1995)
+30. Kothapalli, A., Setty, S.: Hypernova: Recursive arguments for customizable constraint systems. In: Annual
+    International Cryptology Conference. pp. 345–379. Springer (2024)
+31. Kothapalli, A., Setty, S.: NeutronNova: Folding everything that reduces to zero-check. Cryptology ePrint
+    Archive, Paper 2024/1606 (2024), https://eprint.iacr.org/2024/1606
+32. Liu, T., Zhang, Y.: Efficient SNARKs for boolean circuits via sumcheck over tower fields. Cryptology ePrint
+    Archive, Paper 2025/594 (2025), https://eprint.iacr.org/2025/594
+33. Lund, C., Fortnow, L., Karloff, H., Nisan, N.: Algebraic methods for interactive proof systems. In: FOCS (Oct
+    1990)
+34. Montgomery, P.L.: Modular multiplication without trial division. Mathematics of Computation 44(170),
+    519–521 (1985). https://doi.org/10.2307/2007970, https://doi.org/10.2307/2007970
+35. Nair, V., Thaler, J., Zhu, M.: Proving CPU executions in small space. Cryptology ePrint Archive, Paper
+    2025/611 (2025), https://eprint.iacr.org/2025/611
+36. Nguyen, W., Setty, S.: Neo: Lattice-based folding scheme for ccs over small fields and pay-per-bit commitments.
+    Cryptology ePrint Archive (2025)
+37. Novakovic, A., Angeris, G.: Ligerito: A small and concretely fast polynomial commitment scheme (2025)
+                                                                          Speeding Up Sum-Check Proving            29
+
+38. Setty, S.: Spartan: Efficient and general-purpose zksnarks without trusted setup. In: Annual International
+    Cryptology Conference. pp. 704–737. Springer (2020)
+39. Setty, S., Angel, S., Gupta, T., Lee, J.: Proving the correct execution of concurrent services in zero-knowledge
+    (Oct 2018)
+40. Setty, S., Thaler, J.: Twist and shout: Faster memory checking arguments via one-hot addressing and increments.
+    Cryptology ePrint Archive, Paper 2025/105 (2025), https://eprint.iacr.org/2025/105
+41. Setty, S., Thaler, J., Wahby, R.: Customizable constraint systems for succinct arguments. Cryptology ePrint
+    Archive, Paper 2023/552 (2023), https://eprint.iacr.org/2023/552
+42. Setty, S., Thaler, J., Wahby, R.: Unlocking the lookup singularity with lasso. In: Annual International
+    Conference on the Theory and Applications of Cryptographic Techniques. pp. 180–209. Springer (2024)
+43. Shamir, A.: Ip= pspace. Journal of the ACM (JACM) 39(4), 869–877 (1992)
+44. Thaler, J.: Time-optimal interactive proofs for circuit evaluation. In: CRYPTO (2013)
+45. Thaler, J.: Proofs, arguments, and zero-knowledge. Foundations and Trends in Privacy and Security 4(2–4),
+    117–660 (2022)
+46. Toom, A.: The complexity of a scheme of functional elements realizing the multiplication of integers. In: Soviet
+    Mathematics Doklady, No 3. pp. 714–716 (1963)
+47. Vu, V., Setty, S., Blumberg, A.J., Walfish, M.: A hybrid architecture for verifiable computation (2013)
+48. Wahby, R.S., Ji, Y., Blumberg, A.J., Shelat, A., Thaler, J., Walfish, M., Wies, T.: Full accounting for verifiable
+    outsourcing (2017)
+49. Wahby, R.S., Tzialla, I., Shelat, A., Thaler, J., Walfish, M.: Doubly-efficient zkSNARKs without trusted setup
+    (2018)
+50. Wei, Y., Wang, K., Xiang, B., Zhang, X., Wang, H., Deng, Y., Zhu, X., Lin, L.: Packed sumcheck over fields
+    of small characteristic with application to verifiable FHE. Cryptology ePrint Archive, Paper 2025/719 (2025),
+    https://eprint.iacr.org/2025/719
+51. Wiedemann, D.: An iterated quadratic extension of gf (2). Fibonacci Quart 26(4), 290–295 (1988)
+52. Wiedemann, D.: An iterated quadratic extension of gf (2). The Fibonacci Quarterly 26(4), 290–295 (1988)
+53. Xie, T., Zhang, J., Zhang, Y., Papamanthou, C., Song, D.: Libra: Succinct zero-knowledge proofs with optimal
+    prover computation (2019)
+54. Zhang, J., Xie, T., Zhang, Y., Song, D.: Transparent polynomial delegation and its applications to zero
+    knowledge proof. In: 2020 IEEE Symposium on Security and Privacy (SP). pp. 859–876. IEEE (2020)
+55. Zhang, Y., Genkin, D., Katz, J., Papadopoulos, D., Papamanthou, C.: vSQL: Verifying arbitrary SQL queries
+    over dynamic outsourced databases (2017)
+56. Zhang, Y., Genkin, D., Katz, J., Papadopoulos, D., Papamanthou, C.: vRAM: Faster verifiable RAM with
+    program-independent preprocessing (2018)
+
+
+
+
+A     Auxiliary Procedures
+
+
+In this section, we list the procedures that are called by the algorithms in the main body of the paper.
+
+
+
+A.1    Equality polynomial evaluations
+
+
+Procedure 2 computes the equality polynomial evaluations eq(w,
+                                                            e     x) for w ∈ Fℓ and x ∈ {0, 1}ℓ using 2ℓ ll
+multiplications. Procedure 3 is a memoized version of Procedure 2 that additionally stores the intermediate
+result {e(w[1:i] , x)}ℓi=1 at each step i.
+30        Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+Procedure 2 Compute eq(w,
+                    e     x) for all x ∈ {0, 1}ℓ
+Input: w ∈ Fℓ
+Output: v such that v[nat(x)] = eq(w,  e   x) for all x ∈ {0, 1}ℓ
+ 1: Initialize: an all-one vector v := (1, 1, . . . , 1) ∈ {0, 1}ℓ
+ 2: Initialize: s := 1
+ 3: for i = 0, . . . , ℓ − 1 do
+ 4:    for j = s − 1, . . . , 0 do
+ 5:        v[2 · j + 1] := v[j] · wi
+ 6:        v[2 · j] := v[j] − v[2 · j + 1]
+ 7:    end for
+ 8:    s := s · 2
+ 9: end for
+10: return v
+
+
+
+
+                     e [1:i] , x) : x ∈ {0, 1}i } for all i ∈ [ℓ]
+Procedure 3 Compute {eq(w
+Input: w ∈ Fℓ
+                                                   e [1:i] , x) for all i = 1, . . . , ℓ and x ∈ {0, 1}i
+Output: v1 , . . . , vℓ such that vi [nat(x)] = eq(w
+ 1: Initialize: empty vectors vi of size 2i for all i = 1, . . . , ℓ.
+ 2: Initialize: v0 := (1) and s := 1
+ 3: for i = 0, . . . , ℓ − 1 do
+ 4:    for j = s − 1, . . . , 0 do
+ 5:        vi+1 [2 · j + 1] := vi [j] · wi
+ 6:        vi+1 [2 · j] := vi [j] − vi+1 [2 · j + 1]
+ 7:    end for
+ 8:    s := s · 2
+ 9: end for
+10: return v1 , . . . , vℓ
+
+
+
+
+A.2     Procedures for Algorithm 3
+                                                                Qd
+To allow for an optimized implementation where each product k=1 pk (bk , x′′ ) (for bk ∈ {0, 1}i−1 , x′′ ∈
+{0, 1}ℓ−ℓ0 ) is computed only once across all accumulators and all rounds i ∈ [ℓ0 ], we can rewrite the
+definition of the accumulators Ai (v, u) by further splitting up the sum over x′ ∈ {0, 1}ℓ−i to be over
+x′′ ∈ {0, 1}ℓ−ℓ0 and y ∈ {0, 1}ℓ0 −i :
+                                       X        X            X            X
+                     Ai (v, u) :=
+                                        x′′ ∈{0,1}ℓ−ℓ0 y∈{0,1}ℓ0 −i b1 ,...,bd ∈{0,1}i−1 b∗       ∗
+                                                                                          1 ,...,bd ∈{0,1}
+                                                                         v= d
+                                                                             P
+                                                                                k=1 b
+                                                                                      d
+                                               Pd     ∗               Pd      ∗       Y
+                                             u   k=1 bk   · (1 − u)d−    k=1 bk   ·         pk (bk , b∗k , y, x′′ ).
+                                                                                      k=1
+
+What we gain from this is that we can now iterate over the combined vectors (bk , b∗k , y), and flipping the
+                                                                                                      d
+order of evaluation, we get a procedure where we first iterate over B := (b1 , . . . , bd ) ∈ {0, 1}ℓ0 (note
+the ℓ0 index instead of i − 1), compute the product term corresponding to B and y, and then based on
+the values of B, decide which accumulators to add the product term to.
+
+Definition A.1 (Algorithm 3: Mapping from product terms to accumulators). Let B =
+                              d
+(b1 , . . . , bd ) ∈ {0, 1}ℓ0    be a tuple of d bitstrings of length ℓ0 . We define idx3(B) to be the set of
+                           i−1
+                                                                           Pd
+tuples (i ∈ [ℓ0 ], v ∈ [d] ) such that b1 [> i] = · · · = bd [> i] and v = k=1 bk [< i].
+                                                                                Speeding Up Sum-Check Proving                31
+
+                                                                                    Qd
+Intuitively, the set of indices idx3(b1 , . . . , bd ) tracks where the product term k=1 pk (bk , x′ ) needs to go to
+in the various accumulators. It looks at the first deviation (from right to left) in the bitstrings b1 , . . . , bd ;
+if they deviate after index i ∈ [ℓ0 ], then this product cannot be present in any accumulator at round i − 1
+or before.
+
+Example A.2. Consider ℓ0 = 3 and d = 2. We have the following:
+
+                                  idx3((0, 0, 0), (1, 1, 0)) = {(2, (1, 1)), (3, (1, 1, 0))},
+
+meaning that for every x′′ ∈ {0, 1}ℓ−3 , the product p1 (0, 1, 0, x′′ ) · p2 (1, 1, 0, x′′ ) goes into
+
+ – the accumulator A2 (0, 1) at round 2,
+
+ – the accumulator A3 (1, 1, 0) at round 3.
+
+The product cannot go into any accumulator in the first round, since they differ in the first two bits. In other
+words, since the products needed for the first round has the form p1 (b1 , x′ ) · p2 (b2 , x′ ) for b1 , b2 ∈ {0, 1}
+and x′ ∈ {0, 1}ℓ−1 , they possibly differ only in the first bit.
+
+
+
+Procedure 4 Compute accumulators Ai (v, u) for Algorithm 3
+Input: A stream of evaluations {pk (β, x′′ )}k∈[d],β∈{0,1}ℓ0 for each x′′ ∈ {0, 1}ℓ−ℓ0
+Output: The accumulators {Ai (v, u) : i ∈ [ℓ0 ], v ∈ [0, d]i−1 , u ∈ U       bd }
+ 1: Initialize: Ai (v, u) := 0 for all i, v, u.
+ 2: for x′′ ∈ {0, 1}ℓ−ℓ0 do                                                      ▷ Iterate over the suffix outside the ℓ0 prefix
+                                               d
+ 3:    for B = (b1 , . . . , bd ) ∈ {0, 1}ℓ0 do
+                                                                         ▷      Iterate over all length-ℓ0 prefix combinations
+            Compute product P := dk=1 pk (bk , x′′ ).
+                                          Q
+ 4:
+                                                                                       ▷      Compute the product term once
+ 5:         Compute index set I = idx3(B).
+                                                              ▷       Find which accumulators this product contributes to
+ 6:         for (i, j) ∈ I do
+                                                         ▷      For each relevant round i and its prefix sum j (length i)
+ 7:            Let v = (j 1 , . . . , j i−1 ).
+                                                                ▷          Derive accumulator index v (length i − 1) from j
+ 8:            for u ∈ U bd do
+ 9:                 Get the i-th bits: b∗k := bk [i] for k = 1, . . . , d.
+                                                     Pd     ∗                Pd     ∗
+10:                 Compute coefficient Cu := u k=1 bk · (1 − u)d− k=1 bk .
+                                                                                  ▷      Coefficient depends on round i via b∗k
+11:                 Ai (v, u) := Ai (v, u) + Cu · P.
+                                                                           ▷       Add scaled product to correct accumulator
+12:             end for
+13:         end for
+14:     end for
+15: end for
+16: return {Ai (v, u) : i ∈ [ℓ0 ], v ∈ [0, d]i−1 , u ∈ U
+                                                       bd }
+
+
+
+
+We can formally show that our optimization of reversing the order of evaluation is correct.
+
+Lemma A.3. Procedure 4 computes the desired accumulators Ai (v, u) (as defined in Figure 6) for all
+i ∈ [ℓ0 ], v ∈ [0, d]i−1 , and u ∈ U
+                                   bd .
+32      Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+Proof. This simply follows by rearranging the order of summation:
+                                   X          X           X                                           X
+                    Ai (v, u) =
+                                  x′′ ∈{0,1}ℓ−ℓ0 y∈{0,1}ℓ0 −i b1 ,...,bd ∈{0,1}i−1 b∗       ∗
+                                                                                    1 ,...,bd ∈{0,1}
+                                                                   v= d
+                                                                       P
+                                                                          k=1 b
+                                                                                      d
+                                           Pd      ∗                      ∗
+                                                                  d− d
+                                                                    P                 Y
+                                         u    k=1 bk   · (1 − u)     k=1 bk       ·           pk (bk , b∗k , y, x′′ )
+                                                                                      k=1
+                                       X                    X                    X                     X
+                              =
+                                  x′′ ∈{0,1}ℓ−ℓ0 b1 ,...,bd ∈{0,1}i−1 b∗       ∗               ℓ −i
+                                                                       1 ,...,bd ∈{0,1} y∈{0,1} 0
+                                                      v= d
+                                                          P
+                                                             k=1 b
+                                                                                      d
+                                           Pd      ∗                  Pd      ∗       Y
+                                         u    k=1 bk   · (1 − u)d−       k=1 bk   ·           pk (bk , b∗k , y, x′′ )
+                                                                                      k=1
+                                       X                               X
+                              =
+                                  x′′ ∈{0,1}ℓ−ℓ0                b1 ,...,bd ∈{0,1}ℓ0
+                                                        Pd
+                                                   v=      k=1 b[<i],     y=b1 [>i]=···=bd [>i]
+
+                                           Pd                            Pd                   d
+                                                                                              Y
+                                         u    k=1 bk [i]   · (1 − u)d−       k=1 bk [i]   ·         pk (bk , x′′ )
+                                                                                              k=1
+                                       X                     X
+                              =
+                                  x′′ ∈{0,1}ℓ−ℓ0     b1 ,...,bd ∈{0,1}ℓ0
+                                                   (i,v)∈idx3(b1 ,...,bd )
+
+                                           Pd                            Pd                   d
+                                                                                              Y
+                                         u    k=1 bk [i]   · (1 − u)d−       k=1 bk [i]   ·         pk (bk , x′′ ).
+                                                                                              k=1
+
+The first equality follows from our discussion at the beginning of this section. The second equality follows
+from moving the sum over y to the inside. The third equality follows from the renaming (bk , b∗k , y) 7→ bk
+for all k ∈ [d], and modifying the other terms appropriately. The final equality follows from the definition
+of idx3. At this point, we now see that this order of summation is exactly followed by Procedure 4, thus
+finishing the proof.
+
+Lemma A.4. Algorithm 3 is correct. In particular, the output of the sum-check prover in Algorithm 3 is
+always the same as the output of the sum-check prover in the standard linear-time algorithm ( Algorithm
+1).
+
+Proof. This follows from our discussion in Section 4.1 and the correctness of the pre-computation routine
+in Procedure 4.
+
+A.3    Procedures for Algorithm 4
+Similar to the optimization for Algorithm 3 in Section A.2, we can improve the efficiency of computing
+the accumulators Ai (v, u) for Algorithm 4 (Figure 7) by reversing the order of summation. The original
+definition sums over suffixes x′ and then computes products based on the prefix (v, u). Reversing this
+involves iterating over all possible full evaluation prefixes β ∈ Ud ℓ0 and suffixes x′′ ∈ {0, 1}ℓ−ℓ0 , computing
+                             Qd
+the full product term P = k=1 pk (β, x′′ ) once, and then determining which accumulators Ai (v, u) this
+term contributes to.
+A challenge arises because the input polynomials pk are typically provided via evaluations over the Boolean
+hypercube {0, 1}ℓ . To compute pk (β, x′′ ) where β contains elements from Ud (not just {0, 1}), we need to
+extend the evaluations from the binary domain. Since pk is multilinear in its first ℓ0 variables (holding the
+last ℓ − ℓ0 fixed as x′′ ), we can compute these extended evaluations iteratively using the linearity in each
+                                                                         Speeding Up Sum-Check Proving     33
+
+variable. Procedure 6 describes this process, taking binary evaluations {pk (b, x′′ )}b∈{0,1}ℓ0 and producing
+the required evaluations {pk (β, x′′ )}β∈Ud ℓ0 .
+
+
+
+                                            Qd
+To map each computed product term P = k=1 pk (β, x′′ ) to the correct accumulators, we use the index
+set idx4(β) defined in Definition A.5. This set identifies exactly the tuples (i, v, u) such that the prefix β
+is compatible with the structure required for accumulator Ai (v, u) (i.e., β = (v, u, y) for some binary y).
+
+
+
+
+Definition A.5 (Algorithm 4: Mapping from evaluation prefixes to accumulators). Let β =
+(β1 , . . . , βℓ0 ) ∈ Ud ℓ0 −1 . We define idx4(β) to be the set of tuples (i, v, u, y) such that:
+
+
+
+ – i ∈ [ℓ0 ],
+
+
+
+ – v = (β1 , . . . , βi−1 ) ∈ Ud i−1 ,
+
+
+
+ – u = βi ∈ U
+            bd ,
+
+
+
+ – y = (βi+1 , . . . , βℓ0 ) ∈ {0, 1}ℓ0 −i .
+
+
+
+This set identifies all accumulators Ai (v, u) to which the product term computed using the prefix β
+contributes. The y component will be summed over when computing the accumulators.
+
+
+
+
+Procedure 5 Compute {p(u)}u∈Ud for a linear polynomial p(X)
+Input: Evaluations p(0), p(1)
+Output: Evaluations p(∞), p(2), . . . , p(d − 1), available in a streaming fashion.
+ 1: Initialize: vector v of size d − 1.
+ 2: Set v[1] := p(1) − p(0) and v[2] := v[1] + p(1).
+ 3: for i = 3, . . . , d − 1 do
+ 4:    v[i] := v[i − 1] + v[1]
+ 5: end for
+ 6: return v
+34       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+
+Procedure 6 Compute {p(β) : β ∈ Ud ℓ0 } for a multilinear polynomial p
+Input: Evaluations {p(y)}y∈{0,1}ℓ0 , stored in a map CurrentEvals with keys in {0, 1}ℓ0 . p is multilinear.
+Output: Evaluations {p(β)}β∈Ud ℓ0 , returned as a stream over the lexicographically ordered domain Ud ℓ0 .
+ 1: for j = 1 to ℓ0 do                                                   ▷ Incrementally extend the dimension j
+ 2:    Initialize: An empty map NextEvals.                     ▷ Maps points in Ud j × {0, 1}ℓ0 −j to field elements
+ 3:    PrefixDomain := Ud j−1 .                                                          ▷ Domain for β1 , . . . , βj−1
+ 4:    SuffixDomain := {0, 1}ℓ0 −j .                                                    ▷ Domain for yj+1 , . . . , yℓ0
+ 5:    CurrentEvalDomain := Ud                                             ▷ Default domain for current variable
+ 6:    for βprefix ∈ PrefixDomain do
+ 7:        for ysuffix ∈ SuffixDomain do
+ 8:           Construct key k0 = (βprefix , 0, ysuffix ).                           ▷ Tuple representing the point
+ 9:           Construct key k1 = (βprefix , 1, ysuffix ).                           ▷ Tuple representing the point
+10:            p0 := CurrentEvals[k0 ].                                                      ▷ Get value at Xj = 0
+11:            p1 := CurrentEvals[k1 ].                                                      ▷ Get value at Xj = 1
+12:            Compute extended slice values {vγ }γ∈Ud using Procedure 5(p0 , p1 ).
+13:            for γ ∈ CurrentEvalDomain do
+14:                Construct key kγ = (βprefix , γ, ysuffix ).
+15:                NextEvals[kγ ] := vγ .                                            ▷ Store evaluation for Xj = γ
+16:            end for
+17:        end for
+18:     end for
+19:     CurrentEvals := NextEvals.           ▷ Update map; keys are now in Ud j × {0, 1}ℓ0 −j (or subset for j = ℓ0 )
+20: end for
+21: return CurrentEvals                                                              ▷ Final map has keys in Ud ℓ0
+
+
+
+
+Procedure 7 Compute accumulators Ai (v, u) for Algorithm 4
+Input: A stream providing blocks of 2ℓ0 evaluations {pk (b, x′′ ) : k ∈ [d], b ∈ {0, 1}ℓ0 }, for each x′′ ∈ {0, 1}ℓ−ℓ0
+Output: The accumulators {Ai (v, u) : i ∈ [ℓ0 ], v ∈ Ud i−1 , u ∈ U     bd }
+ 1: Initialize: Ai (v, u) := 0 for all i ∈ [ℓ0 ], v ∈ Ud i−1 , u ∈ U
+                                                                   bd .
+ 2: for x′′ ∈ {0, 1}ℓ−ℓ0 do                                                                     ▷ Iterate over the suffix
+ 3:    for β ∈ Ud ℓ0 do                                                        ▷ Iterate over all possible full prefixes
+ 4:         Compute pk (β, x′′ ) for all k ∈ [d] using Procedure 6.
+                                                                                       ▷ Derive necessary evaluations
+            Compute product P := dk=1 pk (β, x′′ ).
+                                      Q
+ 5:                                                                                           ▷ Compute product term
+ 6:         Compute index set I = idx4(β).                                                 ▷ Find target accumulators
+ 7:         for (i, v, u, y) ∈ I do                                                     ▷ For each target accumulator
+ 8:            Ai (v, u) := Ai (v, u) + P.                                             ▷ Add product to accumulator
+ 9:         end for
+10:     end for
+11: end for
+12: return {Ai (v, u) : i ∈ [ℓ0 ], v ∈ Ud i−1 , u ∈ U
+                                                    bd }
+
+
+
+Lemma A.6. Procedure 7 computes the desired accumulators Ai (v, u) (as defined in Figure 7) for all
+i ∈ [ℓ0 ], v ∈ [0, d]i−1 , and u ∈ U
+                                   bd .
+
+Proof. We start from the definition of Ai (v, u) in Figure 7:
+
+                                                         X        d
+                                                                  Y
+                                       Ai (v, u) :=                      pk (v, u, x′ ).
+                                                      x′ ∈{0,1}ℓ−i k=1
+                                                                                   Speeding Up Sum-Check Proving    35
+
+Let x′ = (y, x′′ ) where y ∈ {0, 1}ℓ0 −i and x′′ ∈ {0, 1}ℓ−ℓ0 . The evaluation point for pk requires the first ℓ0
+coordinates to be (v, u, y), where v ∈ Ud i−1 , u ∈ U bd , and y is binary. We can rewrite the sum as:
+
+                                              X               X        d
+                                                                       Y
+                            Ai (v, u) =                                     pk ((v, u, y), x′′ ).                  (24)
+                                          x′′ ∈{0,1}ℓ−ℓ0 y∈{0,1}ℓ0 −i k=1
+
+
+Now, consider Qd the computation      performed by Procedure 7. For a fixed x′′ , it computes product terms
+P(β, x ) = k=1 pk (β, x ) for all relevant prefixes β ∈ Ud ℓ0 . It then adds P(β, x′′ ) to the accumulator
+       ′′                   ′′
+
+Ai (v, u) if and only if (i, v, u, y) ∈ idx4(β). The total value accumulated in Ai (v, u) is therefore:
+
+                                       X                   X             d
+                                                                         Y
+                                                                                pk (β, x′′ ).                      (25)
+                                  x′′ ∈{0,1}ℓ−ℓ0           β∈Ud ℓ0        k=1
+                                                   s.t. (i,v,u,y)∈idx4(β)
+
+
+We argue that Equation (24) and Equation (25) are equivalent. By definition (Definition A.5), the condition
+(i, v, u, y) ∈ idx4(β) holds if and only if β has the form (v, u, y) for some y ∈ {0, 1}ℓ0 −i . Therefore, the
+inner sum in Equation (25) iterates over precisely the same prefixes β = (v, u, y) as the inner sum in
+Equation (24) iterates over using y. The product terms are identical for corresponding prefixes. Thus, the
+sums are equal. This shows that Procedure 7 correctly computes Ai (v, u) as defined in Figure 7.
+
+
+Lemma A.7. Algorithm 4 is correct. In particular, the output of the sum-check prover in Algorithm 4 is
+always the same as the output of the sum-check prover in the standard linear-time algorithm (Algorithm
+1).
+
+
+Proof. This follows from our discussion in Section 4.2 and the correctness of the pre-computation routine
+in Lemma A.6.
+
+
+A.4    Procedures for Algorithm 5 & Algorithm 6
+
+We describe the procedures needed in Algorithm 5 and Algorithm 6 in the main body. The first, and
+simpler, procedure is the algorithm to compute the round polynomial si (X) = eq(w     e [:i] , (r[<i] , X)) · ti (X)
+given evaluations {ti (c)}c∈Ubd and the claimed equality si (0) + si (1) = Ti , where Ti is the claimed value of
+the round. This is given in Procedure 8, and can easily be seen to be correct.
+
+
+Procedure 8 Compute s(X) = ℓ(X) · t(X) given evaluations {t(c)}c∈Ubd and the condition s(0) + s(1) = T
+Input: Evaluations {t(c)}c∈Ubd for a polynomial t(X) of degree d, a linear polynomial ℓ(X), and a target sum
+    T ∈F
+Output: Polynomial s(X) of degree d + 1 such that s(0) + s(1) = T and s(X) = ℓ(X) · t(X)
+ 1: compute t(1) = ℓ(1)−1 · (T − ℓ(0) · t(0)).
+ 2: interpolate t(X) from {t(c)}c∈Ud via Equation (8).
+ 3: return s(X) = ℓ(X) · t(X).
+
+
+
+
+The more complex procedure is the pre-computation algorithm for Algorithm 6. Because of the extra
+equality polynomial factor eq(w,
+                            e     X) split across different parts of the input variables (as introduced in
+Section 5.2), this computation is more involved than the analogous computation for Algorithm 4.
+36      Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+Recall the definition of the accumulators for Algorithm 6 (derived from combining the ideas in Section 5.2
+and Section 4.2):
+
+
+
+
+                                  X                 X                                                                 
+                Ai (v, u) =                                    eq
+                                                               e (w[(i+1):ℓ0 ] , w[(ℓ/2+ℓ0 +1):] ), (y, xout )            (26)
+                              y∈{0,1}ℓ0 −i xout ∈{0,1}ℓ/2−ℓ0
+
+                                    X                                             d
+                                                                                  Y
+                                                e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) ·
+                                                eq(w                                      pk (v, u, y, xin , xout )
+                                xin ∈{0,1}ℓ/2                                     k=1
+
+
+
+
+Here, (v, u, y) forms the prefix of length ℓ0 , xin forms the next ℓ/2 variables, and xout forms the final
+ℓ/2 − ℓ0 variables. The eq
+                        e polynomial is split accordingly.
+
+
+
+
+To compute these accumulators efficiently, we rearrange the summation order, similar to the approach
+Q for Algorithm 4. The goal is to first compute the innermost sum involving xin and the product term
+used
+                                            e polynomial. This inner sum depends on the prefix β ∈ Ud ℓ0
+  pk , weighted by the relevant part of the eq
+(which generalizes (v, u, y) to allow non-binary values) and the suffix xout . We can then distribute this
+computed inner sum to the appropriate final accumulators Ai (v, u) using the idx4 mapping, weighted by
+the remaining part of the eqe polynomial.
+
+
+
+
+Specifically, we can rewrite Equation (26) by changing the order of summation. We bring the sums over
+xout and the full prefix β ∈ Ud ℓ0 to the outside, using idx4 to relate β back to the required (i, v, u, y) for a
+specific accumulator:
+
+
+
+
+                                     X                X                 X
+                 Ai (v, u) =                                                                                              (27)
+                               xout ∈{0,1}ℓ/2−ℓ0 β∈Ud ℓ0       (i′ ,v ′ ,u′ ,y)∈idx4(β)
+                                                               s.t. i′ =i,v ′ =v,u′ =u
+                                                                                  
+                                 eq
+                                 e (w[(i′ +1):ℓ0 ] , w[(ℓ/2+ℓ0 +1):] ), (y, xout )                                        (28)
+                                                                                                        
+                                      X                                             d
+                                                                                    Y
+                                 ·                e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) ·
+                                                 eq(w                                 pk (β, xin , xout )
+                                     xin ∈{0,1}ℓ/2                                        k=1
+
+
+
+
+This rearranged form motivates Procedure 9. In this algorithm, we first compute the inner sum over xin
+(stored in temporary accumulators tA) for each xout and β, and then distribute this result, weighted by
+           e factor (corresponding to Eout,i′ evaluated at the correct index i′ which equals i), to the final
+the outer eq
+accumulators Ai (v, u) selected by idx4. This avoids redundant computations of the inner sum.
+                                                                                      Speeding Up Sum-Check Proving          37
+
+Procedure 9 Compute accumulators Ai (v, u) for Algorithm 6
+Input:
+    – A stream providing evaluations {pk (b, x′ ) : k ∈ [d], b ∈ {0, 1}ℓ0 } foreach x′ ∈ {0, 1}ℓ−ℓ0
+    – Pre-computed eq-poly evaluations Ein := eq(w   e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) x ∈{0,1}ℓ/2
+                                                                                     in
+    – Pre-computed eq-poly evaluations for all i ∈ [ℓ0 ]:
+                                                                               
+                   Eout,i := eq((w
+                              e    [(i+1):ℓ0 ] , w[(ℓ/2+ℓ0 +1):] ), (y, xout )) (y,x  )∈{0,1}ℓ0 ×{0,1}ℓ/2−ℓ0
+                                                                                                             .
+                                                                                            out
+
+
+Output: The accumulators {Ai (v, u) : i ∈ [ℓ0 ], v ∈ Ud i−1 , u ∈ U    bd }
+ 1: Initialize: Ai (v, u) := 0 for all i, v, u.
+ 2: for xout ∈ {0, 1}ℓ/2−ℓ0 do
+ 3:    Initialize: temporary accumulators tA[β] := 0 for all β ∈ Ud ℓ0 .
+ 4:    for xin ∈ {0, 1}ℓ/2 do                                               ▷ Inner loop over suffix inner bits (low-order)
+ 5:        for β ∈ Ud ℓ0 do                                                                      ▷ Iterate all full prefixes
+ 6:           Compute pk := pk (β, xin , xout ) forQall k ∈ [d] via Procedure 6.
+ 7:           Update tA[β] := tA[β] + Ein [xin ] · dk=1 pk (β, xin , xout ).
+ 8:        end for
+ 9:    end for
+10:     for β ∈ Ud ℓ0 do                                                               ▷ Distribute to final accumulators
+11:        for (i, v, u, y) ∈ idx4(β) do                                                   ▷ Find target indices via idx4
+12:            Update Ai (v, u) := Ai (v, u) + Eout,i [y, xout ] · tA[β].
+13:        end for
+14:     end for
+15: end for
+16: return {Ai (v, u)}
+
+
+
+Lemma A.8. Procedure 9 computes the desired accumulators Ai (v, u) (as defined in Equation (26)) for
+all i ∈ [ℓ0 ], v ∈ Ud i−1 , and u ∈ U
+                                    bd .
+
+Proof. First, we justify the equivalence between the original definition in Equation (26) and the rearranged
+form in Equation (27). The original definition is:
+                               X            X                                                        
+                Ai (v, u) =                         eq
+                                                     e (w[(i+1):ℓ0 ] , w[(ℓ/2+ℓ0 +1):] ), (y, xout )
+                                y∈{0,1}ℓ0 −i xout ∈{0,1}ℓ/2−ℓ0
+
+                                      X                                               d
+                                                                                      Y
+                                                  e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) ·
+                                                  eq(w                                    pk ((v, u, y), xin , xout )
+                                  xin ∈{0,1}ℓ/2                                     k=1
+
+We change the order of summation, moving the sum over xout to the outermost position. Then, instead of
+summing over the specific prefix (v, u, y), we sum over all possible evaluation prefixes β ∈ Ud ℓ0 . For each
+such prefix, we use the idx4 mapping (Definition A.5) to select only those prefixes that contribute to the
+target accumulator Ai (v, u). Recall that (i′ , v ′ , u′ , y) ∈ idx4(β) if and only if β = (v ′ , u′ , βi′ +1 , . . . , βℓ0 −1 )
+and y = (βi′ +1 , . . . , βℓ0 −1 ) is binary. Thus, summing over β and then filtering using idx4 with the condition
+  ′
+iQ  = i, v ′ = v, u′ = u is equivalent to summing over the original y for the fixed (v, u). The product term
+    pk needs to be evaluated at the full prefix β corresponding to (v, u, y), and the outer eq         e term uses the
+ index i′ = i from the idx4 condition. This gives the rearranged form:
+                                          X          X         X
+                     Ai (v, u) =
+                                 xout ∈{0,1}ℓ/2−ℓ0 β∈Ud ℓ0 (i′ ,v ′ ,u′ ,y)∈idx4(β)
+                                                           s.t. i′ =i,v ′ =v,u′ =u
+                                                                                    
+                                   eq
+                                   e (w[(i′ +1):ℓ0 ] , w[(ℓ/2+ℓ0 +1):] ), (y, xout )
+                                                                                                          
+                                        X                                             d
+                                                                                      Y
+                                    ·               e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) ·
+                                                   eq(w                                 pk (β, xin , xout )
+                                        xin ∈{0,1}ℓ/2                                     k=1
+38         Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+This matches exactly Equation (27). We use this rearranged form to analyze the algorithm.
+Now, let’s analyze the computation performed by Procedure 9. The algorithm iterates through each xout .
+For a fixed xout , the inner loops compute temporary values tA[β] for every prefix β. Specifically, after the
+loop over xin completes, the value stored is:
+
+                                                 X                          d
+                                                                            Y
+                                   tA[β] =                   Ein [xin ] ·         pk (β, xin , xout )
+                                             xin ∈{0,1}ℓ/2                  k=1
+
+
+where Ein [xin ] = eq(w
+                   e [(ℓ0 +1):(ℓ0 +ℓ/2)] , xin ) and the evaluations pk (β, xin , xout ) are obtained using Procedure 6.
+The next loops iterate over all β and distribute the computed tA[β] values to the final accumulators. For
+a given β, the algorithm finds all (i′ , v ′ , u′ , y) ∈ idx4(β). For each such tuple, it updates the accumulator
+Ai′ (v ′ , u′ ) by adding Eout,i′ [y, xout ] · tA[β].
+Consider a specific final accumulator Ai (v, u). Its value is the sum of contributions from all β such that
+(i, v, u, y) ∈ idx4(β) for some y. Summing these contributions across all iterations of the outermost loop
+(over xout ), the final value accumulated in Ai (v, u) is:
+                               X         X               X
+                                                                  Eout,i′ [y, xout ] · tA[β]
+                          xout ∈{0,1}ℓ/2−ℓ0 β∈Ud ℓ0    (i′ ,v ′ ,u′ ,y)∈idx4(β)
+                                                       s.t. i′ =i,v ′ =v,u′ =u
+
+
+Substituting the expression for tA[β] into this sum, we obtain exactly Equation (27). Since we showed
+Equation (27) is equivalent to the original definition Equation (26), this demonstrates that Procedure 9
+computes the correct values.
+
+Lemma A.9. Algorithm 6 is correct. In particular, the output of the sum-check prover in Algorithm 6 is
+always the same as the output of the sum-check prover in the standard linear-time algorithm (Algorithm
+1).
+
+Proof. This follows from our discussion above and the correctness of the pre-computation routine
+in Lemma A.8.
+
+
+B       Details of Integration with Jolt
+
+In this section, we discuss the integration of our optimizations into the Jolt zkVM [1].23 Our optimizations
+primarily apply to the first sum-check invocation of Spartan [38], which is sped up with our combined
+optimizations described in Section 5.2.
+While Spartan also has a second invocation of sum-check, it is not of the form in Equation (15), and so
+our optimizations do not apply. However, the second invocation admits a different optimization owing to
+the highly uniform nature of the constraint system arising in Jolt. We do not discuss this optimization
+further in this paper, and refer the interested reader to [2].
+
+
+B.1      Spartan and Jolt Preliminaries
+
+Recap: The Spartan protocol. Spartan [38] is a proof system for the R1CS relation, which takes the
+form
+
+                                               (A · Z) ◦ (B · Z) = C · Z,
+23
+     Our implementation builds upon the ‘main’ branch of Jolt as of May 15, 2025. This does not yet include the
+     Twist and Shout integration.
+                                                                                  Speeding Up Sum-Check Proving   39
+
+where A, B, C ∈ Fn×m are public matrices, x ∈ Fk is the public input, v ∈ Fm−k−1 is the private witness,
+Z = (1, x, v), and ◦ denotes Hadamard (element-wise) product. To prove this relation, Spartan invokes
+the sum-check protocol twice, with the first invocation applied to the polynomial:
+                                                                        
+                                   G(X) := eq(w,
+                                           e     X) · A(X) · B(X) − C(X) ,
+
+to prove that x∈{0,1}n G(x) = 0. Here w ∈ Fℓ is a random challenge vector, and A(X), B(X), C(X) are
+              P
+the multilinear extensions of the vectors A · Z, B · Z, and C · Z, respectively. For Jolt, the vector Z is
+an encoding of the execution trace of a 32-bit RISC-V program, and the matrices A, B, C encode the
+constraints of the VM.24 The Jolt prover can thus compute the vectors A · Z, B · Z, and C · Z as the
+execution trace is built; these vectors have small entries that fit in a signed 64-bit integer, but as we will
+see, many of these entries will be zero or one.
+Our algorithm specializes to the case of G(X) as follows. Recall that in round i ∈ [ℓ], the prover’s message
+is the polynomial
+                                       X
+                       si (X) =                   G(r[<i] , X, x′ ) = eq(w[≤i] , (r[<i] , X)) · ti (X),
+                                   x′ ∈{0,1}ℓ−i
+
+
+where
+                                         X
+                         ti (X) =                   e [>i] , x′ )·
+                                                    eq(w
+                                     x′ ∈{0,1}ℓ−i
+
+                                        A(r[<i] , X, x′ ) · B(r[<i] , X, x′ ) − C(r[<i] , X, x′ ) .
+                                                                                                 
+
+
+In particular, since ti (X) is of degree 2, and further satisfies an equation based on si (0) + si (1) = Ti , we
+only need to compute two evaluations of ti (X) at 0 and ∞ (denoting r[<i] as r′ ):
+                                      X
+                       ti (0) =                  e [>i] , x′ )·
+                                                 eq(w
+                                  x′ ∈{0,1}ℓ−i
+
+                                     A(r′ , 0, x′ ) · B(r′ , 0, x′ ) − C(r′ , 0, x′ ) ,
+                                                                                     
+                                     X
+                      ti (∞) =                 e [>i] , x′ )·
+                                              eq(w
+                                  x′ ∈{0,1}ℓ−i
+
+                                     A(r′ , 1, x′ ) − A(r′ , 0, x′ ) · B(r′ , 1, x′ ) − B(r′ , 0, x′ ) .
+                                                                                                     
+
+
+Note that we do not need to compute the C term in ti (∞), since it is of lower degree (see Section 2.2).
+Overview of Spartan constraints.
+For the Lasso-and-Spice version of Jolt, there are 68 constraints and 87 variables per cycle. These
+constraints are of the following form:
+ – Binary constraints: X · (1 − X) = 0
+ – Conditional equality: if X then Y = Z
+ – If-else: if X then Y else Z
+ – Product: X · Y = Z,
+where X, Y, Z are linear combinations of the public inputs and private witness (i.e., the program trace).
+This is padded to 128 constraints per cycle (and the number of cycles is itself padded to a power of
+24
+     These constraints together with a lookup argument and a read-write memory-checking argument are used to
+     ensure that the execution trace is correct.
+40       Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+two). For most of these constraints, the Az term is binary or have very small values (i.e. fits in an i8). In
+particular, the polynomials p ∈ {Az, Bz, Cz} have the following form:
+
+                                            p ( x0 , . . . , x6 , x7 , . . . , xℓ ).                                    (29)
+                                                | {z } | {z }
+                                               constraint index     cycle index
+
+
+In the upcoming Twist and Shout version of Jolt, there will only be less than 32 constraints per cycle,
+due to a simpler arithmetization and the removal of all binary constraints (to be checked by a specialized
+sum-check).
+
+B.2    Comparative Cost Analysis for Spartan Sum-Checks
+We now provide a detailed comparative cost analysis for the prover in Spartan’s first sum-check. We
+contrast Algorithm 5 (eq-polynomial optimization only, reflecting current Jolt estimates) with Algorithm 6
+(combined eq-polynomial and small-value optimization, using ℓ0 = 3 small-value rounds). This analysis is
+based on the derivations in Section 6.2. We denote N = 2ℓ as the size of the domain. Costs are measured
+in “small-large” (sl) and “large-large” (ll) field multiplications.
+
+Cost of Algorithm 5 (current Jolt). The estimated cost for Algorithm 5, based on current Jolt implemen-
+tation characteristics as detailed in Section 6.2, is composed of:
+ – Round 1: Approximately 3N sl multiplications. This is the estimated cost for the operations in the
+   first round within the current Jolt setup.
+ – Rounds 2 to ℓ: Approximately 4.5N ll multiplications. This is the cumulative cost for the subsequent
+   standard sum-check rounds, applied to the degree-2 polynomial ti (X) that arises in each round, as
+   per current Jolt estimates.
+Thus, the total estimated cost for Algorithm 5 is 3N sl + 4.5N ll.
+
+Cost of Algorithm 6 (with ℓ0 = 3). For Algorithm 6, with ℓ0 = 3 rounds of small-value precomputation,
+the costs derived in Section 6.2 are broken down as follows:
+ – Precomputation (First 3 rounds): Approximately 2.375N sl multiplications. This dominant cost
+   arises from computing product terms (Az(.          f . .)) for the 3ℓ0 generalized evaluation points of the
+                                             f . .) · Bz(.
+   first ℓ0 variables, scaled by the sub-problem size N/2ℓ0 . Since, for the 2ℓ0 points on the binary hypercube
+   {0, 1}ℓ0 , the R1CS relation implies the relevant sum (for ti (0) terms often related to AB − C) is zero,
+   the primary computational effort is for the remaining 3ℓ0 − 2ℓ0 evaluation patterns (those involving at
+   least one ∞). For ℓ0 = 3, this results in (33 − 23 ) · N/23 = (27 − 8)N/8 = 19N/8 = 2.375N sl. These
+   operations are sl as they primarily involve products of MLEs of small-valued vectors derived from the
+   R1CS instance Z.
+ – Streaming Round (Round 4, i.e., round ℓ0 + 1): The costs for this round are:
+      • 2.5N sl: This cost is for evaluating the necessary polynomial components (related to Az,        f Bz,
+                                                                                                            f
+         f and their differences when an ∞ is involved in the current round’s variable) after fixing the
+        Cz,
+        first ℓ0 variables to the challenges r[ℓ0 ] . Your derivations indicate this is for approximately 5 key
+        evaluations summed over the remaining variables, needed to construct sℓ0 +1 (X).
+                                                                                                             ′
+      • N/8 ll: This accounts for large-large multiplications when computing terms like (A(r[ℓ                 0]
+                                                                                                                  , 1, x′ ) −
+            ′
+        A(r[ℓ 0]
+                 , 0, x′ )) · (B(r[ℓ
+                                  ′
+                                    0]
+                                       , 1, x′ ) − B(r[ℓ
+                                                      ′
+                                                        0]
+                                                           , 0, x′ )) for tℓ0 +1 (∞), summed over a domain of size N/2ℓ0
+        (since one variable is fixed to 0/1 within this round, the sum is over N/2ℓ0 +1 but repeated twice
+        for 0 and 1, effectively N/2ℓ0 work for the differences). For ℓ0 = 3, this is N/8ll.
+      • 3N/16 ll: This is the cost of binding the verifier’s challenge rℓ0 +1 . The polynomial sℓ0 +1 (X) is
+        degree-2 in Xℓ0 +1 . Binding its 3 coefficients (or equivalent operations) with the challenge involves
+                                                                     Speeding Up Sum-Check Proving          41
+
+         multiplications by Lagrange coefficients over the sub-domain of size N/2ℓ0 +1 . For ℓ0 = 3, this is
+         3N/16ll.
+ – Rounds 5 to ℓ (i.e., rounds ℓ0 + 2 to ℓ): Approximately 7N/8 ll multiplications. These are
+   ℓ − (ℓ0 + 1) standard sum-check rounds for a degree-2 polynomial tk (X). For ℓ0 = 3, this results in
+   7N/8ll. This sum arises from evaluating tk (X) at two points (0 and ∞) and performing challenge
+   binding in each of these remaining rounds.
+Summing these components, the total estimated cost for Algorithm 6 (with ℓ0 = 3) is (2.375N + 2.5N ) sl +
+(N/8 + 3N/16 + 7N/8) ll = 4.875N sl + (2N/16 + 3N/16 + 14N/16) ll = 4.875N sl + 19N/16 ll, which
+simplifies to 4.875N sl + 1.1875N ll.
+
+Comparison. Comparing the two approaches:
+ – Algorithm 5 (current Jolt) costs: 3N sl + 4.5N ll.
+ – Algorithm 6 (with ℓ0 = 3) costs: 4.875N sl + 1.1875N ll.
+Algorithm 6 achieves a significant reduction in ll operations (from 4.5N down to 1.1875N ) at the expense
+of a moderate increase in sl operations (from 3N up to 4.875N ). Given that ll operations are typically
+substantially more expensive than sl operations, this trade-off generally results in a notable overall
+improvement in prover efficiency.
+
+B.3     Other Improvements to Jolt
+We also list a number of small improvements to Jolt that come from our optimizations in this paper.
+The first is the integration of optimized multiplication for small values (u64, i64, u128, and i128).
+See Section 7 for details of these optimizations. Our changes have been merged into Jolt and led to an
+end-to-end speedup of about 5 − 10% on the standard Jolt benchmarks that comes with CI.
+The second is the integration of Gruen’s optimizations [28] for the sum-checks involving interleaved
+polynomials, which appear in grand product arguments in Lasso, and various sum-checks in the upcoming
+Twist and Shout. We will implement these optimizations in a future version of Jolt.
+
+
+C      Why Extension Fields are Necessary for Sum-Check
+One might ask whether our small-value optimization is truly necessary, as one could perhaps work fully
+over the base field, and apply sequential or parallel repetition to boost soundness. Unfortunately, although
+such techniques can boost soundness in the interactive setting, for sum-check-based SNARKs they fail to
+do so when combined with the Fiat-Shamir transformation [25] to render the protocol non-interactive (at
+least, not without major performance overheads).
+The case of sequential repetition is widely known. In particular, given a protocol with one or more rounds
+and 1/poly(λ) soundness, repeating the protocol for any k = poly(λ) times and applying Fiat-Shamir
+results in a completely insecure non-interactive argument. This is because an adversary against the
+Fiat-Shamired version can simply guess the “bad” challenge for the first repetition via varying the first
+message, then do the same for the second repetition via varying the first message of the second repetition,
+and so on. This is referred to as a “grinding attack” on the Fiat-Shamired protocol.
+Grinding attacks are also effectiving when the Fiat-Shamir transformation is applied to the parallel (rather
+than sequential) repetition of a multi-round protocol, unless the number of repetitions is very large.
+Specifically, when applying parallel repetition followed by Fiat-Shamir to an ℓ-round interactive protocol,
+ℓ · k repetitions are necessary to amplify λ/k bits of security to λ bits of security (i.e., there is an attack
+demonstrating that this security bound is tight [5].25 ).
+25
+     See https://a16zcrypto.com/posts/article/17-misconceptions-about-snarks/#section--13 for an
+     exposition of this attack.
+42      Suyash Bagad, Quang Dao, Yuval Domb, and Justin Thaler
+
+In the context of the sum-check protocol, this results in O(nk log n) base field operations for the prover,
+which is typically worse than the linear-time algorithm (our Algorithm 1) that achieves O(nk 2 ) base field
+operations. Indeed, in practice, we have k ≤ 4 (i.e. 64-bit inside BN254, or 32-bit subfield inside 128-bit
+extension fields) while log n ≥ 20.
+Subsequent to a preliminary version of our work [6], Wei et al. [50] introduced a variation of parallel
+repetition that is secure when combined with the Fiat-Shamir repetition. In this variation, each round of
+the repeated protocol is followed by a “many-to-one reduction” that itself invokes the sum-check protocol
+run over an extension field. Hence, even in this variation, efficient implementations of the sum-check
+protocol run over extension fields are required. We refer to our related work section (Section 1.2) for
+additional details.
+

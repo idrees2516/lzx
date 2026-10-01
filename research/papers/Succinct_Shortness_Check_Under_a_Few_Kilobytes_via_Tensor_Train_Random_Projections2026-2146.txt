@@ -1,0 +1,1744 @@
+              Succinct Shortness Check Under a Few Kilobytes
+                   via Tensor Train Random Projections
+
+                                   Zhiyuan Geng1 and Maxime Plançon2
+                                          1
+                                                  University of Edinburgh, UK
+                                              2
+                                                   Input Output, Switzerland
+
+
+      Abstract. Range proofs are a fundamental building block of lattice-based proof systems. Existing ap-
+      proaches relying on standard Johnson-Lindenstrauss (JL) struggle to provide succinctness: unstructured
+      JL incurs linear verifier complexity, while structured JL introduced in RoK and Roll [ASIACRYPT’25]
+      produce large projection vectors that need to be sent in costly committed form. For a witness of di-
+      mension m and a security parameter λ, the JL projection vector is Opλq, but the projection matrix
+                                                              2
+      is Opλmq. Structured JL can be represented in Opρλ  r     q, but the resulting projection length grows to
+      Opm{ρq for any trade-off parameter ρ ą 1.
+       r
+           In this paper, we introduce Tensor Train Random Projection (TTRP) to lattice-based cryptography,
+      offering a “best of both world” structured JL variant. The Tensor Train (TT) matrix representation
+      drops to Opλq,
+                 r     while maintaining the projection vector at Opλq.
+            We show that TTRP can be seamlessly integrated into proof systems by linearizing the well-
+      formedness of the projection with the sum-check protocol. Concretely, using TTRP + sum-check as
+      a drop-in replacement for existing range proof techniques yields an approximate shortness check with
+      Opλ log mploglog mq2 q verifier complexity and proof size around 4 KB for relevant parameter settings.
+
+      Keywords: Lattices · Tensor Train · Approximate Range Proofs
+
+
+1   Introduction
+At the core of lattice-based succinct arguments is an opening proof of an Ajtai commitment [Ajt96],
+i.e a proof of knowledge of a witness w P Rm such that
+                                                      Aw “ t mod q                                                (1)
+                                                      }w} ă B,                                                    (2)
+where R :“ ZrXs{pf pXqq is a cyclotomic polynomial ring and A is a uniformly random matrix over
+Rq :“ R{qR. In particular, it is not enough to prove that w satisfies the linear constraint eq. (1),
+one also needs to convince the verifier that the witness is short.
+     However, constructing shortness proofs and extracting the corresponding witness are notoriously
+difficult. Typically, the extractor of a lattice-based proof system recovers a so-called relaxed opening
+of an Ajtai commitment, consisting of a tuple pw,   s sq such that
+                                                      Aw
+                                                       s “ t mod q                                                (3)
+                                                     }sw}
+                                                       s ă B.                                                     (4)
+Rather than proving both eqs. (1) and (2), the extractor obtains a w
+                                                                   s with an unconstrained norm
+satisfying t “ Aws mod q, and a factor s with a small operator norm such that sw s is small. The
+extracted witness is typically constructed as a quotient
+                                                    s :“ vs´1 mod q
+                                                    w
+where v P Rm is a vector with a slightly larger norm bound }v} ď B 1 than B and s :“ c ´ c1 is a
+challenge difference.
+    This extraction slack s is a consequence of a fundamental incompatibility between the following
+desirable requirements on the challenge set C:
+ 2         Zhiyuan Geng and Maxime Plançon
+
+  (i) For completeness, any challenge c P C must have a small operator norm so that our commitment
+      scheme is linearly homomorphic w.r.t coefficients in C. In other words, cw must remain small
+      enough that ct is a binding commitment.
+ (ii) For soundness, any extraction slack factor s :“ c ´ c1 for c, c1 P C must have an inverse, and
+      its inverse must have a small operator norm. Should there exist a small bound ϱ such that
+      }s´1 }op ď ϱ, our extractor could extract w
+                                                s with a mildly looser norm bound }w}s ď ϱB 1 .
+(iii) For soundness, |C| “ 2Opλq where λ is the security parameter. Since our soundness arguments
+      inherently rely on the Schwartz-Zippel Lemma, a sub-exponential-size challenge set would require
+      costly repetitions.
+
+ From a high level, [AL21] proved that, in cyclotomic rings, there exists no challenge set that satisfies
+ (i), (ii) and (iii). The relaxed-opening strategy consists in choosing a challenge set C of polynomials
+ with bounded coefficients that satisfy 1) and 3), but not 2). More precisely, we can only ensure that
+ the inverse exists modulo q [LS18], but its operator norm can be arbitrarily large. The subtractive
+ sets strategy explored in [ACK21,CLM23,KLNO24] consists in choosing a challenge set that satisfies
+ (i) and (ii) of maximal size polypλq.
+      While relaxed openings can be sufficient for constructing simple primitives such as signatures
+ [Lyu09,Lyu12,DDLL13,DKL` 18], the existence of an extraction slack factor can be a source of
+ inefficiency for more advanced primitives. For example, existing lattice-based Succinct ARguments
+ of Knowledge (SNARKs), Polynomial Commitment Schemes (PCS) or folding schemes rely on
+ recursive Reductions of Knowledge (RoK), where the operator norm of the extraction slack grows
+ exponentially with the recursive depth. The prevailing strategy to bridge the gap between a relaxed
+ opening and an exact solution to eqs. (1) and (2) is to attach a range proof 3 .
+ Infinity norm proofs. Earlier constructions of linear-size proofs focused on infinity-norm proofs
+ [YAZ` 19,BLS19,ESLL19,LNS21], i.e, proving claims of the form
+
+                                                     }w}8 ď B8                                                    (5)
+
+ for some infinity norm bound B8 . With respect to the coefficients of w over Z, the eq. (5) can
+ be expressed as a polynomial and therefore proven with protocols relying on Schwartz-Zippel ar-
+ guments. More recently, folding scheme constructions [NS26,BC25b,GLLO26,BC25a] adapted this
+ infinity-norm proof strategy to the succinct setting. In those schemes, the polynomial relations en-
+ coding eq. (5) are batched together and reduced to a single random polynomial evaluation via the
+ sum-check protocol. With the exception of [BC25b], the polynomial encoding eq. (5) for all afore-
+ mentioned linear and succinct proofs is of degree 2B8 ` 1, which corresponds to the range of the
+ coefficients of the witness.
+     With today’s tools, proving high-degree polynomial relations over lattices is expensive; therefore,
+ the most efficient regime for these infinity-norm proofs is when B8 “ 14 . The consequence is that
+ witnesses need to be decomposed to ternary coefficients and possibly re-committed in this form,
+ which is a major source of inefficiency. Moreover, the infinity norm is less tightly controlled than the
+ Euclidean norm during naturally occurring operations such as linear combinations, and therefore
+ infinity norm proofs tend to yield worse concrete parameters than Euclidean norm proofs.
+ Random projections and Euclidean norm proofs. First introduced in functional analysis,
+ Johnson-Lindenstrauss [JL84] (JL) projections map a high-dimensional vector w to a smaller space
+  3
+      For succinct proofs with a recursive structure, the rigorous name should be range RoK.
+  4
+      Again, with the exception of LatticeFold+’s range proof [BC25b], though at the price of expensive double commit-
+      ments.
+                    Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections       3
+
+via a linear transformation of the form p “ Jw. JL projections are widely adopted and studied in
+machine learning [Ach03,BM01] as a dimensionality-reduction tool.
+    In the context of lattice-based proofs, random projections were explored in the setting of amor-
+tization [BL17], and fully connected to Johnson-Lindenstrauss projections in [GHL22]. Random
+projections are philosophically radically different from Schwartz-Zippel-based infinity-norm proofs,
+as they keep the geometric nature of the norm bound (instead of arithmetizing it as a polynomial)
+and rely on a statistical test to distinguish long vectors from short vectors.
+    At a high level, the idea is that with a witness vector w P Zm and a projection matrix J P Rkˆm
+whose coefficients are drawn from N (here N is the centered Gaussian distribution of standard
+deviation 1), the distribution of }Jw}2 follows a scaled chi-squared distribution with k degrees of
+freedom concentrated around k}w}2 . For any vector w P Zm , there exist a lower bound γ1 and an
+upper bound γ2 that only depend on a security parameter λ (or confidence parameter) and the
+height k of the projection matrix such that
+                                        ˆ                   ˙
+                                                }Jw}
+                                  Pr      γ1 ď ?       ď γ2 ě 1 ´ 2´λ .
+                               JÐN kˆm           k}w}
+Discretizing J to Zkˆm by sampling the coefficients from the distribution D such that Dp1q “
+Dp´1q “ 1{4 and Dp0q “ 1{2, we obtain a compact projection vector p :“ Jw P Zk of small
+dimension k “ Opλq that, intuitively, is small if and only if the original witness w is small.
+    Wrapping up, to include a JL approximate range proof for a vector w such that }w} ď B in
+a lattice-based proof system, the verifier generates a random matrix J with entries drawn from D,
+and the prover sends the projection p together with a proof of well-formedness that p “ Jw. The
+verifier checks that }p} ď γ2 B, which holds with overwhelming probability for an honest prover.
+Conversely, the extractor knows that for all w P Zm , if }w} ě γγ21 B, then
+
+                                          Pr    p}Jw} ď γ2 Bq ď 2´λ ,
+                                       JÐDkˆm
+
+thus achieving an approximate ℓ2 -norm proof with a slack factor γ2 B{γ
+                                                                    B
+                                                                        1
+                                                                          “ γγ21 . For practical proof
+                                                  a
+systems [LNP22,BS23], the concrete slack factor is 128{30 » 2, yielding a tight ℓ2 -norm proof.
+Random projections for succinct arguments. The challenge of a JL approximate range proof
+is a k ˆm “ Opλmq ternary matrix, which means that schemes such as LaBRADOR [BS23] that use
+straightforward JL projections suffer from a linear verifier5 . To patch this issue, [KLNO25,KLN` 26]
+introduced so-called structured random projections. Their idea is to divide the witness into chunks
+of a given length ℓ, and to use a single JL matrix to project each chunk individually. While this
+technique does lower the verifier complexity to Opλℓq, several problems arise.
+    First, the projection is now a vector p of m{ℓ projections, each of length Opλq, which is too
+large to be sent in the clear. Their solution is to instead commit to p, which means that the prover
+must now convince the verifier that p, sent in committed form, is small. The second problem is that
+the optimal parameter ℓ chosen by RoKoko is Opλ2 q, making the overall verifier complexity at least
+Opλ3 q per recursion.
+
+1.1     Our contributions
+In this paper, we introduce Tensor Train Random Projections (TTRP) to the design of lattice-based
+proof systems. TTRP is the first random projection to simultaneously achieve the following three
+properties:
+5                                                                                ?
+    We note that despite relying on JL projections,
+                                             ?      Greyhound [NS24] achieves Opλ mq verifier complexity due to
+    calling LaBRADOR on inputs of length Op mq
+4        Zhiyuan Geng and Maxime Plançon
+
+                                           r 6.
+           (i) Succinct representation in Opλq
+          (ii) Projection length linear in Opλq.
+         (iii) Slack factor in polypλ, mq.
+
+Our contributions can be divided in two parts.
+
+Theoretical groundwork. While the properties of TTRP have been extensively studied by the
+machine learning community, the statistical bounds in the settings relevant to the design of approx-
+imate range proofs remained unexplored. We bridge this gap by showing that TTRP is a viable
+approximate-isometry tool for lattice-based cryptography.
+    First, we extend the study of TTRP to prime fields Zq to fit the native arithmetic of lattice-based
+cryptography. We show that–much like standard JL projections–when working modulo some prime
+q, the approximate-isometry guarantees of TTRP only hold for a bounded range of input norms. In
+other words, there is a maximum norm for the witness w after which the statistical control on the
+projection collapses.
+    Second, we derive new ℓ2 -concentration bounds that yield practical slack factors for lattice-based
+proof systems. Asymptotically, these concentration bounds ensure that TTRP satisfies
+
+           (i) Succinct representation in Opλ log mploglog mq2 q “ Opλq.
+                                                                   r
+          (ii) Projection length in Opλq.
+         (iii) Slack factor polypmq.
+
+    Notably, we provide assumption-free bounds for TTRP with entries following the distribution
+D. Schemes that rely on JL projections with entries following D adopt the heuristic assumption
+that D is a Gaussian distribution, in which case the JL bounds are standard chi-square tail bounds.
+In contrast, our analysis is generic to any distribution that is a linear combination of Rademacher
+variables (i.e uniform over ´1, 1) and thus does not rely on any heuristic.
+
+Approximate range RoK. We describe a norm check protocol Π TTRP that is a self-reduction
+for a general Ajtai commitment polynomial relations. This protocol is an approximate norm-check
+module in the sense that the extractor only needs relaxed witnesses to recover the input witness,
+though with a norm bound multiplied by the slack factor of TTRP.
+    This norm check RoK consists in following the JL blueprint, but relies on the sum-check pro-
+tocol to linearise the well-formedness of the projection, drawing inspiration from recent works
+[KLOT25,GLLO26,NS26,BC25b,KLN` 26]. As a self-RoK for general Ajtai commitment relations,
+Π TTRP can be used as a highly efficient drop-in replacement for JL, unstructured JL, or sum-check
+ternary proofs and serve as range proof module.
+    To substantiate the broad applicability of our techniques, we provide examples of integration
+to state-of-the-art lattice-based succinct arguments. More precisely, we use our protocol as a re-
+placement of JL in LaBRADOR, thus achieving a „ 90, 000ˆ improvement in verifier complexity
+at the cost of a „ 2 KB increase in proof size and a „ 29 ˆ increase in the slack factor (Table 1).
+We substitute both the coarse and fine unstructured JL in RoKoko with our protocol, which allows
+us to remove costly commitments to projection vectors, and reduce the verifier complexity of the
+random projection by a factor Opλ2 { log2 mq. In particular, the bottleneck for verifier efficiency in
+the resulting construction is now the shrink factor. Finally, we replace the sum-check based ternary
+proofs in Cyclo with TTRP, thus removing expensive decompositions and extension commitments.
+The resulting folding proof size drops by 30%.
+6
+    For asymptotics, we assume that m “ polypλq
+                     Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections         5
+
+
+            Range proof                     mφ         Proof Size     Slack Factor     Matrix Repr.
+                                                         (KB)                             (MB)
+                                                                        a
+                                            227           1.84           128{30               6492
+            JL (From LaBRADOR)                                          a
+                                            230           1.89           128{30               51936
+
+                                            227           3.90            „ 210                0.2
+            TTRP (this paper)
+                                            230           3.98            „ 210                0.6
+
+Table 1. Comparison of range proof efficiency between standard JL (from LaBRADOR) and our Π TTRP protocol
+(TTRP + sum-check linearization, fig. 1).
+
+
+
+1.2     Technical overview
+The foundational problem that we address in this paper is to find a class of projection matrices with
+approximate-isometric properties and succinct representation. To understand the technical aspects
+of our construction, let us first explore the naive approaches.
+Naive approaches. A natural starting point is to consider a projection matrix where each row
+is a tensor product of small JL vectors. Specifically, we assume that m “ dµ , and create for all
+i P rks vectors vi “ µj“1 aj for independently distributed random vectors aj Ð Dd . For each
+                       Â      piq                                                   piq
+
+row of the resulting matrix vi , we can apply recursively the single-row JL bound and obtain a slack
+factor of Opαµ q. Due to high correlation between the output coefficient of each row, the per-row
+probability drops dramatically, requiring a prohibitive Ωpλ log mq repetitions to achieve λ bits of
+statistical soundness.
+    Another approach is to recursively apply the structured JL projection from [KLNO25]. More
+precisely, the verifier would generate µ JL matrices J1 , . . . , Jµ and compute the projection p of w
+as follows:
+                                  p :“ J1 pJ2 b Ikd q ¨ ¨ ¨ pJµ b Ikdµ´1 qw7 .
+The length ℓ of the JL projections must be at least kd, so that at each layer, the length of the
+projected vector is reduced by a constant factor d. At each layer, the slack factor is multiplied by α,
+thus this approach achieves a slack factor αµ “ Opmq. However, the representation of the projection
+matrix is µk 2 d “ Opλ2 log mq, which is too large to be satisfactory for us. Both aforementioned
+approaches are particular extreme cases of our TTRP approach.
+Introduction to TTRP. The Tensor Train (TT) structure was first introduced in [Ose11] as a
+numerical tool to represent high-dimensional data in a compact format. More recently, TTRP have
+been developed as an efficient dimensionality-reduction tool for machine learning [RR21,RR20].
+   A TT is a Kronecker product of so-called core tensors. Specifically, consider a 3-rd order tensor
+M P Zc0 ˆdˆc1 . Our 3-rd order tensor M can be seen as a list of c0 ˆc1 matrix slices, and for all j P rds,
+                                                                                                      1
+we denote Mpjq the j-th matrix slice of M. Consider a second 3-rd order tensor M1 P Zc1 ˆd ˆc2 ,
+where the first dimension c1 of M1 is identical to the 3-rd dimension of M. We define the Kronecker
+product M b M1 as
+
+                       @pi, jq P rds ˆ rd1 s,     M b M1 pi, jq “ Mpiq ¨ M1 pjq P Zc0 ˆc2 .                   (6)
+                                                                                                          1
+With words, the Kronecker product of M and M1 is the 3-rd order tensor of dimension Zc0 ˆpdˆd qˆc2
+that is the tensor product of the vector of slices of M with the vector of slices of M1 . Generally,
+7
+    This projection strategy was recently explored in concurrent work [Osa26]
+6      Zhiyuan Geng and Maxime Plançon
+
+the TT of a list of µ cores M1 P Zc0 ˆdˆc1 , . . . , Mµ P Zcµ´1 ˆdˆcµ is
+                                                                           µ
+                            TTptMi uiPrµs q :“ M1 b ¨ ¨ ¨ b Mµ P Zc0 ˆd ˆcµ .
+
+At a high level, the idea of TTRP is to construct a projection matrix whose rows have a tensor
+product structure for succinctness, but that carry more information than straightforward tensor
+products of constant-size JL rows. Specifically, to ensure that a TT outputs a single row vector, we
+enforce c0 “ cµ “ 1 and define the internal rank of the TT as c :“ c1 “ ¨ ¨ ¨ “ cµ´1 . This internal
+rank intuitively plays the role of an internal repetition rate, allowing the final vector to carry more
+information.
+    TTRP is a random projection with a matrix whose rows are TT of independent lists of cores,
+and is given by                               ´                      ¯
+                                k                       pjq
+                               fTTpµ,cq pwq :“ TTptMi uiPrµs qjPrks w.
+Over the integers, TTRP satisfies the ℓ2 -approximate-isometry property, that is:
+                                           }fTT pwq}22
+                                                       P p1 ˘ ϵq
+                                              }w}22
+with high probability for some ϵ ą 0. Our modular ℓ8 concentration bound states that for any w
+such that }w}8 ě B8 for some B8 ă q{4, we have
+
+                                                            µ´1 k
+                            „                 ȷ      ˆ            ˙
+                                k          B8
+                          Pr }fTTpµ,cq }8 ă µ    ď     1{2 ` c`1     .
+                                            2                2
+
+To achieve Opλq repetitions, we need 2µ´1
+                                        c`1 “ Op1q, i.e c “ Oplog µq “ Oploglog mq thus achieving
+Opλ log mploglog mq2 q representation for the projection matrix. Looking towards applications, we
+extend these modular concentration bounds to the ℓ2 -norm, where the asymptotic bounds require
+slightly worse parameters than in the ℓ8 -norm case. Specifically, since the projection coefficients
+do not follow a Gaussian distribution, its Euclidean norm is not as concentrated as the chi-square
+distribution of regular JL. Concretely, we obtain approximate-isometry concentration bounds in
+ℓ2 -norm for k “ Opλq and c “ Oplog mq. The representation of this TTRP projection matrix is
+asymptotically Opλ log3 mq P Opλq.
+                              r
+Proving TTRP. The random projection paradigm for approximate range proof is as follows. The
+verifier sends a projection matrix, the prover computes the projection, and sends it to the verifier
+together with a well-formedness argument.
+    Drawing inspiration from [KLN` 26], we design a self-RoK for a general polynomnial relation for
+Ajtai commitments. Specifically, we follow the JL approximate range proof framework, and use the
+sum-check protocol to create a simple, succinct and cheap linearization proof for the well-formedness
+                                                  m{φ
+of the TTRP projection p P Zk of a vector w P Rq      over a power-of-two cyclotomic ring of degree
+φ.
+
+2   Preliminaries
+
+Notation. rns :“ t1, 2, . . . , nu. We denote column vectors by bold lowercase letters, matrices by bold
+uppercase letters and higher-order tensors by calligraphic uppercase letters (e.g., M P Zc1 ˆdˆc2 for
+3rd-order tensor). For i P rds, we use Mpiq P Zc1 ˆc2 to denote the i-th slice of M. We define
+an operator vecp¨q which flattens a matrix into a vector by vertically concatenating its columns.
+We define Matp¨q which flattens a 3rd-order tensor into a matrix by horizontally concatenating its
+matrix slices.
+                   Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections        7
+
+Kronecker Product (slices level). Let A P Zc1 ˆd1 ˆc2 and B P Zc2 ˆd2 ˆc3 . We define their Kronecker
+product, denoted by A b B, as a new 3rd-order tensor C P Zc1 ˆpd1 ¨d2 qˆc3 . The matrix slices of C are
+generated by the standard matrix multiplication of the respective component slices
+
+                              Cpi, jq “ pA b Bqpi, jq :“ Apiq ¨ Bpjq P Zc1 ˆc3 ,
+
+where pi, jq P rd1 s ˆ rd2 s is the multi-index.
+                                             ȷ „ ȷȷ              „„
+                     ““      ‰ “ ‰‰        12 56
+Example. Let A “          1 2 3 4 P Z1ˆ2ˆ2 and B “   P Z2ˆ2ˆ2 , then we have
+                                           34 78
+                      „     „ ȷ        „ ȷ       „ ȷ        „ ȷȷ
+                        “ ‰ 12 “ ‰ 56 “ ‰ 12 “ ‰ 56
+                 AbB “ 12 ¨       12 ¨      34 ¨       34 ¨
+                              34        78        34          78
+                     “ 7 10 19 22 15 22 43 50 P Z1ˆ4ˆ2 .
+                      ““   ‰“    ‰“     ‰“    ‰‰
+
+and consequently, we have:
+
+                              Mat pA b Bq “ 7 10 19 22 15 22 43 50 P Z1ˆ8 .
+                                           “                      ‰
+
+The Kronecker product for 3rd-order tensors and the Kronecker product for vectors has the following
+mixed product similarity.
+Fact 1. For any 3rd-order tensors A P Zc1 ˆd1 ˆc2 and B P Zc2 ˆd2 ˆc3 , it holds that:
+
+                           MatpA b Bq “ MatpAq ¨ pId1 b MatpBqq P Zc1 ˆpc3 d1 d2 q                         (7)
+
+where Id1 is the d1 ˆ d1 identity matrix.
+Proof. By rewriting the right-hand side, we have
+                                                                             »                        fi
+                                                             MatpBq   0    ...                   0
+                                       `“                ‰˘— 0
+                                                           —        MatpBq . . .                 0   ffi
+          MatpAq ¨ pId1 b MatpBqq “ Mat Ap1q . . . Apd1 q — .
+                                                                                                     ffi
+                                                                      ..   ..                    ..
+                                                           – ..
+                                                                                                     ffi
+                                                                       .       .                  .  fl
+                                                                           0         0   . . . MatpBq
+                                                   `“                                  ‰˘
+                                              “ Mat Ap1q ¨ MatpBq . . . Apd1 q ¨ MatpBq
+                                              “ MatpA b Bq.
+
+Rings. For a power of two φ and a positive integer q, let R and Rq denote the rings ZrXs{pX φ ` 1q
+and Zq rXs{pX φ ` 1q, respectively. For a polynomial x P R, we denote by cfpxq its coefficient
+vector in Zφ . We use σ´1 P AutpRq q – Zˆ   2φ to denote the automorphism σ´1 pXq “ X
+                                                                                          ´1 . For
+
+vectors, matrices, and tensors, σ´1 p¨q applies the automorphism entry-wise. We also write ¨ to
+denote this automorphism operation for readability. We define a useful notation for the inverse
+coefficient embedding of 3-order tensors.
+Definition 1 (Inverse Coefficient Embedding). For a tensor M P Zcˆdˆφ , the inverse coeffi-
+cient embedding cf ´1 maps the third mode of dimension φ to the polynomial ring R. It outputs a
+tensor cf ´1 pMq P Rcˆdˆ1 , with its pi, j, 1q-th entry defined as
+                                                                 φ´1
+                                                                 ÿ
+                                                                       Mpi, j, ℓ ` 1qX ℓ
+                                `        ´1
+                                                  ˘
+                                    cf        pMq pi, j, 1q :“
+                                                                 ℓ“0
+
+for i P rcs and j P rds.
+8      Zhiyuan Geng and Maxime Plançon
+
+Norm. We define the norm of an element x P R as the ℓ2 -norm of its coefficient embedding, denoted
+by }x} :“ }cfpxq}2 . This definition extends to a vector x P Rm as }x} :“ }cfpxq}2 , and to a matrix
+W P Rmˆr as }W} :“ }cfpVecpWqq}2 .
+
+2.1   Multilinear Extension and Sumchecks over Rings
+Definition 2 (Multilinear Extension). Let V be an R-module. The multilinear extension of a
+function f : t0, 1uℓ Ñ V is the unique ℓ-variate polynomial mlerf s : Rℓ Ñ V of individual degree 1
+satisfying mlerf spzq “ f pzq for all z P t0, 1uℓ .
+    For d “ 2ℓ , by identifying the index set rds with t0, 1uℓ , arrays indexed by d are extended
+coordinate-wise over Rℓ . A vector w P Rd , a matrix W P Rdˆr , and a 3rd-order tensor M P
+Rr1 ˆdˆr2 correspond to functions mapping t0, 1uℓ into the R-modules R, Rr , and Rr1 ˆr2 respec-
+tively, yielding their coordinate-wise multilinear extensions mlerws, mlerWs, and mlerMs.
+
+   We recall the basic sumcheck reduction of knowledge from [KLN` 26], but we leave the input
+and output relation of the protocol implicit, as they will always be clear from the context.
+
+Lemma 1 (Basic Sumcheck, adapted from [KLN` 26]). Let R be a non-trivial ring, N, M
+be R-modules, C Ď R be a subset with invertible difference. Let g P N rx1 , . . . , xℓ s and t P M . Let
+Φ : N Ñ M be an C-linear map. There exists a reduction of knowledge Π sc from a summation claim
+                               ¨                                  ˛
+                                      ÿ
+                             Φ˝                gpx1 , . . . , xℓ q‚ “ t
+                                       px1 ,...,xℓ qPt0,1uℓ
+
+to an evaluation claim Φpgprqq “ v where r “ pr1 , . . . , rℓ q P C ℓ are the verifier’s random challenges.
+The protocol is public-coin, has completeness error 0, has soundness error ď ℓdegpgq      |C| , where degpgq
+denotes the maximal individual degree. The communication is bounded by ℓpdegpgq ` 1q elements in
+M from the prover and ℓ challenges in C from the verifier.
+
+Distributions. The distribution Dghl is defined as the Binp2, 12 q ´ 1, i.e., it is 0 with probability 1{2
+and 1 (resp. ´1) with probability 1{4.
+
+Lemma 2. For any fixed vector x P r´q{2, q{2sm , if }x}8 ě B, for any B ă q{4 then
+                                    „                     ȷ
+                                                        B     1
+                               Pr m |xm, xy mod q| ă        ď .
+                             mÐDghl                     2     2
+
+Proof. Let i be an index of an entry in x with magnitude at least B. After choosing all but the i-th
+entry in m, at most one of the three values t´1, 0, 1u yields |xm, xy mod q| ă B{2.
+
+2.2   Hardness Assumption
+We state the formulation of the lattice hardness assumption used in this paper.
+
+Definition 3 (Module-SIS (MSIS) Assumption). Let λ be a security parameter and params “
+pR, q, κ, m, B, Dq be parameterized by λ, where R is a ring, q P N is a modulus, B ą 0 is a norm
+bound, and D is a probability distribution over Rκˆm
+                                                   q   . The SISparams assumption states that, for any
+PPT adversary A, the advantage function satisfies
+                                        „                   ˇ            ȷ
+                      sis                 Ax “ 0 pmod qq ˇˇ A Ð D
+                  Advparams,A pλq :“ Pr                     ˇ x Ð ApAq ď neglpλq.
+                                          0 ă }x}2 ď B
+                   Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections           9
+
+   Definition 3 captures the standard Module-SIS assumption when D is ś    the uniform distribution
+                                                                             ν
+over Rκˆm
+       q   . It captures the vanishing SIS (vSIS) assumption     when m “    i“1 mi and D samples
+matrices exhibiting a row-tensor structure A “ A1 ‚ ¨ ¨ ¨ ‚ Aν , where Ai P Rκˆm
+                                                                             q
+                                                                                 i for i P rνs and ‚
+
+stands for row-wise Kronecker product.
+
+
+2.3    Relations
+
+SIS relation. We define the relation Ξ sis of the SIS problem:
+                                     $`        ˘                   ,
+                                     ’
+                                     ’    A; x :                   /
+                                                                   /
+                                     &                             .
+                            sis                   κˆm        m
+                          Ξκ,m,B :“        A P Rq , x P R            .
+                                     ’
+                                     ’                             /
+                                                                   /
+                                           Ax “ t mod q ^ }x}2 ď B
+                                     %                             -
+
+
+Polynomial Map and Sumcheck Relations. Let B ă q{2 be the norm bound and A P Rκˆm      q be an
+Ajtai commitment key. Let f : Rmr Ñ Rn be a polynomial map. We define the polynomial map
+relation as follows:
+                                   $`          ˘                                   ,
+                                   ’
+                                   ’ T; pW,  Sq   :                                /
+                                                                                   /
+                                   ’
+                                   ’                                               /
+                                                                                   /
+                                            κˆr           mˆr                 rˆr .
+                                      T   R     ,  W     R    , diagonal S   R   ,
+                                   &
+                   poly                 P   q          P                   P
+                 Ξf,κ,n,m,r,B,ϱ :“                                                   .
+                                   ’
+                                   ’
+                                   ’  }S}op ď ϱ   s.t.  }WS}2   ă B,               /
+                                                                                   /
+                                                                                   /
+                                   ’
+                                   %                                               /
+                                                                                   -
+                                      AW “ T mod q ^ f pWq “ 0 mod q
+
+    Let m¨r “ 2ν for d ě 2. The sumcheck relation Ξ sum augments Ξ poly with n1 additional sumcheck
+claims:
+                               $`                                                          ,
+                                              ˘     poly
+                               ’
+                               ’
+                               & T; pW,   Sq    P Ξf,κ,n,m,r,B,ϱ :                         /
+                                                                                           /
+                                                                                           .
+          sum
+         Ξf,κ,n,n1 ,m,r,B,ϱ :“                  ÿ        `                  ˘                .
+                               ’
+                               ’  @i P rn1 s,         gi mlervecpWqs, vecpWq pzq “ 0 mod q /
+                                                                                           /
+                               %                    ν
+                                                                                           -
+                                                   zPt0,1u
+
+
+   We say that a relation is relaxed (denoted by Ξ poly-rel or Ξ sum-rel ) if the slack parameter satisfies
+ϱ ą 1. If ϱ is omitted, it is implicitly set to 1, in which case we assume without loss of generality
+that S “ Ir .
+
+
+3     Tensor Train Random Projection
+
+The tensor train (TT) decomposition [Ose11] is a generalization of the singular value decomposition
+                                                                                         µ
+that can represent an µ-th order tensor M P Rdˆ¨¨¨ˆd (or equivalently, a vector m P Rd ) using only
+Opc2 dµq parameters, where the parameter c bounds the structural complexity of the decomposition.
+Informally, an arbitrary tensor M P Rdˆ¨¨¨ˆd of order µ is said to be represented in a TT-format with
+internal rank c if its individual entries can be exactly expressed as a chain of matrix multiplications
+
+                 @pi1 , . . . , iµ q P rdsµ ,   Mpi1 , i2 , . . . , iµ q “ M1 pi1 qM2 pi2 q ¨ ¨ ¨ Mµ piµ q,   (8)
+
+where each Mn pin q is the in -th matrix slice of size cn´1 ˆ cn extracted from the n-th core tensor
+Mn P Rcn´1 ˆdˆcn , n P rµs. Since the output of a TT is a c0 ˆ cµ matrix, we fix c0 “ cµ “ 1
+so as to enforce the output to be a scalar, while the intermediate internal ranks are constant
+10     Zhiyuan Geng and Maxime Plançon
+
+c1 “ ¨ ¨ ¨ “ cµ´1 “ c8 . For algebraic convenience, we frequently employ an equivalent Kronecker
+product formulation. Under the same parameter definitions, the TT-format for a vectorized tensor
+        µ
+m P Rd can be compactly given by
+
+                                              m “ Mat pM1 b ¨ ¨ ¨ b Mµ q .
+
+   Building upon this tensorized structure, the tensor train random projection (TTRP) [RR20]
+was introduced to efficiently reduce the dimensionality of high-order tensors isometrically. A TTRP
+        µ
+fTT : Rd Ñ Rk pdµ " kq, is defined component-wise for the j-th output coordinate as
+                                    1      ´
+                                              pjq
+                                                               ¯
+                   pfTT pxqqpjq :“ ? Mat M1 b ¨ ¨ ¨ b Mpjq   µ   ¨ x, for j P rks,               (9)
+                                     k
+                               pjq
+where each core tensor Mi , i P rµs is independently sampled with Gaussian9 [RR20] or Rademacher
+[RR21] entries. The TTRP satisfies similar approximate-isometry properties as Johnson-Lindenstrauss
+projections. More precisely, it acts as an expected isometry that preserves the Euclidean geometry
+of the original high-dimensional space. Concretely, for any ϵ ą 0, the squared Euclidean norm of
+the projected vector is tightly preserved within a bounded multiplicative distortion, satisfying
+
+                                                }fTT pxq}22 “ p1 ˘ ϵq}x}22
+
+with a certain high probability.
+
+3.1   Adaptation to Modular Arithmetic
+The usual definition of TTRP [RR20] cannot be directly applied to lattice-based cryptography, as
+we work over discrete structures rather than the real numbers, and modulo a prime number q. To
+adapt TTRP to our setting, we introduce two main modifications:
+                                                            ?
+ 1. We eliminate the fractional normalization coefficient 1{ k in Eq.(9).
+ 2. The Gaussian (or Rademacher) distributions are replaced by Dghl .
+
+Definition 4 (Tensor Train Random Projection (TTRP), adapted from [RR20]). Let
+µ, c, d, φ ě 1 and m “ dµ be integers. The tensor train random projection of internal rank c ě 1 is
+                           k
+a randomized linear map fTTpµ,cq  : Zm Ñ Zk defined component-wise by
+                    ´                  ¯pjq         ´                  ¯
+                         k                            pjq
+                        fTTpµ,cq pxq          :“ Mat M1 b ¨ ¨ ¨ b Mpjq
+                                                                   µ     ¨ x,   for j P rks,              (10)
+
+         pjq                   pjq                                      pjq
+where M1 P Z1ˆdˆc , Mi P Zcˆdˆc for 1 ă i ă µ, and Mµ P Zcˆdˆ1 are 3rd-order tensors with
+i.i.d. entries drawn from the distribution Dghl . For the special case of k “ 1, we omit the superscript
+and simply write fTTpµ,cq to denote the one-row tensor train random projection.
+                         pjq
+   We also write tMi uiPrµs,jPrks Ð χTT pk, m, d, µ, cq to denote the sampling of the core tensors and
+                        »                           fi
+                                       ..
+                        —    ´          .         ¯ffi
+        pjq                       pjq          pjq ffi
+TTptMi uiPrµs,jPrks q “ —Mat M1 b ¨ ¨ ¨ b Mµ ffi P Zkˆm to denote the resulting k-row TTRP
+                        —
+                        –                           fl
+                                      ..
+                                       .
+matrix for simplicity.
+8
+  The general definition of the TT-decomposition allows the dimension d and internal rank c to vary across core
+  tensors, but this uniform formulation is sufficient for this paper.
+9
+  Specifically, N p0, c´1{2 q for i P t1, µu and N p0, c´1 q for 1 ă i ă µ.
+                    Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections     11
+
+Lemma 3 (Second and Fourth Moments). Let x P Zm be a fixed vector. For the one-row
+tensor train random projection y “ fTTpµ,cq pxq, we have
+                                             “ ‰ cµ´1
+                                            E y 2 “ µ }x}22 , and                                        (11)
+                                                     2
+                                          “ ‰ 3 cpc ` 2q µ´1
+                                                   ˆ     ˙
+                                         E y4 ď                 }x}42 .                                  (12)
+                                                 4     4
+      The proof is deferred to Section A.2
+
+3.2     Bounding Modular Overflows
+Lemma 4. Let x P r´q{2, q{2sm be a fixed vector such that }x}8 ě B for some B ă q{4. For the
+one-row tensor train random projection fTTpµ,cq , we have
+                             „                          ȷ
+                               ˇ                  ˇ   B   1 µ´1
+                          Pr fTTpµ,cq pxq mod q ă µ ď ` c`1 .
+                               ˇ                  ˇ                                     (13)
+                                                      2   2   2
+Proof. Let y :“ fTTpµ,cq pxq mod q “ pJ x mod q, where pJ :“ Mat pM1 b ¨ ¨ ¨ b Mµ q P Z1ˆm . By
+applying the mixed-product property (Fact 1), we evaluate this inner product iteratively from right
+to left. Defining Mi :“ MatpMi q, we construct the sequence of intermediate computation state vpiq :
+                         vpµq :“ x,
+                       vpi´1q :“ pIdi´1 b Mi q vpiq mod q,       for i “ µ, µ ´ 1, . . . , 2,
+                              p0q             p1q
+                          v         :“ M1 v         mod q “ y.
+     Let Ei denote the event that }vpiq }8 ě B{2µ´i . By hypothesis, }vpµq }8 “ }x}8 ě B, yielding
+PrrEµ s “ 1. For any 2 ď i ď µ, assume Ei holds. We partition the column vector vpiq into di´1 blocks.
+Since }vpiq }8 ě B{2µ´i , there exists at least one block u˚ satisfying }u˚ }8 ě B{2µ´i . Applying
+Lemma 2 to each row of Mi , the probability that the absolute value of a single component of Mi u˚
+is less than B{2µ´i`1 is bounded by 1{2. Since the c rows are sampled independently, the probability
+that at least one component preserves the bound B{2µ´i`1 satisfies PrrEi´1 | Ei s ě 1 ´ 2´c . For
+the final projection y “ M1 vp1q mod q, M1 P Z1ˆcd consists of a single row. Conditioning on E1 ,
+Lemma 2 yields PrrE0 | E1 s ě 1{2. The probability of E0 (the event |y| ě B{2µ ) is bounded using
+Bernoulli’s inequality
+                                                    ˆ           ˙
+                                1`       ´c µ´1
+                                           ˘      1       µ´1        1 µ´1
+                      PrrE0 s ě    1´2          ě     1´      c
+                                                                  “ ´ c`1 .                       (14)
+                                2                 2         2        2   2
+      Therefore, Prr␣E0 s “ 1 ´ PrrE0 s ď 12 ` 2µ´1
+                                                 c`1 .
+
+Theorem 2. Let µ, c, k ě 1. For any fixed vector x P r´q{2, q{2sm satisfying }x}8 ě B8 for some
+                                    k
+B8 ă q{4, the k-row projection y “ fTTpµ,cq pxq mod q P Zkq satisfies
+
+                                                     1 µ´1 k
+                                 „             ȷ ˆ              ˙
+                                           B8
+                              Pr }y}8 ă µ ď            ` c`1        .
+                                            2        2     2
+                                        ?
+Furthermore, if }x}2 ě B for some B ă q m{4, the projection satisfies
+                                                      1 µ´1 k
+                                „               ȷ ˆ               ˙
+                                            B
+                             Pr }y}2 ă ? µ ď            ` c`1         .
+                                            m2        2     2
+For any constant integer δ ě 1, setting the internal rank c ě rlog2 pµ ´ 1qs ` δ and the row count
+             λ                                            ´λ .
+k ě ´ log p1{2`2´δ´1 q P Opλq bounds this probability by 2
+           2
+12     Zhiyuan Geng and Maxime Plançon
+
+Proof. We first prove the bound for the ℓ8 norm. The mapping generates k independent outputs
+     ´            ¯piq
+        k
+yi “ fTTpµ,cq pxq      mod q. By Lemma 4, the probability that a single component is bounded by
+the threshold is                           „          ȷ
+                                                   B8   1 µ´1
+                                pfail :“ Pr |yi | ă µ ď ` c`1 .
+                                                    2   2    2
+The condition }y}8 ă B8 {2µ necessitates |yi | ă B8 {2µ for all i P rks. Since the k rows are sampled
+independently, the probability of this joint event is bounded by ppfail qk
+
+                                                            1 µ´1 k
+                             „              ȷ             ˆ            ˙
+                                        B8            k
+                          Pr }y}8 ă µ ď ppfail q ď            ` c`1        .
+                                         2                  2    2
+   The bound for the ℓ2 norm follows from algebraic relations. The hypothesis }x}2 ěı B implies
+         ?                          ?                                ”
+                                                                                B
+}x}8 ě B{ m. Substituting B8 “ B{ m into the ℓ8 bound yields Pr }y}8 ă ?m2         µ  ď ppfail qk .
+                                         B                    ? B µ . Thus, the probability is bounded
+Since }y}2 ě }y}8 , the event }y}2 ă ?m2   µ implies }y}8 ă    m2
+by the same value.
+   Substituting c ě rlog2 pµ ´ 1qs ` δ yields 2c`1 ě pµ ´ 1q2δ`1 . This bounds the per-row failure
+probability by pfail ď 1{2`2´δ´1 . To bound the overall probability by 2´λ requires p1{2`2´δ´1 qk ď
+2´λ , which yields the sufficient condition k ě λ{p´ log2 p1{2 ` 2´δ´1 qq.
+
+3.3   ℓ2 Concentration Bounds and Slack Factor.
+Theorem 2 provides a probabilistic bound for the ℓ8 norm mod q. A key advantage of this ℓ8 -based
+analysis is its parameter efficiency. Instantiating the TTRP with d P Op1q and c P Oplog µq achieves
+λ bits of soundness for a projection dimension k P Opλq, yielding the asymptotic representation size
+of Opλ log mplog log mq2 q P Õpλq.
+    Applying norm equivalence bounds on Theorem 2 to obtain an ℓ2 -concentration bound incurs a
+                 1
+large factor ?m2   µ . To achieve a tighter ℓ2 slack, we introduce a variance-based analysis in Lemma
+
+5 and Theorem 3. Compared to Theorem 2, our ℓ2 slack factor is tighter, while the internal rank
+increases to c “ Oplog mq. We note that the overall complexity remains Õpλq.
+                                               µ´1
+                                                                 ´      ¯µ´1
+Lemma 5. Let x P Zm be fixed, η2 “ c 2µ , and η4 “ 43 cpc`2q         4       . For the one-row TTRP
+y “ fTTpµ,cq pxq and any θ P p0, η2 q, we have
+
+                                                           pη2 ´ θq2
+                                   Pr y 2 ą θ}x}22 ě
+                                     “            ‰
+                                                                        .
+                                                        η4 ´ 2η2 θ ` θ2
+                              k
+For the k-row projection y “ fTTpµ,cq pxq, we have
+                                                                               ˙k
+                              ”      ?     ı ˆ                  pη2 ´ θq2
+                            Pr }y}2 ď θ}x}2 ď 1 ´                                   .                 (15)
+                                                             η4 ´ 2η2 θ ` θ2
+Proof. By Lemma 3, the moments of y 2 are Ery 2 s “ η2 }x}22 and Ery 4 s ď η4 }x}42 . Cantelli’s inequality
+states that for any random variable Z with expectation µZ and variance σZ2 , and for any t ą 0:
+                     2
+PrrZ ą µZ ´ ts ě σ2t`t2 .
+                     Z
+    Let Z “ y 2 with µZ “ Ery 2 s and σZ2 “ Ery 4 s´pEry 2 sq2 . Setting the deviation t “ Ery 2 s´θ}x}22 “
+pη2 ´ θq}x}22 ą 0, we obtain
+                                                t2                      pη2 ´ θq2 }x}42
+                Pr y 2 ą θ}x}22 ě
+                  “            ‰
+                                                               “                              .
+                                     Ery 4 s ´ pEry 2 sq2 ` t2   Ery 4 s ´ p2η2 θ ´ θ2 q}x}42
+                  Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections   13
+
+Substituting the upper bound Ery 4 s ď η4 }x}42 yields the single-row bound. Amplifying by k-row
+repetition, we get the Eq.(15).
+
+Theorem 3. Let µ, c, k ě 1. Let θ, η2 , η4 be defined as in Lemma 5.                     m be a fixed
+                                                                   "´Let x P r´q{2, q{2s           ¯k *
+                                                                                    2
+                                                                                      ¯k ´
+                                               q                            pη2 ´θq        1   µ´1
+vector such that }x}2 ě B for some B ă 2µ`1 ?θcµ´1 m . Let p :“ max 1 ´ η4 ´2η2 θ`θ2 , 2 ` 2c`1        .
+                              k
+For the k-row projection y “ fTTpµ,cq pxq mod q P Zkq , we have
+                                           ”      ? ı
+                                         Pr }y}2 ď θB ď p
+
+Proof. We have two cases:
+                   q
+ – If }x}8 ě 2¨cµ´1   m
+                        , by Lemma 4, the probability that }y}8 smaller than 2µ`1 ¨cqµ´1 m is at most
+   ´          ¯k
+         µ´1
+     1
+     2 ` 2c`1    , since B ă 2µ`1 ?qθcµ´1 m then
+                                                                             ˆ             ˙k
+                      ”      ? ı     ”                       q       ı           1 µ´1
+                    Pr }y}2 ď θB ď Pr }y}2 ă                           ď           ` c`1
+                                                       2µ`1 ¨ cµ´1 m             2   2
+                 q                                         k
+ – If }x}8 ă 2¨cµ´1 m
+                      , here with probability one we have fTTpµ,cq pxq P r˘q{2sk . So mod-q reduction
+   has no effect and the assertion follows directly from Lemma 5.
+
+4     Shortness Proof via TTRP
+
+In this section, we demonstrate how the tensor train random projection serves as a modular com-
+ponent to integrate approximate range proofs into reductions of knowledge for lattice relations.
+
+4.1    Norm Check for Ξ poly
+We describe a norm check protocol for the Ξ poly relation which is formalized as an interactive
+reduction of knowledge Π 0 (Figure 1) from the polynomial map relation Ξ poly to the sumcheck
+relation Ξ sum .
+     The core mechanism is to replace the norm bound in the relation Ξ poly by tensor train random
+                                                     pjq                            k
+projection. The verifier sends the core tensors tMi uiPrµs,jPrks defining a TTRP fTTpµ,cq p¨q, then the
+                                                               k
+prover sends the projection of the witness coefficients y0 “ fTTpµ,cq pcfpvecpWqqq. The verifier checks
+                                       a
+the expected bound ?  }y 0 } 2 ď B̂ :“   kpc{2qµ´1 ¨ B which holds with probability at least 1{2 and
+implies }W} ď B̂{ θ with overwhelming probability p. To prove well-formedness, the projection is
+lifted to Rq and formulated as sumcheck claims over the ring. We note that TTRP can actually be
+captured by relation Ξ poly , so it can also be regarded as a self-RoK.
+
+Theorem 4. Let ν, µ, d, c, k, θ, p be the TTRP parameters                ν           µ
+                                                       bsatisfying mr “ 2 and mrφ “ d . Let
+                                                                  kcµ´1
+B be the norm bound defined as in Theorem 3. Let B̃ :“            θ2µ´1
+                                                                        B.
+
+ – Π 0 is correct with a correctness error of 1{2, reducing the relation
+
+                                               Ξnpoly Ñ Ξn,k
+                                                         sum
+                                                             1.
+
+                                                                         1
+ – Π 0 is knowledge sound with a knowledge error of δ0 “ p ` q ´k for the reduction
+                                          poly    sis        sum-rel
+                                         ΞB̃   Y Ξ2B  1 ϱ Ð ΞB 1 ,ϱ  .
+14       Zhiyuan Geng and Maxime Plançon
+
+
+     mr “ 2ν ,   mrφ “ dµ “ 2µℓ
+     P pT; Wq P Ξ poly                                                       V pTq
+                                                         pjq
+                                                       tMi uiPrµs,jPrks          pjq
+     Define the integer matrix                      ÐÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝ tMi uiPrµs,jPrks Ð χTT pk, mrφ, d, µ, cq
+                            pjq
+       MZ :“ TTptMi uiPrµs,jPrks q P Zkˆmrφ
+     M :“ cf ´1 pMZ q P Rkˆmr
+                         q
+
+     y :“ M ¨ vecpWq mod q P Rkq
+                                                            y0                ?
+                                                                                      b ` ˘
+                                                                                            µ´1
+     y0 :“ ctpyq P Zkq                              ÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÑ }y0 }2 ď B̂ :“ k 2c       ¨B
+                                                             Γ                k1 ˆk
+                                                    ÐÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝ Γ Ð Zq
+                        1                                   y1                ?
+     y1 “ Γ ¨ y P Rkq                               ÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÝÑ ctpy1 q “ Γ ¨ y0
+     ......................................................................................................
+     Rewrite y1 “ Γ ¨ M ¨ vecpWq as k1 sumcheck claims
+                                  1
+       Let M˚ :“ ΓM P Rkq ˆmr and let m˚piq denote the i-th row of M˚ .
+                `            ˘
+       Define gi mlervecpWqs pzq :“ mlerm˚piq spzq ¨ mlervecpWqspzq ´ yi1 ¨ pmrq´1 pmod qq.
+                         `           ˘
+       Claims zPt0,1uν gi mlervecpWqs pzq “ 0 pmod qq, @i P rk1 s
+              ř
+
+
+                                      Fig. 1. Protocol Π 0 — RoK from Ξ poly to Ξ sum .
+
+
+      The proof is deferred to Section A.1
+Remark 1 (Achieving Opλq Communication Complexity). To achieve a soundness error of 2´λ in
+Figure 1, the batching of k constraints over Zq via the challenge matrix Γ requires a row di-
+mension k 1 “ Ωpλ{ log qq. Transmitting the k 1 ring elements of the aggregated vector y1 therefore
+yields a communication complexity at least quadratic in λ. For the purpose of asymptotic effi-
+ciency, this complexity can be reduced to Õpλq by applying the “Lift-and-Batch” technique from
+[KLNO25,KLN` 26], which lifts multiple partial trace equalities to ring equalities via intermediate
+subrings.
+Remark 2 (Variance-Based Completeness Bound). In the proof of Theorem 4, we establish the com-
+pleteness bound B̂ using Markov’s inequality based on the expected squared norm. One can derive
+a variance-based upper bound using Cantelli’s inequality on the sum of independent projection rows
+to parameterize the completeness error. While this approach tightens the constant factors of the
+verification check, it provides no asymptotic reduction to the extraction slack factor B̃{B. The slack
+is dominated by the divergence between the second and fourth moments of the TTRP distribution,
+which scales exponentially with the tensor order µ.
+
+4.2     Linearisation via Sumcheck
+Observe the k 1 sumcheck claims in the output relation Ξ sum of Π 0 in Figure 1
+                                ÿ
+                                     gi pzq “ 0 pmod qq, @i P rk 1 s,
+                                       zPt0,1uν
+
+where gi pzq :“ mlerm˚piq spzq ¨ mlervecpWqspzq ´ yi1 ¨ 2´ν pmod qq. To batch these constraints, the
+                                                                1
+verifier samples a random combiner γ “ pγ1 , . . . , γk1 q Ð Rkq and sends it to the prover. We define
+                  Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections     15
+
+a batched summation claim as
+                                       k 1
+                                       ÿ              ÿ
+                                             γi              gi pzq “ 0   pmod qq.                     (16)
+                                       i“1        zPt0,1uν
+
+   By invoking the basic sumcheck protocol (Lemma 1), the original k 1 summation claims are
+reduced to a single evaluation claim at a random challenge point r Ð C ν generated by the verifier
+                                             k    1
+                                             ÿ
+                                                      γi gi prq “ v   pmod qq,
+                                             i“1
+
+where v is the terminal value claimed by the prover. To check this terminal relation, the verifier
+evaluates mlerm˚piq sprq locally. The prover then sends the evaluation wr :“ mlervecpWqsprq, allowing
+the verifier to check
+                             k1
+                                     ´                                    ¯
+                         ?
+                             ÿ
+                      v“           γi mlerm˚piq sprq ¨ wr ´ yi1 ¨ pmrqq´1            pmod qq.          (17)
+                             i“1
+
+    The verifier then evaluates mlerm˚piq sprq locally. The prover sends the evaluation wr :“ mlervecpWqsprq,
+allowing the verifier to check
+                             k1
+                                     ´                                    ¯
+                         ?
+                             ÿ
+                      v“           γi mlerm˚piq sprq ¨ wr ´ yi1 ¨ pmrqq´1            pmod qq.          (18)
+                             i“1
+
+   Since conjugation over Rq is an automorphism, it satisfies the identity
+
+                                      mlervecpWqsprq “ mlervecpWqsprq
+
+for any challenge point r P Rνq . The verifier conjugates the prover’s message to obtain mlervecpWqsprq “
+wr , and appends this evaluation claim on the original vectorized witness at the conjugated point
+r to the relation Ξ poly as a new polynomial map constraint. From now on, we abuse the notation
+mlervecpWqsprq “ wr to denote this evaluation claim, given this equivalence.
+
+Corollary 1. Let Rq – Fqe φ{e . Let C be the challenge set for the sumcheck protocol and δ0 be the
+knowledge error of Π 0 (Figure 1). Assume a TTRP instantiated with the parameters from Theorem
+4. Let Π sc be basic sumcheck protocol (Lemma 1). There exists a self-RoK Π TTRP for the relation
+Ξ poly defined as the composition Π TTRP “ Π sc ˝ Π 0 such that
+ – Π TTRP is complete with a completeness error of 1{2, reducing the relation
+                                                                    poly
+                                                          Ξnpoly Ñ Ξn`1  .
+                                                                   2ν
+ – Π TTRP is knowledge sound with a knowledge error of δ0 ` q ´e ` |C| for the reduction
+
+                                                   poly    sis       poly-rel
+                                                  ΞB̃   Y Ξ2B  1ϱ Ð Ξ 1
+                                                                     B ,ϱ ,
+
+   where B̃ is defined as in Theorem 4.
+
+Proof. The completeness error follows from Lemma 1 and Theorem 4. The knowledge error is
+bounded by a union bound over three terms
+16     Zhiyuan Geng and Maxime Plançon
+
+ – δ0 : The knowledge error of Π 0 .
+                                                                                              1
+ – q ´e : The collision probability of the random linear combination in Eq.(16). Since γ Ð Rkq and
+   Rq – Fqe φ{e , a non-zero vector vanishes with probability at most q ´e .
+   2ν
+ – |C| : The soundness error of the basic sumcheck protocol (Lemma 1) for ν variables, as the
+   maximum individual degree of gi is 2.
+Lemma 6 (Efficiency of Π TTRP ). Let C be the sumcheck challenge set. The protocol Π TTRP
+(Corollary 1) has the following costs, where mr “ 2ν and mrφ “ dµ “ 2µℓ
+ – Prover runtime: Opkcmrφq operations over Zq and Opmrq operations over Rq . This includes
+   evaluating the TTRP projection, batching k 1 sumcheck claims, and executing the ν-variate basic
+   sumcheck for a degree 2 polynomial.
+ – Verifier runtime Sampling Opkc2 dµq elements from Dghl and Opk 1 kq elements from Zq . Eval-
+   uating the ν-variate multilinear extension via block-wise tensor contraction requires Opkµ1 c2 dq
+   operations over Rq and Opkcφq additions. Forming the aggregated claims requires Opk 1 kq oper-
+   ations over Rq .
+ – Prover-to-verifier communication: k elements over Zq , k 1 ` 1 elements over Rq and 2ν elements
+   over Fqe .
+Proof. Prover Runtime The prover runtime is dominated by the computation of the projection
+y0 “ MZ ¨ cfpvecpWqq pmod qq. We focus on this computation, other costs follow directly from the
+protocol description. The projection is evaluated via right-to-left tensor contraction which takes the
+                                                     µ
+flattened coefficient vector x :“ cfpvecpWqq P Zdq as input. The contraction sequence computes
+        ´                ¯                                                         ´       ¯
+                     pjq                                                  pjq          pjq
+vi´1 “ Idi´1 b Mi          vi pmod qq for i “ µ, µ ´ 1, . . . , 1, where Mi :“ Mat Mi . Since the
+                     pjq
+internal matrices Mi are over Z, the sequence consists exclusively of integer multiplications. The
+total cost for k rows is dominated by the initial layers, yielding Opkcdµ q “ Opkcmrφq operations
+over Zq .
+Verifier Runtime We analyze the computational cost for the verifier to evaluate the multilinear
+extension mlerm˚piq sprq for the i-th aggregated row, where i P rk 1 s. By the linearity of the multilinear
+extension, this evaluation can be expressed as mlerm˚piq sprq “ Γpiq mlerMsprq. Here, Γpiq is the i-
+th row of the challenge matrix Γ, and mlerMsprq is a column vector containing the evaluations
+mlerMpjq sprq for each original row j P rks.
+    Let mr “ 2ν be the spatial dimension. The verifier computes mlerMpjq sprq directly without
+explicitly computing the length-mr polynomial vector as follows. The i-th polynomial in the vector
+Mpjq can be expanded as Mi “ φ´1
+                               pjq    ř       pjq   h                          h
+                                        h“0 MZ,i,h X . In this expansion, X is the polynomial basis,
+       pjq
+and MZ,i,h is the integer entry of the underlying tensor network at spatial index i P t0, 1uν and
+coefficient index h P t0, . . . , φ ´ 1u, i.e., i-th polynomial’s h-th coefficient.
+   Let χi prq denote the multilinear basis polynomial evaluated at the challenge point r P C ν . The
+evaluation of the polynomial vector expands and rearranges as
+                                       ˜φ´1              ¸             ¨                     ˛
+                                  ÿ       ÿ pjq                    φ´1
+                                                                   ÿ      ÿ         pjq
+            mlerMpjq sprq “                   MZ,i,h X h χi prq “      ˝        MZ,i,h χi prq‚X h
+                            iPt0,1uν   h“0                     h“0   iPt0,1uν
+
+This equation shows that the h-th coefficient of the evaluation mlerMpjq sprq is exactly the spatial
+multilinear extension of the h-th coefficient slice of the tensor, evaluated at r.
+   The verifier computes these φ coefficients simultaneously by exploiting the tensor structure.
+Let d “ 2ℓ be the core dimension. The µ tensor cores partition into µ1 “ ν{ℓ spatial cores and
+µ2 “ plog2 φq{ℓ coefficient cores. Let c be the internal rank.
+                       Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections               17
+
+    The spatial multilinear extension is independent of the coefficient index h. The verifier chunks
+the challenge point r into µ1 blocks of length ℓ. Evaluating the multilinear extension of each spatial
+core at the corresponding chunk and computing their chain matrix product yields a 1 ˆ c boundary
+vector vpjq prq. This step contracts the spatial dimensions and requires Opµ1 c2 dq operations over Rq .
+    To recover the φ evaluated coefficients, the verifier multiplies the boundary vector vpjq prq by the
+remaining µ2 coefficient cores. Since these coefficient cores contain only elements from t´1, 0, 1u, ex-
+tracting all φ coefficients requires Opcφq additions. Applying the embedding maps these coefficients
+to the final evaluated ring element in Rq .
+    For all k rows, this tensor-structured coefficient evaluation takes Opkpµ1 c2 d ` cφqq operations.
+Finally, computing the k 1 linear combinations with the challenge matrix Γ takes Opk 1 kq operations
+over Rq .
+
+5      Integration to Proof Systems
+
+In this section, we instantiate the integration of our TTRP shortness proof modules Π 0 and Π TTRP
+into the lattice-based proof systems LaBRADOR [BS23] and RoKoko [KLN` 26]. We assume famil-
+iarity with these protocols and recall their shortness proof mechanisms.
+
+5.1      Shortness Proofs in LaBRADOR and RoKoko
+To demonstrate that a committed witness W :“ pw1 , . . . , wr q P Rmˆr satisfies the norm bound
+}W} ď B, LaBRADOR applies the modular Johnson-Lindenstrauss lemma. The lemma establishes
+that for some β, pβ ą 0 and every x P ZD , the projection satisfies
+
+                                              Pr      r}Mx} ą β}x}s ≲ pβ 10 .
+                                             256ˆD
+                                          MÐDghl
+
+
+    For every vector x P r˘q{2sD satisfying }x} ě B for a bound B ď q{125, the probability bound
+is given by                           ”                ?    ı
+                               Pr       }Mx mod q} ă 30B ≲ 2´128 .
+                                       256ˆD
+                                    MÐDghl
+
+                                                 256ˆmrφ
+The verifier samples a projection matrix M Ð Dghl        . The prover computes the projected vector
+                                   256
+y0 :“ M ¨ cfpvecpWqq mod q P Zq . The verifier checks whether }y0 } ď βB. This condition holds
+                                                 ?
+with probability
+             ?    1 ´ p β and implies  }W} ă βB{   30 with probability 1 ´ 2´128 , introducing a slack
+factor of β{ 30. To prove the well-formedness of y0 , the projection is expressed and aggregated as
+a linear relation over Rq , compatible with the relation of the protocol. Processing the projection
+matrix M requires Opλmrq verifier runtime.
+    The shortness proof paradigm in RoKoko follows an analogous approach while preserving succinct
+verification. We outline the differences below.
+
+ – Structured Projection. RoKoko adopts the block-diagonal structured random projection from
+   RoK and Roll [KLNO25]. For the coarse projection, the operation over the ring Rq is defined as
+                                         ´             ¯
+                                    V “ Im{mrp b M ¨ W
+10
+     The expansion factor β determines the trade-off between the extraction slack and the prover’s abort rate.
+     LaBRADOR[BS23] instantiates β to match the expected squared norm. The completeness error pβ is bounded
+     inherently by the right-skewness of the underlying (heuristic) chi-squared distribution of the squared projected
+     norm, which ensures sufficient probability mass resides below the expectation. The prover satisfies this condition
+     via rejection sampling. Alternatively, selecting a larger β yields an abort-free prover at the cost of a looser bound.
+18       Zhiyuan Geng and Maxime Plançon
+
+                    n ˆm
+      where M Ð Dghlrp rp . The prover applies a gadget decomposition Yproj “ G´1 pVq and commits
+      to vecpYproj q, establishing the updated constraint pIm{mrp b MqW “ GYproj pmod qq. The fine
+      projection over the Zq coefficient embedding is evaluated as
+
+                                      V “ pIφm{mrp b cf ´1  J J
+                                                        _ pM q qW.
+
+
+   The prover extracts the trace Vtr “ tracepVq, re-embeds it as Vemb “ cf ´1 pVtr q, and decomposes
+   it into Yproj “ G´1
+                    ℓ pVemb q. The consistency is proven by batching and lifting the constraints to
+   Rq via random tensors.
+ – Sumcheck-driven Recursion. RoKoko extends the sumcheck framework from SALSAA [KLOT25]
+   to prove the well-formedness of the recursive commitments and the correctness of projections.
+   Unlike LaBRADOR, RoKoko formulates and batches the structured projections as sumcheck
+   claims, which are proven via the sumcheck protocol.
+
+    During the sumcheck step, the verifier runtime is dominated by the evaluation of the multilin-
+ear extension mlerMs at random challenge points. To avoid dimension expansion during witness
+                                            m
+repacking, the projection dimensions ratio nrprp should align with the global shrink factor ρ, the rate
+at which the witness dimension is reduced, requiring mrp “ ρ ¨ nrp . Since M is unstructured, evalu-
+ating mlerMs costs the verifier Opnrp mrp q “ Opρλ2 q ring operations. This Opρλ2 q cost establishes
+a structural barrier. Setting ρ “ polypλq reduces the recursion depth and the overall proof size, but
+increases the verifier time.
+
+5.2     Modular Integration
+
+Substitution in LaBRADOR. The LaBRADOR protocol does not natively employ the sumcheck
+protocol. Its shortness proof relies on unstructured Johnson-Lindenstrauss projections to bound
+the witness norm. Substituting the unstructured projection with the TTRP module reduces the
+shortness proof complexity in each recursion round to Opλµc2 dq. The reduction Π 0 transforms
+TTRP correctness into sumcheck claims, and the embedded sumcheck protocol in Π TTRP linearises
+them into a polynomial evaluation claim. The terminal claim asserts that the value wr provided by
+the prover equals the multilinear extension of the flattened witness at the verifier’s challenge point
+r P C logpmrq
+                                  wr “ mlervecpWqsprq pmod qq.
+By definition of the multilinear extension, this evaluation is an inner product. To align with the
+witness structure of LaBRADOR, the witness W is represented as r column vectors w1 , . . . , wr P
+Rm q , assuming m and r are powers of 2. Partitioning the challenge point r into rcol P C
+                                                                                                    log r and
+
+rrow P C log m , and defining for a vector x “ px1 , . . . , xs q P Rsq the structured expansion tensorpxq “
+`                                ˘J     s
+  p1´x1 , x1 qb¨ ¨ ¨bp1´xs , xs q P R2q , the expanded challenge vector decomposes via the Kronecker
+product
+                                  tensorprq “ tensorprcol q b tensorprrow q.
+Partitioning tensorprq P Rmr q   into r contiguous blocks φ1 , . . . , φr P Rm
+                                                                             q , where the i-th block is
+given by φi “ ρi ¨ tensorprrow q with ρi P Rq as the i-th component of tensorprcol q, the inner product
+decomposes as
+                                     r
+                                     ÿ
+                                       xφi , wi y ´ wr “ 0 pmod qq.
+                                     i“1
+
+LaBRADOR absorbs this claim into its constraints.
+                  Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections   19
+
+Substitution in RoKoko. The RoKoko protocol employs structured projections—specifically coarse,
+fine, and batch-and-lift variants—as self-reductions for the committed-linear relation Ξ lin to bound
+witness norms. Although these native projections function as self-reductions, any such relation can
+alternatively be compiled into sumcheck claims. Substituting RoKoko’s random projections with
+the Π 0 module transforms the projection directly into sumcheck claims. These claims are batched
+with RoKoko’s internal linearization sumcheck pipeline, allowing a single execution of the sumcheck
+protocol per recursion round to linearise all claims.
+    This substitution yields three improvements. First, because RoKoko’s structured projections
+yield large output dimensions, the prover is forced to commit to the projection image to prevent
+communication blowup. In contrast, TTRP projects the witness onto a small number of rows k,
+enabling the projected vector y0 to be transmitted directly in the clear. Second, avoiding projection
+commitments eliminates auxiliary witness components, allowing the protocol to gain larger super-
+constant shrink factors similar to LaBRADOR. Third, the verifier complexity of TTRP is lower by
+a factor Opλ2 { log2 mq than that of RoKoko.
+
+6     Integration to Folding Schemes
+In this section, we provide an example of integration of our TTRP range proof module Π TTRP to a
+folding scheme. We focus our attention on the most efficient lattice-based folding scheme available
+Cyclo [GLLO26], and assume some familiarity.
+
+6.1    Shortness proof of Cyclo
+Cyclo is a folding scheme for R1CS relations (or its higher-degree generalization CCS [STW23])
+improving on the prior work Neo [NS26]. Cyclo introduces a technique that only requires a range
+proof for the fresh input witnesses, but not the accumulator. Importantly, the first step of Cyclo is
+to run the sum-check linearization of CCS from [NS26,KS23] and obtain instance-witness pairs for
+a linear relation for Ajtai commitments over Rq . In particular, this relation fits the formalism of
+our relation Ξ poly .
+    The norm proof of Cyclo works in two steps. First, the fresh witnesses w1 , . . . , wr with }wi }8 ă
+B for some bound B are decomposed into log3 pBq ternary subwitnesses. For each i P rrs, these
+subwitnesses are reorganised into a single longer ternary witness, and recommitted to in this form
+called extension commitment. The consistency of the r extension commitments can be checked by
+the verifier. The second step is to give a sum-check-based ternary proof for the extension commit-
+ments. Combining the consistency of the commitments with the ternary proof for the extension
+commitments yields a tight ℓ8 -norm proof.
+    The reason for creating extension commitments in Cyclo is the fact that at the time, there was
+no efficient succinct range RoK available.
+
+6.2    Integration of TTRP to Cyclo
+Our TTRP norm-check Π TTRP acts as an ideal drop-in replacement for Cyclo’s ternary range
+proof on extension commitments. Recall that the folded relation fits the formalism of our relation
+  poly
+Ξf,κ,n,m,r,B , where f is the linear map that encodes the constraints, κ is the length of the com-
+mitments, n the number of constraints, m the length of the witnesses over Rq , r the number of
+witnesses and finally B the Euclidean norm bound.
+    With the parameters that yield a 31.8 KB folding proof benchmark, the proof size Π TTRP is 3.9
+KB, while Cyclo’s original range proof (extension commitments + sum-check) amounts to 10.4 +
+3.16 KB. By integrating TTRP, the resulting proof size becomes 22.14 KB, i.e a 30% improvement.
+20        Zhiyuan Geng and Maxime Plançon
+
+    We now estimate the ℓ2 -norm bound of the fresh witnesses to achieve the number of folding
+steps fixed at 64 in Cyclo’s benchmark. With κ ¨ φ “ 1664, the lattice estimator [APS15] gives us
+a maximum extracted Euclidean norm bound of 245 . After T folding steps, the worse-case11 norm
+of the accumulator grows to γT 210 B, where γ is the ℓ2 operator norm of the challenges and 210 is
+our slack factor. Plugging in the numbers, we obtain B » 224 .
+    We note that verifier efficiency–in particular the size of the challenges that are usually negli-
+gible in proof systems–is a highly relevant metric in folding schemes, due to applications such as
+Incrementally Verifiable Computation [Val08]. The verifier circuit of TTRP is significantly larger
+than that of original Cyclo. This gap is caused by the large size of the core tensors, which creates
+a significant overhead for applications of folding schemes in recursive proofs.
+
+7      Parameters and Efficiency
+7.1      Asymptotics
+Complexity of Π 0 and Π TTRP . We analyze the asymptotic efficiency of the protocols Π 0 and Π TTRP
+under the assumption of an Oplogpmrqq-bit modulus q. Let the witness be W P Rmˆr , where r
+denotes the split width. The ring Rq has degree φ P Opλq. The tensor format encodes the entire
+witness, yielding µ “ rlogd pmrφqs P Oplogpmrφqq tensor layers.
+   We first analyze Theorem 2 asymptotically. We set the base dimension d P Op1q and the internal
+rank c P Oplog µq to bound the single-row projection failure probability by a constant. The verifier
+runtime is dominated by evaluating the multilinear extension of the spatial tensor cores at a random
+point. Utilizing block-wise tensor contraction (Lemma 6), this evaluation requires
+                         Opkµ1 c2 dq “ O λ logpmrqploglogpmrφqq2 P Õpλq
+                                         `                        ˘
+
+ring operations. The extraction slack factor B̃{B for Π 0 satisfies
+                              `b
+                         “ O λ ploglogpmrφqqlogpmrφq ¨ pmrq3{2 P polypmrq.
+                                                                    ˘
+                    B{B
+                    r
+
+This satisfies the no-overflow condition pB̃{Bq2 ă q{2 under the Oplog mrq-bit modulus.
+   Next, we analyze Theorem 3. We set the threshold θ “ δη2 for a constant fraction δ P p0, 1q.
+Substituting θ into the probability base of Eq.(15) yields
+                                          pη2 ´ δη2 q2                 p1 ´ δq2
+                               1´                             “ 1 ´ η4
+                                    η4 ´ 2η2 pδη2 q ` pδη2 q2       η2
+                                                                        ´ 2δ ` δ 2
+                                                                      2
+
+To bound this base by a constant less than 1, the ratio of the moments
+                                      ´      ¯µ´1
+                                    3 cpc`2q
+                                                              2 µ´1
+                                                        ˆ       ˙
+                              η4    4    4
+                                  “                “  3   1 `
+                              η22
+                                        ´ ¯µ´1
+                                      1 c2                    c
+                                              4   4
+
+must be bounded by a constant. To ensure convergence, we require the internal rank to be c P
+Ωpµq “ Oplogpmrφqq. Setting c “ µ yields limµÑ8 η4 {η22 “ 3e2 . The verification complexity under
+this setting evaluates to
+                                Opkµ1 c2 dq “ Opλ logpmrq log2 pmrφqq P Õpλq
+   To optimize asymptotic verifier succinctness, we adopt the parameterization strategy derived
+from Theorem 2. The proof size and prover runtime follow this parameterization framework.
+11
+                                                                                                         ?
+     Assuming that the folded witnesses are independent, the ℓ2 -norm of the accumulator would grow as       T rather
+     than T .
+                     Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections              21
+
+Complexity of Integration to RoKoko. We analyze the integration complexity using Π fold-split and
+Π lin from RoKoko (Table 2). Our composition is
+
+                                                                Π 0 Ñ Π fold-split Ñ Π lin
+
+We apply TTRP for the shortness proof, proceed with the fold-and-split phase, and linearize the
+constraints via a batched sumcheck protocol. In RoKoko, the verifier complexity is bounded by
+Oprλ2 q. Linearizing the TTRP constraints requires Õpλq operations for any r, which circumvents
+this dependence. Table 3 details the complexity comparison. The complexity of RoKoko is reported
+from the original formulation.
+
+
+                     Protocol                                 Prover        Verifier                    Comm.
+                         fold-split         lin         sum
+                     Π                  Ξ         ÑΞ          Opmrq         Opr{ log λq                 Op1q
+                         lin          sum         lin                   2         2
+                     Π         Ξ            ÑΞ                Opmr ` rλ q Oprλ ` log ksc ` log mq Oplog m{ log λq
+                                                        `
+         Table 2. Two RoKs from [KLN 26]. We set their shrink factor ρ :“ r to match our paper’s notation.
+
+
+
+
+                                            RoKoko                       Ours
+                                                               2
+                           r“λ              Prover       mλ              Prover       mλ2 loglogpmλq
+                                                            λ3 log m                   λ log2 m
+                                            Verifier         log λ
+                                                                         Verifier        log λ
+                                                                                                ploglogpmλqq2
+                                                          log2 m`λ log m              log2 m`λ log m
+                                            Comm               log2 λ
+                                                                         Comm              log2 λ
+
+                           r “ mϵ Prover                 m1`ϵ λ          Prover       m1`ϵ λ loglogpmλq
+                                                                                                                ϵ
+                                            Verifier        mϵ λ2        Verifier     λ log mploglogpmλqq2 ` log
+                                                                                                              m
+                                                                                                                 λ
+                                          log m`λ          log m`λ
+                                 Comm       log λ
+                                                     Comm    log λ
+Table 3. Complexity comparison of composed succinct arguments. Big-O notation is omitted for brevity. We use the
+lift-and-batch instantiation for both constructions.
+
+
+
+
+7.2      Concrete Parameter Selection for TTRP
+
+The parameter instantiation of TTRP admits multiple approaches. Following the notation in The-
+orem 4, we present a strategy to minimize the TT-format size12 of the TTRP which dominate the
+verifier cost in Π TTRP as we analyzed in Lemma 6. We fix the projection error p « 2´90 . For given
+witness lengths m P t220 , 221 , 224 u over Rq and a predefined upper bound for the extraction slack
+factor B̃{B, we iterate over all valid TT-decompositions m “ dµ , internal ranks c, and projection
+row counts k up to a threshold kmax “ 300. Within this discrete space, we discard configurations
+that violate the probability bounds for the modulo q overflow (Theorem 2) or the Cantelli variance
+concentration (Theorem 3). The search outputs the parameters that yields the minimum TT-format
+representation while satisfying the maximum slack constraint.
+12
+     We omit the polynomial degree φ here.
+22       Zhiyuan Geng and Maxime Plançon
+
+
+                                  m       Slack      k      µ      c     Repr.
+
+                                           27       296     4     11     222.13
+                                  220
+                                           210      292     4     10     221.83
+
+                                           27       296     3      7     222.41
+                                  221
+                                           210      278     3      7     222.32
+
+                                           27       296     4     11     223.13
+                                  224
+                                           210      292     4     10     222.83
+Table 4. TTRP parameter instantiation. The Repr. column presents the total size of the core tensors, given by
+kdppµ ´ 2qc2 ` 2cq.
+
+
+
+
+References
+
+Ach03.   Dimitris Achlioptas. Database-friendly random projections: Johnson-lindenstrauss with binary coins. Jour-
+         nal of computer and System Sciences, 66(4):671–687, 2003.
+ACK21. Thomas Attema, Ronald Cramer, and Lisa Kohl. A compressed Σ-protocol theory for lattices. In Malkin
+         and Peikert [MP21], pages 549–579. doi:10.1007/978-3-030-84245-1_19.
+Ajt96.   Miklós Ajtai. Generating hard instances of lattice problems (extended abstract). In 28th ACM STOC,
+         pages 99–108. ACM Press, May 1996. doi:10.1145/237814.237838.
+AL21.    Martin R. Albrecht and Russell W. F. Lai. Subtractive sets over cyclotomic rings - limits of Schnorr-like
+         arguments over lattices. In Malkin and Peikert [MP21], pages 519–548. doi:10.1007/978-3-030-84245-1_
+         18.
+APS15. Martin R Albrecht, Rachel Player, and Sam Scott. On the concrete hardness of learning with errors. J.
+         Math. Cryptol., 9(3):169–203, 2015.
+BC25a.   Dan Boneh and Binyi Chen. LatticeFold: A lattice-based folding scheme and its applications to succinct
+         proof systems. In Hanaoka and Yang [HY25], pages 330–362. doi:10.1007/978-981-95-5099-9_11.
+BC25b. Dan Boneh and Binyi Chen. LatticeFold+: Faster, simpler, shorter lattice-based folding for succinct proof
+         systems. In Yael Tauman Kalai and Seny F. Kamara, editors, CRYPTO 2025, Part VII, volume 16006 of
+         LNCS, pages 327–361. Springer, Cham, August 2025. doi:10.1007/978-3-032-01907-3_11.
+BL17.    Carsten Baum and Vadim Lyubashevsky. Simple amortized proofs of shortness for linear relations over
+         polynomial rings. Cryptology ePrint Archive, Paper 2017/759, 2017. URL: https://eprint.iacr.org/
+         2017/759.
+BLS19.   Jonathan Bootle, Vadim Lyubashevsky, and Gregor Seiler. Algebraic techniques for short(er) exact
+         lattice-based zero-knowledge proofs. In Boldyreva and Micciancio [BM19], pages 176–202. doi:10.1007/
+         978-3-030-26948-7_7.
+BM01.    Ella Bingham and Heikki Mannila. Random projection in dimensionality reduction: applications to im-
+         age and text data. In Proceedings of the seventh ACM SIGKDD international conference on Knowledge
+         discovery and data mining, pages 245–250, 2001.
+BM19.    Alexandra Boldyreva and Daniele Micciancio, editors. CRYPTO 2019, Part I, volume 11692 of LNCS.
+         Springer, Cham, August 2019.
+BS23.    Ward Beullens and Gregor Seiler. LaBRADOR: Compact proofs for R1CS from module-SIS. In Helena
+         Handschuh and Anna Lysyanskaya, editors, CRYPTO 2023, Part V, volume 14085 of LNCS, pages 518–548.
+         Springer, Cham, August 2023. doi:10.1007/978-3-031-38554-4_17.
+CLM23. Valerio Cini, Russell W. F. Lai, and Giulio Malavolta. Lattice-based succinct arguments from van-
+         ishing polynomials - (extended abstract). In Helena Handschuh and Anna Lysyanskaya, editors,
+         CRYPTO 2023, Part II, volume 14082 of LNCS, pages 72–105. Springer, Cham, August 2023. doi:
+         10.1007/978-3-031-38545-2_3.
+DDLL13. Léo Ducas, Alain Durmus, Tancrède Lepoint, and Vadim Lyubashevsky. Lattice signatures and bimodal
+         Gaussians. In Ran Canetti and Juan A. Garay, editors, CRYPTO 2013, Part I, volume 8042 of LNCS,
+         pages 40–56. Springer, Berlin, Heidelberg, August 2013. doi:10.1007/978-3-642-40041-4_3.
+DKL` 18. Léo Ducas, Eike Kiltz, Tancrède Lepoint, Vadim Lyubashevsky, Peter Schwabe, Gregor Seiler, and Damien
+         Stehlé. CRYSTALS-Dilithium: A lattice-based digital signature scheme. IACR TCHES, 2018(1):238–
+         268, 2018. URL: https://tches.iacr.org/index.php/TCHES/article/view/839, doi:10.13154/tches.
+         v2018.i1.238-268.
+                    Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections         23
+
+ESLL19. Muhammed F. Esgin, Ron Steinfeld, Joseph K. Liu, and Dongxi Liu. Lattice-based zero-knowledge proofs:
+         New techniques for shorter and faster constructions and applications. In Boldyreva and Micciancio [BM19],
+         pages 115–146. doi:10.1007/978-3-030-26948-7_5.
+GHL22. Craig Gentry, Shai Halevi, and Vadim Lyubashevsky. Practical non-interactive publicly verifiable se-
+         cret sharing with thousands of parties. In Orr Dunkelman and Stefan Dziembowski, editors, EURO-
+         CRYPT 2022, Part I, volume 13275 of LNCS, pages 458–487. Springer, Cham, May / June 2022.
+         doi:10.1007/978-3-031-06944-4_16.
+GLLO26. Albert Garreta, Helger Lipmaa, Urmas Luhaäär, and Michal Osadnik. Cyclo: Lightweight lattice-based fold-
+         ing via partial range checks. In Joan Daemen and Emmanuel Thomé, editors, EUROCRYPT 2026, Part VII,
+         volume 16547 of LNCS, pages 33–62. Springer, Cham, May 2026. doi:10.1007/978-3-032-25336-1_2.
+HY25.    Goichiro Hanaoka and Bo-Yin Yang, editors. ASIACRYPT 2025, Part III, volume 16247 of LNCS. Springer,
+         Singapore, December 2025.
+JL84.    William B Johnson and Joram Lindenstrauss. Extensions of lipschitz mappings into a hilbert space.
+         Contemporary mathematics, 26(189-206):1, 1984.
+KLN` 26. Michael Klooss, Russell W. F. Lai, Ngoc Khanh Nguyen, Michal Osadnik, and Lorenzo Tucci. RoKoko:
+         Lattice-based succinct arguments, a committed refinement. Cryptology ePrint Archive, Paper 2026/575,
+         2026. URL: https://eprint.iacr.org/2026/575.
+KLNO24. Michael Klooß, Russell W. F. Lai, Ngoc Khanh Nguyen, and Michal Osadnik. RoK, paper, SISsors toolkit
+         for lattice-based succinct arguments - (extended abstract). In Kai-Min Chung and Yu Sasaki, editors,
+         ASIACRYPT 2024, Part V, volume 15488 of LNCS, pages 203–235. Springer, Singapore, December 2024.
+         doi:10.1007/978-981-96-0935-2_7.
+KLNO25. Michael Klooß, Russell W. F. Lai, Ngoc Khanh Nguyen, and Michal Osadnik. RoK and roll - verifier-
+         efficient random projection for Õpλq-size lattice arguments - (extended abstract). In Hanaoka and Yang
+         [HY25], pages 297–329. doi:10.1007/978-981-95-5099-9_10.
+KLOT25. Shuto Kuriyama, Russell W. F. Lai, Michal Osadnik, and Lorenzo Tucci. Salsaa - sumcheck-aided lattice-
+         based succinct arguments and applications. IACR Cryptol. ePrint Arch., 2025:2124, 2025. URL: https:
+         //api.semanticscholar.org/CorpusID:283252607.
+KS23.    Abhiram Kothapalli and Srinath Setty. HyperNova: Recursive arguments for customizable constraint sys-
+         tems. Cryptology ePrint Archive, Paper 2023/573, 2023. URL: https://eprint.iacr.org/2023/573.
+LNP22. Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Maxime Plançon. Lattice-based zero-knowledge proofs
+         and applications: Shorter, simpler, and more general. In Yevgeniy Dodis and Thomas Shrimpton, editors,
+         CRYPTO 2022, Part II, volume 13508 of LNCS, pages 71–101. Springer, Cham, August 2022. doi:
+         10.1007/978-3-031-15979-4_3.
+LNS21.   Vadim Lyubashevsky, Ngoc Khanh Nguyen, and Gregor Seiler. SMILE: Set membership from ideal lattices
+         with applications to ring signatures and confidential transactions. In Malkin and Peikert [MP21], pages
+         611–640. doi:10.1007/978-3-030-84245-1_21.
+LS18.    Vadim Lyubashevsky and Gregor Seiler. Short, invertible elements in partially splitting cyclotomic rings
+         and applications to lattice-based zero-knowledge proofs. In Jesper Buus Nielsen and Vincent Rijmen,
+         editors, EUROCRYPT 2018, Part I, volume 10820 of LNCS, pages 204–224. Springer, Cham, April / May
+         2018. doi:10.1007/978-3-319-78381-9_8.
+Lyu09.   Vadim Lyubashevsky. Fiat-Shamir with aborts: Applications to lattice and factoring-based signatures.
+         In Mitsuru Matsui, editor, ASIACRYPT 2009, volume 5912 of LNCS, pages 598–616. Springer, Berlin,
+         Heidelberg, December 2009. doi:10.1007/978-3-642-10366-7_35.
+Lyu12.   Vadim Lyubashevsky. Lattice signatures without trapdoors. In David Pointcheval and Thomas Johansson,
+         editors, EUROCRYPT 2012, volume 7237 of LNCS, pages 738–755. Springer, Berlin, Heidelberg, April
+         2012. doi:10.1007/978-3-642-29011-4_43.
+MP21.    Tal Malkin and Chris Peikert, editors. CRYPTO 2021, Part II, volume 12826 of LNCS, Virtual Event,
+         August 2021. Springer, Cham.
+NS24.    Ngoc Khanh Nguyen and Gregor Seiler. Greyhound: Fast polynomial commitments from lattices. In
+         Leonid Reyzin and Douglas Stebila, editors, CRYPTO 2024, Part X, volume 14929 of LNCS, pages 243–
+         275. Springer, Cham, August 2024. doi:10.1007/978-3-031-68403-6_8.
+NS26.    Wilson Nguyen and Srinath Setty. Neo and superneo: Post-quantum folding with pay-per-bit costs over
+         small fields. In Annual International Cryptology Conference, pages 492–523. Springer, 2026.
+Osa26.   Michal Osadnik. PikkuFold: Efficient folding in a few kilobytes. Cryptology ePrint Archive, Paper
+         2026/1809, 2026. URL: https://eprint.iacr.org/2026/1809.
+Ose11.   Ivan V Oseledets. Tensor-train decomposition. SIAM Journal on Scientific Computing, 33(5):2295–2317,
+         2011.
+RR20.    Beheshteh Rakhshan and Guillaume Rabusseau. Tensorized random projections. In International Confer-
+         ence on Artificial Intelligence and Statistics, pages 3306–3316. PMLR, 2020.
+24      Zhiyuan Geng and Maxime Plançon
+
+RR21.    Beheshteh T Rakhshan and Guillaume Rabusseau. Rademacher random projections with tensor networks.
+         arXiv preprint arXiv:2110.13970, 2021.
+STW23. Srinath Setty, Justin Thaler, and Riad Wahby. Customizable constraint systems for succinct arguments.
+         Cryptology ePrint Archive, Paper 2023/552, 2023. URL: https://eprint.iacr.org/2023/552.
+Val08.   Paul Valiant. Incrementally verifiable computation or proofs of knowledge imply time/space efficiency. In
+         Theory of cryptography conference, pages 1–18. Springer, 2008.
+YAZ` 19. Rupeng Yang, Man Ho Au, Zhenfei Zhang, Qiuliang Xu, Zuoxia Yu, and William Whyte. Efficient lattice-
+         based zero-knowledge arguments with standard soundness: Construction and applications. In Boldyreva
+         and Micciancio [BM19], pages 147–175. doi:10.1007/978-3-030-26948-7_6.
+                 Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections   25
+
+
+
+
+                         Supplementary Material
+
+
+
+A     Omitted Proofs
+
+A.1    Proof of theorem 4
+Proof. The k 1 sumcheck claims evaluate the polynomials gi over the boolean hypercube t0, 1uν .
+Each summation yields xm˚piq , vecpWqy ´ yi1 “ 0 mod q. For all i P rk 1 s, the k 1 sumcheck claims
+establish y1 “ Γ ¨ M ¨ vecpWq mod q.
+Correctness. Consider an instance pT, Wq P Ξ poly . The j-th row of y is evaluated as
+                                                          mr
+                                                          ÿ      pjq
+                         ypjq “ Mpjq ¨ vecpWq mod q “           Mh Wh mod q.
+                                                          h“1
+
+   Taking the constant term of ypjq and utilizing the property of power-of-two cyclotomic rings
+where ctpab̄q “ xcfpaq, cfpbqy, we obtain
+               mr
+               ÿ       ´     ¯ ÿmr    ´     ¯
+         pjq             pjq            pjq             pjq
+        y0 “         ct Mh Wh “    xcf Mh , cfpWh qy “ MZ ¨ cfpvecpWqq                  pmod qq.
+               h“1                  h“1
+
+    Given }W}2 ă B, the expected squared norm of y0 is bounded by
+                                    ˆ ˙µ                        ˆ ˙µ
+                         2      µ´1 1                  2     µ´1 1
+                                                                     B2.
+                    “      ‰
+                  E }y0 }2 “ kc           }cfpvecpWqq}2 ă kc
+                                     2                            2
+                                                                                            “           “   ‰‰
+Since }y0 }22 is a non-negative random variable, applying Markov’s inequality yields Pr }y0 }22 ě 2E }y0 }22 ď
+                                                   b ` ˘
+1                                                         µ´1
+2 . An honest prover passes the check }y0 }2 ď       k 2c      ¨ B with probability at least 1{2. The iden-
+tity check holds as
+                                  ctpy1 q “ ctpΓ ¨ yq “ Γ ¨ ctpyq “ Γ ¨ y0 .
+                                     b
+Knowledge Soundness. Let B̂ :“ k pc{2qµ´1 B. Since the polynomial map constraint f pWq “ 0 is
+preserved in the reduction, we omit it from the following proof for simplicity. We split the protocol
+into two phases and analyze them separately.
+                                                                                        `
+                                                       0 which reduces an instance T, pW, Sq to an
+                                                                                                   ˘
+ a) The tensor train random projection phase ΠTT
+     instance with additional norm and constant term checks on the projected witness
+                   “          ‰   “`           ˘                                              ‰
+                     T, pW, Sq ÞÑ T, pW, Sq and ctpM ¨ vecpWqq “ y0 and }y0 }2 ď B̂ .
+                                                                   ˚ , V y.
+    This corresponds to the first challenge-response, denoted by xPTT   TT
+26      Zhiyuan Geng and Maxime Plançon
+
+                          0 which reduces an instance as
+b) The aggregation phase ΠSZ
+     “`          ˘                          ‰    “`      ˘                                        ‰
+        T, pW, Sq and ctpM ¨ vecpWqq “ y0 ÞÑ T, pW, Sq                  and    Γ ¨ M ¨ vecpWq “ y1 .
+                                                                   ˚ , V y.
+     This corresponds to the ν-th challenge-response, denoted by xPSZ   SZ
+
+Extractor ESZ . W.L.O.G., assume that the prover PSZ   ˚ is deterministic. E                      ˚
+                                                                             SZ runs the prover PSZ
+                        k 1 ˆk                    1
+on some challenges Γ Ð Zq      until it obtains py , W, Sq satisfying the constraints. If the prover
+fails, then abort.
+                               A ¨ W “ T mod q,                      }S}op ď ϱ,
+                                           1
+                      Γ ¨ M ¨ vecpWq “ y mod q,             }WS mod q}2 ď B 1 ,
+                                ctpy1 q “ Γ ¨ y0 mod q.
+
+If ctpM ¨ vecpWqq “ y0 mod q, ESZ outputs pW, Sq and concludes the extraction. Otherwise, ESZ
+                    ˚ on new challenges Γ1 to obtain py2 , W1 , S1 q satisfying
+re-runs the prover PSZ
+                              A ¨ W1 “ T mod q,                         }S1 }8 ď ϱ,
+                     Γ1 ¨ M ¨ vecpW1 q “ y2 mod q,          }W1 S1 mod q}2 ď B 1 ,
+                               ctpy2 q “ Γ1 ¨ y0 mod q.
+If W ‰ W1 mod q, then WSS1 ´ W1 S1 S ‰ 0 mod q. This yields ApWSS1 ´ W1 S1 Sq “ 0 and
+                                                                                                 sis .
+}WSS1 ´W1 S1 S mod q}2 ď 2B 1 ϱ. Any non-zero column x1 of this difference satisfies pA, x1 q P Ξ2B 1ϱ
+            1
+   If W “ W mod q and the trace conditions diverge
+                                     ctpM ¨ vecpWqq ‰ y0 mod q,
+                                 ctpΓ1 ¨ M ¨ vecpWqq “ Γ1 ¨ y0 mod q,
+                                                                                    `                   ˘
+since Γ1 is over Zq , we have Γ1 ¨ctpM¨vecpWqq “ Γ1 ¨y0 mod q. Thus, the vector Γ1 ¨ ctpM ¨ vecpWqq ´ y0 mod
+q is an evaluation of k 1 independent random linear combinations. By the Schwartz-Zippel lemma,
+if the constant vector ctpM ¨ vecpWqq ´ y0 is non-zero, this evaluation yields 0 with probability at
+          1
+most q ´k .
+
+Extractor ETT . W.L.O.G., assume that the prover PTT    ˚ is deterministic. E runs the prover P ˚ on
+                                                                             TT                   TT
+                   pjq
+some challenges tMi uiPrµs,jPrks until it obtains py0 , W, Sq satisfying the constraints. If the prover
+fails, then abort.
+                              A ¨ W “ T mod q,                          }S}op ď ϱ,
+                     ctpM ¨ vecpWqq “ y0 mod q,            }W ¨ S mod q}2 ď B 1 ,
+                                                                        }y0 }2 ď B̂.
+
+If }W}2 ď B̃, then ETT outputs pW, Sq and concludes the extraction. If }W}2 ą B̃, then ETT re-runs
+the prover PTT ˚ on new challenges tM1pjq u to obtain py1 , W1 , S1 q bounded similarly.
+                                        i                  0
+    As before, if W ‰ W1 mod q, we extract a SIS solution x1 P Ξ2B      sis . Assuming W “ W1 mod q,
+                                                                           1ϱ
+
+the verifier’s ℓ2 norm check ensures that }y0 }2 ď B̂. Since MZ (and its embedding M) is independent
+of W, by Theorem 3 and the established equivalence y0 “ MZ ¨ cfpvecpWqq, we have
+                                                  a
+                                           B̂       kpc{2qµ´1
+                                 }W}2 ď ? “            ?      ¨ B “ B̃
+                                             θ           θ
+unless with a probability of at most p. A successful extraction outputs pW, Sq satisfying the starting
+                                                                          1
+relation or breaks SIS. The total knowledge error is at most δ0 “ p ` q ´k .
+                  Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections       27
+
+A.2    Proof of Lemma 3
+Proof. We only prove the Eq.(11) here. The proof for the Eq.(12) is given in Appendix A.3. Let pJ P
+Z1ˆm be the random projection row defined by pJ :“ Mat pM1 b ¨ ¨ ¨ b Mµ q. The expected squared
+norm of the projection is ErppJ xq2 s “ ErxJ ppJ xs “ xJ ErppJ sx. Applying Fact 1 sequentially, we
+decompose pJ as
+                              pJ “ M1 pId b M2 q ¨ ¨ ¨ pIdµ´1 b Mµ q ,                         (19)
+where Mi :“ MatpMi q. Let σ 2 :“ VarpDghl q “ 1{2 be the variance of Dghl . Since each Mi consists
+of independent entries with zero mean and variance σ 2 , we evaluate the expectations of their Gram
+matrices
+                                              2
+                                 ErMJ
+                                    1 M1 s “ σ Icd ,
+                                                2
+                                  ErMJ
+                                     i Mi s “ cσ Icd     for 1 ă i ă µ,
+                                               2
+                                 ErMJ
+                                    µ Mµ s “ cσ Id .
+
+                                                                                                       i
+                                                                                                1ˆcd and
+   We define the partial product row vector pJ       i :“ M1 pId b M2 q ¨ ¨ ¨ pIdi´1 b Mi q P Z
+                              J        i´1 2i
+prove by induction that Erpi pi s “ c σ Icdi for 1 ď i ă µ. The base case pi “ 1q holds trivially.
+Assume the hypothesis holds for i ´ 1. Since Mi is sampled independently of the partial product
+pi´1 , we have
+                 “     ‰        “`                ˘       “           ‰               ‰
+               E pi pJ
+                     i “ EMi        Idi´1 b MJ                   J
+                                               i Epi´1 pi´1 pi´1 pIdi´1 b Mi q
+                                ”`                ˘ ´ i´2 2pi´1q         ¯                 ı
+                         “ EMi Idi´1 b MJ       i    c   σ       I cdi´1   pI di´1 b M i q
+                         “ ci´2 σ 2pi´1q EMi Idi´1 b MJ
+                                              “`               ˘                             ‰
+                                                             i pIdi´1 b Ic q pIdi´1 b Mi q
+                         “ ci´2 σ 2pi´1q EMi Idi´1 b MJ
+                                              “         `         ˘‰
+                                                             i Mi
+                         “ ci´2 σ 2pi´1q Idi´1 b cσ 2 Icd “ ci´1 σ 2i Icdi .
+                                         `                 ˘
+
+
+    For the final term pi “ µq, applying the same decoupling strategy to pJ “ pJ  µ´1 pIdµ´1 b Mµ q
+yields
+                     “    ‰        “`             ˘        “          ‰         ‰
+                   E ppJ “ EMµ Idµ´1 b MJ                         J
+                                                µ Epµ´1 pµ´1 pµ´1 pIdµ´1 b Mµ q
+
+                            “ cµ´2 σ 2pµ´1q Idµ´1 b ErMJ
+                                           `                    ˘
+                                                          µ Mµ s
+
+                            “ cµ´2 σ 2pµ´1q Idµ´1 b cσ 2 Id “ cµ´1 σ 2µ Idµ .
+                                           `               ˘
+
+                                                                                     µ´1
+    that dµ “ m and σ 2 “ 1{2, the expected matrix simplifies to ErppJ s “ c 2µ Im . Substituting
+                                                             µ´1
+this back into our initial formulation yields ErppJ xq2 s “ c 2µ }x}22 .
+
+A.3    The Variance
+We can establish the variance bound of the TTRP over the Dghl distribution by adapting the
+indicator contraction method from [RR21]. By replacing Rademacher moments with Dghl moments.
+From now on, we use mi to denoted the i-th moment of Dghl , i.e., m1 “ m3 “ 0 and m2 “ m4 “ 1{2
+
+Lemma 7 (4-th Moment of Vector Inner Product). Let a P Zm be a random vector with
+i.i.d. entries drawn from Dghl , and let b P Zm be a fixed vector. Then
+                                                       3
+                                          Erxa, by4 s ď }b}42
+                                                       4
+28      Zhiyuan Geng and Maxime Plançon
+
+Proof. Since the odd moments of Dghl are 0, following the expansion of non-zero summands, we
+have                                 ÿ                 ÿ
+                       Erxa, by4 s “    Era4i sb4i ` 3   Era2i sEra2j sb2i b2j
+                                              iPrms                     i‰j
+
+Substituting the moments m2 and m4 , we get
+                                                                              ˜            ¸2
+                                      1ÿ 4 3ÿ 2 2 3                            ÿ                    1ÿ 4
+                        Erxa, by4 s “    b `      b b “                              b2i        ´      b
+                                      2 i i  4 i‰j i j  4                        i
+                                                                                                    4 i i
+        ř      4                                     4    3    4
+Since       i bi ě 0, we get the upper bound Erxa, by s ď 4 }b}2 .
+
+Lemma 8 (4-th Moment of Matrix Product). Let A P Zdˆc be a random matrix with i.i.d.
+entries drawn from Dghl , and let B P Zpˆd be a fixed matrix. Then
+                                                                  cpc ` 2q
+                                          Er}BA}4F s ď                     }B}4F
+                                                                      4
+Proof. Let M “ BJ B. The expansion of Er}BA}4F s “ ErxM, AAJ y2 s begins                   by converting the
+Frobenius norm into the trace form. By definition, }BA}2F “ trpAJ MAq “ jPrcs i1 ,i2 Prds Ai1 j Mi1 i2 Ai2 j .
+                                                                                  ř        ř
+Squaring this term and applying the linearity of expectation yields a joint summation over six indices
+                                    ÿ        ÿ
+                  Er}BA}4F s “                    ErAi1 j Ai2 j Ai3 k Ai4 k sMi1 i2 Mi3 i4
+                                    i1 ,i2 ,i3 ,i4 Prds j,kPrcs
+
+Because the entries of A are independent and have mean zero, the expectation ErAi1 j Ai2 j Ai3 k Ai4 k s
+evaluates to zero if any row index appears exactly once. To yield a non-zero expectation, the row
+indices must either be fully identical or paired. This partitions the non-zero outcomes into four
+mutually exclusive cases
+                                  ÿ ÿ
+                    Er}BA}4F s “          ErA2ij A2ik sM2ii
+                                     iPrds j,kPrcs
+                                            ÿ         ÿ
+                                     `                         ErA2i1 j A2i3 k sMi1 i1 Mi3 i3
+                                         i1 ,i3 Prds j,kPrcs
+                                           i1 ‰i3
+                                            ÿ         ÿ
+                                     `                         ErAi1 j Ai2 j Ai1 k Ai2 k sM2i1 i2
+                                         i1 ,i2 Prds j,kPrcs
+                                           i1 ‰i2
+                                            ÿ         ÿ
+                                     `                         ErAi1 j Ai2 j Ai2 k Ai1 k sMi1 i2 Mi2 i1
+                                         i1 ,i2 Prds j,kPrcs
+                                           i1 ‰i2
+
+Evaluating these summations under m2 and m4 yields
+                                                         2 “ cpc`1q
+                           `                      ˘ř
+1. For i1 “ i2 “ i3 “ i4 : c ¨ 12 ` cpc ´ 1q ¨ 41                         2.
+                                                                     ř
+                                                    iM   ii     4 ř i Mii
+                                                    c2
+                            2    1 ř                   `      2         2
+                                                                           ˘
+2. For i1 “ i2 ‰ i3 “ i4 : c ¨ 4ř i‰ℓ Mii Mℓℓ`“ 4 trpMq         ´  ˘ i Mii   .
+                               1        2     c        2
+                                                            ř    2
+3. For i1 “ i3 ‰ i2 “ i4 : c ¨ 4 ři‰ℓ Miℓ “ 4 }M}    `F ´ iM   řii . ˘
+4. For i1 “ i4 ‰ i2 “ i3 : c ¨ 41 i‰ℓ Miℓ Mℓi “ 4c }M}2F ´ i M2ii .
+Summing all terms together
+                                   c2
+                                                      ˆ 2
+                                                       c ` c c2
+                                                                     ˙
+                                              c                     c ÿ 2
+                      Er}BA}4F s “    trpMq2 ` }M}2F `        ´   ´     Mii
+                                  4         2             4     4   2 i
+                                  c2      c           cÿ 2
+                                 “ }B}4F ` }BJ B}2F ´       Mii
+                                  4       2           4 i
+                    Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections    29
+
+
+    Using }BJ B}2F ď }B}4F and dropping the negative term, we obtain Er}BA}4F s ď cpc`2q  4
+                                                                                     4 }B}F .
+
+Lemma 9 (Variance). Let y “ fTTpµ,cq pxq be the single-row output of the TTRP as defined in
+Definition 4. For any input x P Zmφ , we have
+
+                                                     cpc ` 2q µ´1
+                                                    ˆ        ˙
+                                           4    3
+                                        Ery s ď                   }x}42 ,
+                                                4        4
+                                                        « ˆ      ˙µ´1       ff
+                                                      2        2
+                                 Varpy 2 q ď Ery 2 s
+                                            `       ˘
+                                                         3 1`            ´1
+                                                               c
+                  µ´1
+where Ery 2 s “ c 2µ }x}22 .
+
+Proof. The projection y “ MatpM1 b ¨ ¨ ¨ b Mµ q ¨ x can be unrolled from right to left as a sequence
+of matrix-matrix and vector-matrix products. Let Yµ “ AB where A “ MatpMµ q P Zcˆdφ and
+                                 µ´1
+B “ rx1 , . . . , xdµ´1 s P Zdφˆd . By applying Lemma 8 iteratively for µ, µ ´ 1, . . . , 2 (a total of µ ´ 1
+times), the 4-th moment scales by cpc`2q4   at each layer. Finally, M1 P Z1ˆdc acts as a row vector, so
+applying Lemma 7 yields the final bounding factor of 43
+                                                        ˆ              ˙µ´1
+                                           4    3           cpc ` 2q
+                                        Ery s ď                               }x}42
+                                                4               4
+
+    The variance is then bounded by
+
+                                                              cpc ` 2q µ´1
+                                                               ˆ       ˙
+                           2        4          23   2
+                                                                                          ˘2
+                                                                           }x}42 ´ Ery 2 s
+                                                                                  `
+                    Varpy q “ Ery s ´ pEry sq ď
+                                                4                  4
+                                                                     « ˆ     ˙µ´1    ff
+                                                                           2
+                                                        “ pEry 2 sq2 3 1 `        ´1 .
+                                                                           c
+

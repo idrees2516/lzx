@@ -30,13 +30,10 @@ pub mod compact;
 pub mod ledger;
 pub mod envelope;
 pub mod prove;
-<<<<<<< HEAD
 pub mod legbatch;
 pub mod streaming;
-=======
 pub mod pipeline;
 pub mod pipeline2;
->>>>>>> 9f052f1 (lzx: v2 pipeline — Twist & Shout wired into the live path; verifier never re-executes (pipeline.rs + pipeline2.rs): the trace builder with the P0 decode table (16 RV64IMAC families, fail-closed), the staged prover/verifier running real memory arguments — fetch/input read-only-table Shouts, RAM + register read/write-ports Twists with public init/final states, 7 one-hot well-formedness checks, all factor claims funneled through ONE grouped Ajtai opening per committed column (the stage-4 leg batching); the claim table carries (column, factor, point, value) triples with sentinel routing for the P1 dim/Inc/Val commitment layer; 4 new tests: happy path (prove→verify, no re-execution), tampered final state / tampered claim / wrong program all rejected; sparse engine upgrades: dim-claim emission from the Shout/onehot provers (Ra/Wa at booleanity/weight/raf terminals), dim-space var_map fix for the booleanity legs, write-side matrix factors, factor-discriminated sentinel claim resolution; workspace 528 tests green, clippy -D warnings clean on touched crates)
 
 #[cfg(test)]
 mod fuzz;
