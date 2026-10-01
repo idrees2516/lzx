@@ -73,7 +73,7 @@ impl From<lattice_ring::RingError> for CommittedError {
 /// Linear packing: 16 small-field values per ring element.
 const PACK: usize = 16;
 
-fn pack_small(ring: &RingConfig, values: &[u32]) -> Vec<RingElement> {
+pub(crate) fn pack_small(ring: &RingConfig, values: &[u32]) -> Vec<RingElement> {
     let mut out = Vec::with_capacity(values.len().div_ceil(PACK));
     for chunk in values.chunks(PACK) {
         let mut coeffs = vec![0u32; ring.n()];

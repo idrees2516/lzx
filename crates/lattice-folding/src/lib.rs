@@ -33,4 +33,5 @@ pub mod protogalattice;
 pub mod superneo;
 pub mod superneo_committed;
 pub mod symphony;
+pub mod pi_ccs;
 pub mod symphony_protocols;
