@@ -130,7 +130,15 @@ tests), Zheng–Gao–Liu (PolyU HK).
    PQ route (Ajtai commitments with shortness/norm-budget discipline, à
    la LatticeFold+/Symphony in this workspace) changes the accumulator's
    algebra (field-scalar folds must become shortness-preserving); it is
-   a separate implementation program.
+   a separate implementation program. **[DONE — the follow-up wave]**:
+   `lattice-pcd/ajtai_fr.rs` + `lattice-pcd/pq.rs` implement the PQ
+   commitment layer over the scalar field (the d = 1 module, seeded
+   uniform matrices, 16-bit digit layers at radius `2^16−1`, MSIS
+   dimension rule `rows/cols ≤ 1 − 16/254`), the `Com_pub(ẽ)`
+   digit-regime instantiation, the E-fold's homomorphic closure over
+   the Ajtai layer (verified), the LatticeFold-style norm ledger with
+   re-decomposition points, the decider-side opening with the norm
+   check, and the double-opening MSIS kernel extraction — 8 tests.
 7. **The `δ`-power check compression** (§5's optimization paragraph:
    compressing the `n` map outputs into one via `pow_j(δ)` weights) is
    not implemented — the vector-valued sum-check (the paper's primary

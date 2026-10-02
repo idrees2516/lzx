@@ -1,0 +1,15 @@
+[package]
+name = "lattice-cauchyfold"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-labrador = { workspace = true }
+
+[[example]]
+name = "cauchyfold_bench"

@@ -132,7 +132,16 @@ with tests), Paslis–Ràfols–Zacharakis (UPF / HPI).
    directly — the "atomic accumulation" flavor on that half) and pure
    `R_GBF,α,β` statements carry no PCE claims, so the accumulator's PCEP
    half stays vacuous. The paper's `Π_batchPCEP` is exactly where an
-   accumulatable PC (BCMS20-style) slots in.
+   accumulatable PC (BCMS20-style) slots in. **[DONE — the follow-up
+   wave]**: `lattice-holo/pc_short.rs` implements the accumulatable
+   short-opening PC on the lattice — the Accordion (ePrint 2025/1325)
+   module-sumcheck over the BN254 scalar field with 16-bit digit layers:
+   `O(log n)` round messages instead of the linear openings, the
+   γ-accumulation folding multiple claims into one deferred instance,
+   and the amortized decider (`C ≜ Ĝ(r)`, once per batch) — 4 tests
+   including the tampered-value/message rejections and the
+   accumulate-and-decide roundtrip. The Pedersen backend remains the
+   default; the swap surface is the documented `open`/`verify` pair.
 2. **Round-by-round knowledge soundness** (Definition 2's state-function
    machinery) is not formalized in code — the protocols are implemented
    with Fiat–Shamir and tested for completeness + tamper rejection; the
@@ -147,7 +156,11 @@ with tests), Paslis–Ràfols–Zacharakis (UPF / HPI).
    the indicator and partition-of-unity tests.
 5. **The decider's single evaluation check** is the long opening of the
    combined matrix polynomial (O(n²) revealed coefficients) rather than
-   a short KZG/IPA proof — the same PC swap as (1).
+   a short KZG/IPA proof — the same PC swap as (1). **[DONE — the
+   lattice route]**: the `pc_short` decider settles the evaluation with
+   the module-sumcheck's deferred instance + the direct public
+   `Ĝ(r)` — the accordion note records why the paper's FRI-based
+   group-BaseFold decider does not port to Ajtai bindings.
 6. **`Π_GBF1`'s d-vectors** are committed per right-pair (the paper's
    Fig. 2 commits per (k, pair) in the K-instance batch); for the
    single-instance statements used here the distinction vanishes, and

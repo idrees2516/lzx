@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~49k lines of pure-`std` Rust. 27 crates. 912 tests. Zero external dependencies.**
+**~57k lines of pure-`std` Rust. 30 crates. 1005 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
@@ -68,7 +68,9 @@ prove_program(RV64IMAC bytecode)  ->  Proof envelope  ->  verify_program(envelop
 | 11 | **Symphony** (folding + SNARK) | `lattice-folding` | High-arity (mu-ary) one-shot folding with full subset cross-term bookkeeping; exact mu-ary identity verified |
 | 12 | **Twist & Shout** (small-space zkVM) | `lattice-memory`, `lattice-vm`, `lattice-zkvm` | Twist (read/write timeline) and Shout (read-only table) checks with grand-product fingerprint identities; canonical RV64IMAC decoder + deterministic executor + subword-correct sparse memory + LR/SC & AMO atomics; end-to-end prove/verify |
 | 13 | **ZK-PCD from Accumulation Schemes** (ePrint 2026/289) | `lattice-pcd` | The special-sound framework (R1CS/CCS/permutation instances, homogeneous algebraic maps), the CFS17/XZZ+19 zero-knowledge sum-check with the KS24 point-update, the zk-Protogalaxy accumulation scheme (masking vector + eq-interpolated F(X) + the error commitment E + decider), the FS NARK, and the two-circuit ZK-PCD construction over vector-Pedersen BN254 commitments |
-| 14 | **PCD via Holography Accumulation** (ePrint 2026/538) | `lattice-holo` | The GBF relation family with both univariate and multivariate representations, Π_GBF1 (Marlin-style) + Π_GBF2 (Spartan-style) with the h₁/h₂ domain sum-check, Π_batchM, Π_Collapse, Barebones (SuperMarlin/SuperSpartan recovery), Π_Fold (the holography accumulation), the non-uniform decider, and the PCD construction |
+| 14 | **PCD via Holography Accumulation** (ePrint 2026/538) | `lattice-holo` (+ `pc_short`) | The GBF relation family with both univariate and multivariate representations, Π_GBF1 (Marlin-style) + Π_GBF2 (Spartan-style) with the h₁/h₂ domain sum-check, Π_batchM, Π_Collapse, Barebones (SuperMarlin/SuperSpartan recovery), Π_Fold (the holography accumulation), the non-uniform decider, and the PCD construction; **+ the deviation-ledger follow-ups**: the PQ commitment route (Ajtai-over-`F_r` with digit layers, the E-fold closure, the norm ledger, the MSIS double-open kernel) and the accumulatable short-opening PC (the Accordion module-sumcheck over `F_r`: O(log n) openings, γ-accumulation, the amortized decider) |
+| 15 | **Accordion — Revisiting the IPA-sumcheck connection** (ePrint 2025/1325) | `lattice-accordion` | The lattice instantiation of the whole paper: the module-valued sum-check (Lemma 3.1) over `(R_q)^rows` at `q = 2^50−2687`, the ml-PCS with accumulation (Def 4.3) — `com` through 16-bit digit layers on the layered cube, `reduce` (the deferred `(V−baP')/a` terminal), `accumulate` (the γ-fold with `e(X) = Σγⁱ eq(X,rᵢ)`), the amortized `decide` (`Ĝ(r)`, once per batch — the FRI decider's lattice obstruction documented), and the executable two-α extraction harness (Lemma 5.2) with the shortness verdicts and the `[G\|P]` MSIS-kernel outcomes |
+| 16 | **CauchyFold — Residue-Optimal High-Arity Lattice Folding** (ePrint 2026/2011) | `lattice-cauchyfold` | The full paper at the scaled profile: the Cauchy carrier algebra (Prop 4.4 identity, Lemma 4.5 discrepancy, the A.3 fast construction — differential-tested), the executable boundary-width theory (Thm 4.1 / Lemma 4.2 / Cor 4.3 pinned by exact K-linear algebra), the node protocol with the 19 root objects (the field-check sum-check, the level-2 ΓW=Y system with ring-structured commitment rows, the R16 fingerprint), the §5.5 linear chain (projection with retries, the symmetric h-before-challenge, the D46 certified challenges, the response identities), the §5.6 terminal codec, and the §6 extraction (Lemma 6.2 compare-before-clearing, the coordinate replay, the loss accounting) |
 
 Plus two ports of external systems:
 
@@ -122,7 +124,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **912 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **1005 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations).
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
@@ -149,7 +151,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 912 tests
+cargo test --workspace      # 1005 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
@@ -220,7 +222,7 @@ implemented / partial / unimplemented — lives in [`docs/`](docs/):
 start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/papers/README.md`](docs/papers/README.md).
 
-Testing: `cargo test --workspace` (912 tests at this commit);
+Testing: `cargo test --workspace` (1005 tests at this commit);
 `cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
 lattice-bench --bin bench` (26 stages, reproducible matrix) — see
 `PERFORMANCE.md` for the methodology.

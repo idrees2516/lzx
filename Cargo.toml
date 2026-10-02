@@ -29,6 +29,8 @@ members = [
     "crates/lattice-lookup-ring",
     "crates/lattice-pcd",
     "crates/lattice-holo",
+    "crates/lattice-accordion",
+    "crates/lattice-cauchyfold",
 ]
 
 [workspace.package]
@@ -66,6 +68,8 @@ lattice-ttrp = { path = "crates/lattice-ttrp" }
 lattice-lookup-ring = { path = "crates/lattice-lookup-ring" }
 lattice-pcd = { path = "crates/lattice-pcd" }
 lattice-holo = { path = "crates/lattice-holo" }
+lattice-accordion = { path = "crates/lattice-accordion" }
+lattice-cauchyfold = { path = "crates/lattice-cauchyfold" }
 
 [profile.release]
 lto = "thin"

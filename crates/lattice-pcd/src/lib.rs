@@ -45,6 +45,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod accum;
+pub mod ajtai_fr;
+pub mod pq;
 pub mod fp_base;
 pub mod g1;
 pub mod nark;

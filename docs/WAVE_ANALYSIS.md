@@ -253,3 +253,43 @@ Two papers, two crates, 68 new tests (912 total):
 
 Both papers' honest-deviation ledgers live in
 `docs/papers/implemented/{zk-pcd-accumulation,holography-pcd}.md`.
+
+
+## 13. The Accordion + CauchyFold wave (2026-10-02)
+
+Two new papers + the two PCD deviation-ledger follow-ups, all on the
+lattice side:
+
+1. **lattice-accordion** (ePrint 2025/1325, the IPA-sumcheck
+   connection): the paper's whole protocol stack over the Ajtai module
+   `(R_q)^rows` at `q = 2^50−2687` — the module-valued sum-check
+   (Lemma 3.1 verbatim), the ml-PCS with accumulation (Def 4.3:
+   `com` through 16-bit digit layers on the layered cube, `reduce`
+   with the deferred `(V−baP')/a` terminal, `accumulate` with the
+   γ-fold, the amortized `decide`), and the executable two-α
+   extraction harness (Lemma 5.2's tree replaced by the grid recovery —
+   the outcome algebra made precise: the shortness verdicts and the
+   `[G|P]` kernel outcomes). The FRI-based group-BaseFold decider's
+   non-portability (Ajtai bindings need SHORT openings; FRI layers are
+   arbitrary mod-q) is documented as the wave's central honest finding,
+   with the quantitative note (ring-scalar ops ~1000× cheaper than
+   group scalar mults) and the Halo amortization preserved.
+2. **lattice-cauchyfold** (ePrint 2026/2011): the full protocol at the
+   scaled profile — the carrier algebra (Prop 4.4, Lemma 4.5, the A.3
+   fast construction), the executable boundary-width theory (Thm 4.1's
+   `m_min = r·dim Va` with `dim Va = k` pinned by exact K-linear
+   algebra + the power-family negative control), the node protocol
+   (the 19-root-object field-check sum-check, the level-2 `ΓW = Y`
+   system with ring-structured commitment rows, the R16 fingerprint),
+   the §5.5 chain (the full layer mechanics), the §5.6 terminal codec,
+   and the §6 extraction (Lemma 6.2's compare-before-clearing with the
+   kernel harness + the loss accounting). The paper's two k=16
+   profiles recorded declaratively.
+3. **The PQ follow-ups** (the PCD deviation ledgers): the zk-pcd
+   accumulation's commitment route over Ajtai-`F_r` (the digit regime,
+   the E-fold closure, the norm ledger, the MSIS double-open kernel)
+   and the holo PC's short-opening swap (the Accordion module-sumcheck
+   on `Fp256` with the γ-accumulation and the amortized decider).
+
+Workspace: 30 crates, 1005 tests, zero clippy warnings on every
+touched crate.

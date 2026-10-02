@@ -68,6 +68,7 @@ pub mod gbf1;
 pub mod gbf2;
 pub mod pcd;
 pub mod pc;
+pub mod pc_short;
 pub mod poly;
 pub mod relations;
 pub mod sumcheck;

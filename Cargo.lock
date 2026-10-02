@@ -3,6 +3,14 @@
 version = 3
 
 [[package]]
+name = "lattice-accordion"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-ring",
+]
+
+[[package]]
 name = "lattice-akita"
 version = "0.2.0"
 dependencies = [
@@ -34,6 +42,14 @@ dependencies = [
  "lattice-vm",
  "lattice-zk",
  "lattice-zkvm",
+]
+
+[[package]]
+name = "lattice-cauchyfold"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-labrador",
 ]
 
 [[package]]

@@ -288,6 +288,47 @@ h₁/h₂ decomposition — the paper's own trade-off table (univariate wins
 only with a commitment whose evaluation proofs are O(1), e.g. KZG;
 with the linear-opening PC here the multivariate path is cheaper).
 
+
+## 2g. The Accordion + CauchyFold + PQ-follow-up wave (2026-10-02, this session)
+
+**lattice-accordion** (ePrint 2025/1325 over the Ajtai module, `q = 2^50−2687`,
+16-bit digit layers; `examples/accordion_bench.rs`, release):
+
+| shape | reduce | verify | decide (4-fold, amortized) | proof |
+|---|---|---|---|---|
+| k=4, N=64, rows=1 | 0.22 ms | 0.07 ms | 0.35 ms | 9.2 KB |
+| k=6, N=256 | 0.55 ms | 0.10 ms | 0.88 ms | 12.3 KB |
+| k=8, N=1024 | 1.99 ms | 0.12 ms | 3.30 ms | 15.4 KB |
+| k=10, N=4096 | 7.78 ms | 0.14 ms | 12.91 ms | 18.4 KB |
+| k=8, N=1024, rows=2 | 3.49 ms | 0.21 ms | 5.94 ms | 30.7 KB |
+
+The proof is exactly `3·(k+κ)` module points + one scalar (the paper's
+communication), verify is `O(m)`, and the amortized decide is `O(N)`
+ring-scalar operations once per batch — the Halo amortization preserved.
+
+**lattice-cauchyfold** (ePrint 2026/2011 at the scaled profile,
+`q = 2^48−59`, `K = Fq4`; `examples/cauchyfold_bench.rs`, release):
+
+| k | carrier (direct) | carrier (fast) | boundary | node prove | node verify |
+|---|---|---|---|---|---|
+| 2 | 0.02 ms | 0.04 ms | 0.10 ms | 58.1 ms | 6.7 ms |
+| 4 | 0.03 ms | 0.10 ms | 0.25 ms | 107.2 ms | 14.5 ms |
+| 8 | 0.20 ms | 0.40 ms | 1.32 ms | 400.9 ms | 66.6 ms |
+| 16 | 2.04 ms | 1.84 ms | — | 1600.4 ms | 248.0 ms |
+
+The boundary column confirms `dim Va = k` (Corollary 4.3) by exact
+K-linear algebra; the fast carrier agrees with the direct form at every
+arity. The paper's own k=16 profiles (127,887 / 129,002 B wires,
+9.4 ks pipelines) are recorded declaratively in `params.rs` — not
+executed (57.5M-coefficient witnesses).
+
+**The PQ follow-ups** (the deviation-ledger items):
+`lattice-pcd::{ajtai_fr, pq}` — the Ajtai-over-`F_r` commitment layer
+(the digit regime at radius `2^16−1`, the E-fold homomorphic closure,
+the norm ledger, the decider, the double-open MSIS kernel) and
+`lattice-holo::pc_short` — the Accordion module-sumcheck on `Fp256`
+(`O(log n)` openings, the γ-accumulation, the amortized decider).
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel
