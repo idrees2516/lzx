@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~37k lines of pure-`std` Rust. 24 crates. 763 tests. Zero external dependencies.**
+**~41k lines of pure-`std` Rust. 25 crates. 844 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
@@ -120,7 +120,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **763 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **844 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations).
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
@@ -147,7 +147,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 763 tests
+cargo test --workspace      # 844 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
@@ -218,7 +218,7 @@ implemented / partial / unimplemented — lives in [`docs/`](docs/):
 start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/papers/README.md`](docs/papers/README.md).
 
-Testing: `cargo test --workspace` (763 tests at this commit);
+Testing: `cargo test --workspace` (844 tests at this commit);
 `cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
 lattice-bench --bin bench` (26 stages, reproducible matrix) — see
 `PERFORMANCE.md` for the methodology.
