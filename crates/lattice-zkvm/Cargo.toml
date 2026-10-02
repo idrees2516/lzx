@@ -18,6 +18,7 @@ lattice-vm = { workspace = true }
 lattice-memory = { workspace = true }
 lattice-labinius = { workspace = true }
 lattice-streaming = { workspace = true }
+lattice-lookup-ring = { workspace = true }
 
 [dev-dependencies]
 lattice-guest = { workspace = true }

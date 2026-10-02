@@ -26,6 +26,7 @@ members = [
     "crates/lattice-projsumcheck",
     "crates/lattice-streaming",
     "crates/lattice-ttrp",
+    "crates/lattice-lookup-ring",
 ]
 
 [workspace.package]
@@ -60,6 +61,7 @@ lattice-labrador = { path = "crates/lattice-labrador" }
 lattice-projsumcheck = { path = "crates/lattice-projsumcheck" }
 lattice-streaming = { path = "crates/lattice-streaming" }
 lattice-ttrp = { path = "crates/lattice-ttrp" }
+lattice-lookup-ring = { path = "crates/lattice-lookup-ring" }
 
 [profile.release]
 lto = "thin"

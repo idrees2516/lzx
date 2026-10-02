@@ -202,3 +202,29 @@ folds); the mixed-degree window message (the (d+2)-point grid); the
 MultiProductEval shared-extrapolation grid (the remaining gap to the
 paper's 2.5–4×); the Lift-and-Batch refinement; the full bundle-opening
 swap inside `prove_grouped_carrier`.
+## 9. The ring-lookup session (2026-10-02)
+
+The lookup-argument layer rebuilt over the CRT-split ring
+(`lattice-lookup-ring`, ePrint 2026/471) plus its three follow-ups and
+the LF+ ℓ2-norm checks (ePrint 2026/721):
+
+| item | landed | evidence |
+|---|---|---|
+| **The split ring** | `R ≅ F_{q^{d/2}}²` with `q ≡ 5 mod 8`, schoolbook kernel, CRT slot inversion (poly EEA), the binary challenge space, the `g` map | `ring_d.rs` (10 tests) |
+| **Section 4's attacks** | the CRT-swap on Plookup/Lasso grand products (a polynomial identity over Z15 at every grid point vs ~48/289 accidental roots over Z17), the Z6/Z12 zero-divisor attacks on LogUp | `attacks.rs` (5 tests) |
+| **Appendix B toolkit** | scalar product, Hadamard, cyclic shift, entry product, integer check, binary check — the last with the documented step-7/8 deviation (polynomial evaluation is not well-defined on the quotient ring) | `subprotocols.rs` |
+| **Ring-Plookup (5.5) / Ring-LogUp (5.11)** | both PIOPs end-to-end with tamper coverage; LogUp's CRT-slot batch inversion with Remark-5.10 resampling | `ring_plookup.rs`, `ring_logup.rs` |
+| **(a) the Greyhound-style compile** | digit windows + the √N grid + the tensor binding pass over the Ajtai carrier; the compiled Ring-LogUp runs commitment-absorbing transcripts — the verifier never sees raw oracles | `carrier.rs`, `windowed.rs`, `compile.rs` |
+| **(b) the Fp256 port** | the binding pass over BN254 Fr on the CIOS Montgomery grid, upper-limb λ=125 challenges, `mul_upper_limb` short-circuit, cross-engine structural equivalence | `fp256_port.rs` |
+| **Section 6 (RAM)** | `memcheck` with the nine record conditions, the composed batch-verification driver | `ram.rs` |
+| **(c) the zkVM wiring** | `pipeline3.rs` — the fetch/input ROM lookups + the RAM/register Section-6 arguments replace the Twist & Shout layer; the verifier never re-executes; 4 tamper rejections + wrong-program | `lattice-zkvm/{lookup_memory,pipeline3}.rs` |
+| **LF+ ℓ2 (2026/721)** | the JL projection RoK (concentration pinned), the exact-shortening RoK, the no-drift norm ledger | `lattice-folding/lfplus_l2.rs` |
+
+Workspace: **763 tests green** (528 baseline + 235 new; the botched
+`lib.rs` rebase resolution in the previous push — the conflict markers
+committed — is fixed). The honest ledger: the compiled layer's
+response transmission is linear (the Greyhound √N compression is the
+documented next optimization); the v3 pipeline proves the memory layer
+only (the instruction-semantics AIR stays the shared P0-4 next layer
+with v2); the ring's schoolbook kernel is `O(d²)` per product by
+necessity (the NTT forces the full CRT split).

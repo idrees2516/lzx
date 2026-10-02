@@ -32,6 +32,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | **Small-space CPU proving (2025/611)** | lattice-streaming + zkvm/streaming.rs | — | **implemented** (oracles + Algorithm 1 + hybrid + prefix-suffix + grand product + matrix commitment + client facade + e2e path) | 25 |
 | Tensor-Train Random Projections (2026/2146) | lattice-ttrp | Tier-0 (TTRP shortness) | **implemented** (cores, both projection paths, Π_TTRP RoK + verifier tensor evaluation + bounds/search) | 15 |
 | Speeding Up Sum-Check (2025/1117 + 2026/587) | lattice-sumcheck/{extrapolate,multiproduct,fastprover} | Tier-0 (prover speedups) | **implemented** (window prover + multiproduct engine + split-eq, byte-identical transcripts; Goldilocks κ≈1 documented) | 10 |
+| **Ring lookups (2026/471)** | lattice-lookup-ring + zkvm/{lookup_memory,pipeline3} | — | **implemented** (Ring-Plookup + Ring-LogUp + the Section-4 attacks + the Appendix-B toolkit + the Section-6 RAM batch verification + the Greyhound-style compile onto the Ajtai/carrier stack + the Fp256 binding-pass port + the zkVM memory-argument wiring) | 62 |
+| **LF+ ℓ2-norm checks (2026/721)** | lattice-folding/lfplus_l2.rs | — | **implemented** (the JL projection RoK with the concentration analysis + the exact-shortening RoK + the no-drift norm ledger) | 6 |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`

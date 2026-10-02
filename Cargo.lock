@@ -103,6 +103,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-lookup-ring"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-projsumcheck",
+]
+
+[[package]]
 name = "lattice-memory"
 version = "0.2.0"
 dependencies = [
@@ -228,6 +236,7 @@ dependencies = [
  "lattice-core",
  "lattice-guest",
  "lattice-labinius",
+ "lattice-lookup-ring",
  "lattice-memory",
  "lattice-ring",
  "lattice-streaming",

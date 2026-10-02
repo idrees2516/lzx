@@ -36,6 +36,8 @@ pub mod streaming;
 pub mod pipeline;
 pub mod pipeline2;
 pub mod ttrp;
+pub mod lookup_memory;
+pub mod pipeline3;
 
 #[cfg(test)]
 mod fuzz;

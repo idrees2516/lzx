@@ -26,6 +26,7 @@ pub mod cyclo_protocols;
 pub mod fq2_sumcheck;
 pub mod latticefold_plus;
 pub mod lfplus_mon;
+pub mod lfplus_l2;
 pub mod pgl;
 pub mod pikkufold;
 pub mod pikkufold_lrp;

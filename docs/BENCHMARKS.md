@@ -210,6 +210,39 @@ than a full-width one, both bit-identical to the naive reference; the
 strong sampling set's expansion factor stays within Theorem 3's
 `2·φ(η)·max‖ρ‖∞`; the commit → `Π_RLC` → `Π_DEC` → decider round trip
 and both tamper paths are test-pinned.
+## 2d. The ring-lookup layer (ePrint 2026/471, this session)
+
+The lookup layer rebuilt over the CRT-split ring
+(`lattice-lookup-ring`), including the three follow-ups of
+`docs/papers/implemented/ring-lookups.md` (release build, this
+container; `cargo run -p lattice-lookup-ring --example lookup_bench`):
+
+| Benchmark | Time |
+|---|---|
+| Ring-LogUp prove+verify M=4 N=4 (d=8) | 0.9 ms |
+| Ring-LogUp prove+verify M=8 N=8 | 1.7 ms |
+| Ring-LogUp prove+verify M=16 N=16 | 3.1 ms |
+| Ring-Plookup prove+verify M=4 N=4 | 1.6 ms |
+| Ring-Plookup prove+verify M=8 N=8 | 2.9 ms |
+| Windowed binding pass (ring carrier) N=8 / 32 / 128 | 0.2 / 0.8 / 3.2 ms |
+| Fp256 binding pass (BN254, CIOS grid) N=8 / 32 / 128 | 1.3 / 4.6 / 18.2 ms |
+| Compiled Ring-LogUp (commitments + binding passes) M=N=4 | 2.2 ms |
+| RAM batch verification (Section 6) M=4 k=8 | 9.5 ms |
+| RAM batch verification M=8 k=16 | 17.8 ms |
+
+Reading: the PIOPs run at the paper's `O(N + poly(d)·M)` prover shape
+with the schoolbook split-ring kernel (`O(d²)` per product — the NTT
+is incompatible with Lemma 5.8's `q ≡ 5 mod 8` two-component split);
+the binding passes scale linearly in the slot count
+(`N·K_w` digit windows per oracle); the Fp256 port runs the same
+rounds at ~6x the ring carrier's cost — the CIOS grid's per-limb work
+against the schoolbook u32 kernel, with the upper-limb short-circuit
+already active. The v3 zkVM pipeline (the ring-lookup memory layer)
+proves the 6-step demo program end-to-end in ~0.4 s wall (the four
+bridge instances' RAM batch verifications dominate; the v2
+Twist & Shout path on the same trace is ~30 ms — the honest
+trade-off of the lookup approach at demonstration scale: unstructured
+tables and ring compatibility against the field-tuned grand products).
 
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
