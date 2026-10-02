@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~57k lines of pure-`std` Rust. 30 crates. 1005 tests. Zero external dependencies.**
+**~66k lines of pure-`std` Rust. 31 crates. 1136 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
@@ -71,6 +71,7 @@ prove_program(RV64IMAC bytecode)  ->  Proof envelope  ->  verify_program(envelop
 | 14 | **PCD via Holography Accumulation** (ePrint 2026/538) | `lattice-holo` (+ `pc_short`) | The GBF relation family with both univariate and multivariate representations, Π_GBF1 (Marlin-style) + Π_GBF2 (Spartan-style) with the h₁/h₂ domain sum-check, Π_batchM, Π_Collapse, Barebones (SuperMarlin/SuperSpartan recovery), Π_Fold (the holography accumulation), the non-uniform decider, and the PCD construction; **+ the deviation-ledger follow-ups**: the PQ commitment route (Ajtai-over-`F_r` with digit layers, the E-fold closure, the norm ledger, the MSIS double-open kernel) and the accumulatable short-opening PC (the Accordion module-sumcheck over `F_r`: O(log n) openings, γ-accumulation, the amortized decider) |
 | 15 | **Accordion — Revisiting the IPA-sumcheck connection** (ePrint 2025/1325) | `lattice-accordion` | The lattice instantiation of the whole paper: the module-valued sum-check (Lemma 3.1) over `(R_q)^rows` at `q = 2^50−2687`, the ml-PCS with accumulation (Def 4.3) — `com` through 16-bit digit layers on the layered cube, `reduce` (the deferred `(V−baP')/a` terminal), `accumulate` (the γ-fold with `e(X) = Σγⁱ eq(X,rᵢ)`), the amortized `decide` (`Ĝ(r)`, once per batch — the FRI decider's lattice obstruction documented), and the executable two-α extraction harness (Lemma 5.2) with the shortness verdicts and the `[G\|P]` MSIS-kernel outcomes |
 | 16 | **CauchyFold — Residue-Optimal High-Arity Lattice Folding** (ePrint 2026/2011) | `lattice-cauchyfold` | The full paper at the scaled profile: the Cauchy carrier algebra (Prop 4.4 identity, Lemma 4.5 discrepancy, the A.3 fast construction — differential-tested), the executable boundary-width theory (Thm 4.1 / Lemma 4.2 / Cor 4.3 pinned by exact K-linear algebra), the node protocol with the 19 root objects (the field-check sum-check, the level-2 ΓW=Y system with ring-structured commitment rows, the R16 fingerprint), the §5.5 linear chain (projection with retries, the symmetric h-before-challenge, the D46 certified challenges, the response identities), the §5.6 terminal codec, and the §6 extraction (Lemma 6.2 compare-before-clearing, the coordinate replay, the loss accounting) |
+| 17 | **LatticeBlindFold — A Lattice-Based Analogue of NovaBlindFold** (ePrint 2026/1857) | `lattice-blindfold` | The blinding stack for SuperNeo, complete: the Libra-style masked Sum-Check over `K = F_{q^2}` (the mask never opened — the final check lives at the ABDLOP-commitment level), the componentwise ABDLOP commit-and-prove with the rank-doubling ψ embedding, the full PoK family (Π_many^(1)/(2)/(ct)/Π_anc with Rej1/Rej2 and the (g₀,g₁,g₂) quadratic garbage triple), Protocols 6/7/8 (all 18 R1CS-reduction steps, the Wmax-capped RLC mask loop with the Cy,0 tuple, the fresh-salt decomposition), the samplers, Π_LBF + the accumulator-free Π°_LBF + the folding blueprint, the blinded layout with Lemma 3.3 hiding, and the Table-2 parameter sets with the consolidated error budget (Remark 4.19's ≈116/121-bit verdicts, Remark 4.23's 2^−112 blinding cap) |
 
 Plus two ports of external systems:
 
@@ -126,7 +127,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **1005 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **1136 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations).
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
@@ -153,7 +154,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 1005 tests
+cargo test --workspace      # 1136 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
@@ -225,7 +226,7 @@ implemented / partial / unimplemented — lives in [`docs/`](docs/):
 start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/papers/README.md`](docs/papers/README.md).
 
-Testing: `cargo test --workspace` (1005 tests at this commit);
+Testing: `cargo test --workspace` (1136 tests at this commit);
 `cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
 lattice-bench --bin bench` (26 stages, reproducible matrix) — see
 `PERFORMANCE.md` for the methodology.

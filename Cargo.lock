@@ -45,6 +45,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-blindfold"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+]
+
+[[package]]
 name = "lattice-cauchyfold"
 version = "0.2.0"
 dependencies = [

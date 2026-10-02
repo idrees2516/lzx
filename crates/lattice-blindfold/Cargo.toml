@@ -1,0 +1,18 @@
+[package]
+name = "lattice-blindfold"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "LatticeBlindFold (ePrint 2026/1857): a lattice-based analogue of NovaBlindFold — SuperNeo made blinding via Libra-style masked Sum-Check, componentwise ABDLOP commit-and-prove and rejection sampling"
+
+[lib]
+
+[dependencies]
+lattice-core = { workspace = true }
+
+[[example]]
+name = "blindfold_bench"
+
+[[test]]
+name = "blindfold"

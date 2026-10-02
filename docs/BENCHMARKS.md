@@ -329,6 +329,34 @@ the norm ledger, the decider, the double-open MSIS kernel) and
 `lattice-holo::pc_short` — the Accordion module-sumcheck on `Fp256`
 (`O(log n)` openings, the γ-accumulation, the amortized decider).
 
+## 2h. The LatticeBlindFold wave (ePrint 2026/1857, 2026-10-03, this session)
+
+The blinding layer for the folding stack — the first lattice-based
+NovaBlindFold analogue. End-to-end timings of one full Π_LBF folding step
+(Protocol 12: the ι_bl precomposition + Π'_R1CS + Π'_RLC + Π'_DEC, with
+all the ABDLOP PoKs and their rejection-sampling loops), release profile:
+
+| profile | prove | verify | commitments | masked openings |
+|---------|-------|--------|-------------|-----------------|
+| toy (d=4, nf=2^6, k=17) | 159 ms | 8.4 ms | 167 ABDLOP + 18 Ajtai | ~23k ring elems |
+| medium (d=8, nf=2^8, k=20) | 1.10 s | 27 ms | 194 ABDLOP + 21 Ajtai | ~70k ring elems |
+
+The k = Θ(log n_F) decomposition depth (17/20 at the toy scales) is the
+paper's own price of blinding (Remark 4.18: SuperNeo at its native k=Θ(1)
+is a log-factor cheaper — the gap the paper leaves as "the main open
+engineering problem"). At the paper's parameters (n_F = 2^21, d = 128,
+k = 31, ξ ≈ 20) §4.3.3.1 reports ≈ 8.2 MB of communication per folding
+step (4.57 MB masked openings over 246 blocks, 1.98 MB output ABDLOP
+commitments, 0.47 MB compact Ajtai) — the crate's budget calculator
+reproduces the supporting security rows (≈ 121 bits interactive, binding
+term ε_SC = 2^−121.6, blinding cap 2^−112).
+
+The honest toy-scale caveat: |C| = 4^d gives no challenge-space security
+at d = 4/8 (the budget prints −3/+5 interactive bits — recorded, not
+hidden); the blinding machinery itself (the Rej1 distribution-flattening
+test, the perfect Sum-Check masking, the S_ABDLOP simulator's accepting
+transcripts) is exercised and verified statistically regardless.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

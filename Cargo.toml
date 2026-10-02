@@ -31,6 +31,7 @@ members = [
     "crates/lattice-holo",
     "crates/lattice-accordion",
     "crates/lattice-cauchyfold",
+    "crates/lattice-blindfold",
     "crates/lattice-greyhound",
 ]
 
@@ -71,6 +72,7 @@ lattice-pcd = { path = "crates/lattice-pcd" }
 lattice-holo = { path = "crates/lattice-holo" }
 lattice-accordion = { path = "crates/lattice-accordion" }
 lattice-cauchyfold = { path = "crates/lattice-cauchyfold" }
+lattice-blindfold = { path = "crates/lattice-blindfold" }
 lattice-greyhound = { path = "crates/lattice-greyhound" }
 
 [profile.release]
