@@ -34,6 +34,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Speeding Up Sum-Check (2025/1117 + 2026/587) | lattice-sumcheck/{extrapolate,multiproduct,fastprover} | Tier-0 (prover speedups) | **implemented** (window prover + multiproduct engine + split-eq, byte-identical transcripts; Goldilocks κ≈1 documented) | 10 |
 | **Ring lookups (2026/471)** | lattice-lookup-ring + zkvm/{lookup_memory,pipeline3} | — | **implemented** (Ring-Plookup + Ring-LogUp + the Section-4 attacks + the Appendix-B toolkit + the Section-6 RAM batch verification + the Greyhound-style compile onto the Ajtai/carrier stack + the Fp256 binding-pass port + the zkVM memory-argument wiring) | 62 |
 | **LF+ ℓ2-norm checks (2026/721)** | lattice-folding/lfplus_l2.rs | — | **implemented** (the JL projection RoK with the concentration analysis + the exact-shortening RoK + the no-drift norm ledger) | 6 |
+| **ZK-PCD from Accumulation Schemes (2026/289)** | lattice-pcd | — | **implemented** (the SPS framework with R1CS/CCS/permutation instances + the CFS17/XZZ+19 masked sum-check with the KS24 point-update + the zk-Protogalaxy accumulation + the two-circuit ZK-PCD construction over vector-Pedersen BN254) | 43 |
+| **PCD via Holography Accumulation (2026/538)** | lattice-holo | — | **implemented** (the GBF relation family both ν + Π_GBF1/Π_GBF2 + Π_batchM + Π_Collapse + Barebones + Π_Fold + the non-uniform decider + the PCD chain driver) | 25 |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`

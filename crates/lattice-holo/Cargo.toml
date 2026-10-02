@@ -1,0 +1,15 @@
+[package]
+name = "lattice-holo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Proof-Carrying Data via Holography Accumulation (ePrint 2026/538): the GBF relation family, Π_GBF1/Π_GBF2 (univariate + multivariate), Π_batchM/Π_Collapse/Barebones/Π_Fold, the non-uniform decider, and the PCD construction over vector-Pedersen polynomial commitments"
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-pcd = { workspace = true }
+lattice-projsumcheck = { workspace = true }
+
+[[example]]
+name = "holo_bench"

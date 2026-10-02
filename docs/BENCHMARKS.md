@@ -244,6 +244,50 @@ Twist & Shout path on the same trace is ~30 ms — the honest
 trade-off of the lookup approach at demonstration scale: unstructured
 tables and ring compatibility against the field-tuned grand products).
 
+## 2f. The PCD papers wave (ePrint 2026/289 + 2026/538, 2026-10-02, this session)
+
+Two new crates benchmark the PCD layer over BN254 Fr/G1 with vector
+Pedersen commitments (bucket MSM) — `cargo run --release -p lattice-pcd
+--example pcd_bench` and `cargo run --release -p lattice-holo --example
+holo_bench`.
+
+**ZK-PCD from accumulation schemes (2026/289)** — the zk-Protogalaxy
+accumulation (masking vector + eq-interpolated F(X) over the party
+layout + the masked batched sum-check + the error commitment):
+
+| relation | size | prove (ms) | verify (ms) | decide (ms) |
+|---|---|---|---|---|
+| R1CS (d=2, µ=1) | s=2 t=6 rows=4 | 5.7 | 1.3 | 1.9 |
+| R1CS | s=4 t=12 rows=8 | 18.4 | 3.8 | 7.4 |
+| R1CS | s=8 t=24 rows=16 | 26.7 | 4.1 | 11.1 |
+| CCS (d=3) | rows=4 t_M=3 | 6.4 | — | — |
+| CCS (d=6) | rows=8 t_M=5 | 14.8 | — | — |
+| permutation (d=n, µ=2) | n=4/8/12 | 4.2 / 6.0 / 8.0 | — | — |
+| ZK-PCD chain (arity 2) | depth 2/4/8 | 39 / 78 / 157 | ~12 (final) | — |
+
+**PCD via holography accumulation (2026/538)** — the GBF protocols in
+both representations, Barebones (the SuperSpartan/SuperMarlin
+recovery), the holography fold, the decider, and the PCD chain:
+
+| protocol | configuration | prove (ms) | verify (ms) |
+|---|---|---|---|
+| Π_GBF2 / Π_GBF1 | mv n=4 | 1.5 / 1.8 | — |
+| Π_GBF2 / Π_GBF1 | mv n=8 | 5.9 / 7.3 | — |
+| Π_GBF2 / Π_GBF1 | uv n=4 | 7.9 / 13.4 | — |
+| Π_GBF2 / Π_GBF1 | uv n=8 | 32.0 / 49.9 | — |
+| Barebones | mv n=8 | 13.3 | 4.7 |
+| Barebones | uv n=8 | 34.5 | 5.3 |
+| Π_Fold (K=2) | mv n=8 | 23.5 | — |
+| Decider (ℓ=1) | mv n=8 | 59.8 | — |
+| PCD chain | depth 2 (mv n=8) | 48.9 | 75.7 (steps+decider) |
+| PCD chain | depth 4 (mv n=8) | 140.1 | 101.5 |
+
+The univariate instantiation's higher constant is the O(n²)
+Lagrange-to-monomial conversion and the 2n-node interpolation of the
+h₁/h₂ decomposition — the paper's own trade-off table (univariate wins
+only with a commitment whose evaluation proofs are O(1), e.g. KZG;
+with the linear-opening PC here the multivariate path is cheaper).
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

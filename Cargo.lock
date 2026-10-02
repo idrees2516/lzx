@@ -76,6 +76,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-holo"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-pcd",
+ "lattice-projsumcheck",
+]
+
+[[package]]
 name = "lattice-labinius"
 version = "0.1.0"
 dependencies = [
@@ -116,6 +125,14 @@ version = "0.2.0"
 dependencies = [
  "lattice-core",
  "lattice-sumcheck",
+]
+
+[[package]]
+name = "lattice-pcd"
+version = "0.2.0"
+dependencies = [
+ "lattice-core",
+ "lattice-projsumcheck",
 ]
 
 [[package]]

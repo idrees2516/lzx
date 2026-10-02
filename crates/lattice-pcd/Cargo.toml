@@ -1,0 +1,16 @@
+[package]
+name = "lattice-pcd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Zero-Knowledge PCD from Accumulation Schemes (ePrint 2026/289): the SPS framework, zk-Protogalaxy accumulation (masking vectors + ZK sum-check), and the two-circuit ZK-PCD construction over vector-Pedersen commitments"
+
+[dependencies]
+lattice-core = { workspace = true }
+lattice-projsumcheck = { workspace = true }
+
+[dev-dependencies]
+
+[[example]]
+name = "pcd_bench"

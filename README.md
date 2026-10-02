@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~41k lines of pure-`std` Rust. 25 crates. 844 tests. Zero external dependencies.**
+**~49k lines of pure-`std` Rust. 27 crates. 912 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
@@ -55,18 +55,20 @@ prove_program(RV64IMAC bytecode)  ->  Proof envelope  ->  verify_program(envelop
 ## Papers implemented
 
 | # | Paper | Crate | What is implemented |
-|---|-------|-------|---------------------|
-| 1 | **ProtogaLattice** (constant-round folding) | `lattice-folding` | Cross-term extraction via finite-difference Newton inversion (diagonal snapshots); exact fold identity for degree-2 and degree-3 relations |
-| 2 | **Akita** (lattice PCS) | `lattice-akita` | Packed commitments, sumcheck evaluation proofs with norm-checked openings, grouped openings, schedule catalog + security profiles |
-| 3 | **Cyclo** (lattice PCS) | `lattice-folding` | Extension commitment (iterative-borrow chunking, exact recomposition), partial range checks, accumulator with additive norm growth + refresh |
-| 4 | **HyperWolf** (lattice PCS) | `lattice-pcs` | Standard-soundness PCS backend + the `PcsBackend` trait boundary |
-| 5 | **LatticeFold+** (folding + Ajtai commitments) | `lattice-folding` | Algebraic range proof (eq-multiplied booleanity sumcheck + point reconstruction), double-commitment folding, tensor rings |
-| 6 | **PikkuFold** (folding) | `lattice-folding` | Layered biased-ternary random projections with certified JL norm bounds, no in-fold commitments, linear-relation binding |
-| 7 | **Quasar** (lookup arguments) | `lattice-lookup` | **Committed** grand-product lookup (Q1: Ajtai commitments to T/R/Q, τ from commitments, counting-map difference, forged-triple rejection) + partial-evaluation multi-instance accumulation |
-| 8 | **RoKoko** (lattice PCS) | `lattice-rokoko` | Coarse/fine two-stage committed refinement with ternary projections; incomplete-NTT completion |
-| 9 | **SALSA** (zk sumcheck) | `lattice-salsa` | Norm sumcheck, LDE tensor relation, structured (negacyclic) matrix checks, zk sumcheck with statement-derived masks |
-| 10 | **Symphony** (folding + SNARK) | `lattice-folding` | High-arity (mu-ary) one-shot folding with full subset cross-term bookkeeping; exact mu-ary identity verified |
-| 11 | **Twist & Shout** (small-space zkVM) | `lattice-memory`, `lattice-vm`, `lattice-zkvm` | Twist (read/write timeline) and Shout (read-only table) checks with grand-product fingerprint identities; canonical RV64IMAC decoder + deterministic executor + subword-correct sparse memory + LR/SC & AMO atomics; end-to-end prove/verify |
+| 1 |-------|-------|---------------------|
+| 2 | **ProtogaLattice** (constant-round folding) | `lattice-folding` | Cross-term extraction via finite-difference Newton inversion (diagonal snapshots); exact fold identity for degree-2 and degree-3 relations |
+| 3 | **Akita** (lattice PCS) | `lattice-akita` | Packed commitments, sumcheck evaluation proofs with norm-checked openings, grouped openings, schedule catalog + security profiles |
+| 4 | **Cyclo** (lattice PCS) | `lattice-folding` | Extension commitment (iterative-borrow chunking, exact recomposition), partial range checks, accumulator with additive norm growth + refresh |
+| 5 | **HyperWolf** (lattice PCS) | `lattice-pcs` | Standard-soundness PCS backend + the `PcsBackend` trait boundary |
+| 6 | **LatticeFold+** (folding + Ajtai commitments) | `lattice-folding` | Algebraic range proof (eq-multiplied booleanity sumcheck + point reconstruction), double-commitment folding, tensor rings |
+| 7 | **PikkuFold** (folding) | `lattice-folding` | Layered biased-ternary random projections with certified JL norm bounds, no in-fold commitments, linear-relation binding |
+| 8 | **Quasar** (lookup arguments) | `lattice-lookup` | **Committed** grand-product lookup (Q1: Ajtai commitments to T/R/Q, τ from commitments, counting-map difference, forged-triple rejection) + partial-evaluation multi-instance accumulation |
+| 9 | **RoKoko** (lattice PCS) | `lattice-rokoko` | Coarse/fine two-stage committed refinement with ternary projections; incomplete-NTT completion |
+| 10 | **SALSA** (zk sumcheck) | `lattice-salsa` | Norm sumcheck, LDE tensor relation, structured (negacyclic) matrix checks, zk sumcheck with statement-derived masks |
+| 11 | **Symphony** (folding + SNARK) | `lattice-folding` | High-arity (mu-ary) one-shot folding with full subset cross-term bookkeeping; exact mu-ary identity verified |
+| 12 | **Twist & Shout** (small-space zkVM) | `lattice-memory`, `lattice-vm`, `lattice-zkvm` | Twist (read/write timeline) and Shout (read-only table) checks with grand-product fingerprint identities; canonical RV64IMAC decoder + deterministic executor + subword-correct sparse memory + LR/SC & AMO atomics; end-to-end prove/verify |
+| 13 | **ZK-PCD from Accumulation Schemes** (ePrint 2026/289) | `lattice-pcd` | The special-sound framework (R1CS/CCS/permutation instances, homogeneous algebraic maps), the CFS17/XZZ+19 zero-knowledge sum-check with the KS24 point-update, the zk-Protogalaxy accumulation scheme (masking vector + eq-interpolated F(X) + the error commitment E + decider), the FS NARK, and the two-circuit ZK-PCD construction over vector-Pedersen BN254 commitments |
+| 14 | **PCD via Holography Accumulation** (ePrint 2026/538) | `lattice-holo` | The GBF relation family with both univariate and multivariate representations, Π_GBF1 (Marlin-style) + Π_GBF2 (Spartan-style) with the h₁/h₂ domain sum-check, Π_batchM, Π_Collapse, Barebones (SuperMarlin/SuperSpartan recovery), Π_Fold (the holography accumulation), the non-uniform decider, and the PCD construction |
 
 Plus two ports of external systems:
 
@@ -120,7 +122,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **844 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **912 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations).
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
@@ -147,7 +149,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 844 tests
+cargo test --workspace      # 912 tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
@@ -218,7 +220,7 @@ implemented / partial / unimplemented — lives in [`docs/`](docs/):
 start at [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and
 [`docs/papers/README.md`](docs/papers/README.md).
 
-Testing: `cargo test --workspace` (844 tests at this commit);
+Testing: `cargo test --workspace` (912 tests at this commit);
 `cargo clippy --workspace` clean. Benchmarks: `cargo run --release -p
 lattice-bench --bin bench` (26 stages, reproducible matrix) — see
 `PERFORMANCE.md` for the methodology.

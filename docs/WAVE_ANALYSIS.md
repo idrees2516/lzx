@@ -228,3 +228,28 @@ documented next optimization); the v3 pipeline proves the memory layer
 only (the instruction-semantics AIR stays the shared P0-4 next layer
 with v2); the ring's schoolbook kernel is `O(d²)` per product by
 necessity (the NTT forces the full CRT split).
+
+
+## §12 The PCD wave (2026-10-02): ePrint 2026/289 + 2026/538
+
+Two papers, two crates, 68 new tests (912 total):
+
+- **lattice-pcd (2026/289)**: the ZK-PCD-from-accumulation construction.
+  The interesting engineering: (a) the paper's E-fold listing carries a
+  `⊥` at the dummy's error slot, which forces `e₀ = 0` and contradicts
+  the random-dummy sampling — resolved by committing the public fresh
+  error `ẽ` unblinded (`Com_pub`) and transmitting the dummy's error
+  commitment; (b) with degree-D masks the update identity holds only for
+  the multilinearization, so the accumulator's claims are kernel values
+  `MLE(G|_cube)(β)` throughout; (c) pad positions (the paper's 2m+1 <
+  2^L gloss) carry dummy copies so F̃ vanishes on the whole cube.
+- **lattice-holo (2026/538)**: the holography-accumulation stack. The
+  interesting engineering: (a) the univariate protocols need the
+  Lagrange-to-monomial conversion (O(n²) via exact division by X−h) to
+  build the h₁/h₂ decomposition; (b) the PCEP batch proofs must be
+  self-contained (their η derive from a dedicated transcript) to stay
+  portable across folds; (c) the decider's union index needs per-function
+  matrix-offset rebasing.
+
+Both papers' honest-deviation ledgers live in
+`docs/papers/implemented/{zk-pcd-accumulation,holography-pcd}.md`.
