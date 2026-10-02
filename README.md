@@ -78,6 +78,7 @@ Plus two ports of external systems:
 |--------|-------|-------|
 | **labinius PCS** (osdnk/labinius `crates/pcs`) | `lattice-labinius` | Full PCS: const-evaluated ring tables (conductor-1944 split + conductor-972 quadratic), exact mixed-radix scalar NTT, GF(2^162) with carry-less multiplication, Ajtai commitment key (7 moduli), SHAKE-256 Fiat-Shamir, weight-28 bounded challenges, slot-domain fold, eval layer, bit-dropped opening (Garner digits + residual norm check), Clear + BitDropped modes, reference round |
 | **LaBRADOR** (lattice-dogs vendored C) | `lattice-labrador` | Native pure-std Rust: Z_Q[X]/(X^64+1), Q=2^48-59, exact i64/i128 arithmetic, SIS-rule parameters, inner/outer commitments with digit decomposition, JL projection with rejection, amortization, full verify; simple-statement API with content digests |
+| **LaBRADOR** (ePrint 2022/1341) + **Greyhound** (ePrint 2024/1293) | `lattice-greyhound` | The paper-faithful engine at the papers' q=2^32-99: the principal relation F/F', Figure 2/3 protocol (LIFTS aggregation, g/h garbage, amortization), §5.3 recursion + §5.6 tail (2r-1 interleaved garbage), §6 R1CS reductions (binary Figure 4 + mod-2^64+1 Figure 5 with NAF encodings), the Greyhound PCS (Setup/Commit/Open/Eval with the σ^{-1} Z_q translation, Figure 1 three-round protocol, Figure 2 batching, Lemma 3.2 CWSS extractor, §4.5 hiding/HVZK), Table 4 parameters + the 53KB accounting — 57 lib tests + the integration/tamper suites |
 
 ## Architecture
 
@@ -108,6 +109,7 @@ lattice-pcs           PcsBackend trait + HyperWolf backend
 lattice-embeddings    Hachi-style slot embeddings + trace functionals
 lattice-labinius      labinius PCS port
 lattice-labrador      LaBRADOR native Rust port
+lattice-greyhound     LaBRADOR (2022/1341) + Greyhound (2024/1293) — the paper-faithful engine, the PCS, the 53KB accounting
 lattice-sis-estimator Offline SIS security estimator: ADPS16/BDGL16 costs, LGSA
                       simulator, infinity + Euclidean attack paths (W6)
 lattice-vm            RV64IMAC decoder (all base+M+A incl. compressed), executor,
@@ -157,6 +159,7 @@ cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark 
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
 cargo run --release -p lattice-labinius --example backend_bench     # scalar vs AVX-512 backends
 cargo run --release -p lattice-labrador --example cmod_bench        # LaBRADOR reduction/products
+cargo run --release -p lattice-greyhound --example greyhound_bench  # LaBRADOR+Greyhound: the PCS pipeline, the 2^26-scale sub-proof, the 53KB accounting (GREYHOUND_230=1 for the 2^30 statement)
 ```
 
 No external dependencies; builds with stable Rust (1.75+). Benchmarks are pure-`std`

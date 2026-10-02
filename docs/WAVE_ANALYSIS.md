@@ -293,3 +293,40 @@ lattice side:
 
 Workspace: 30 crates, 1005 tests, zero clippy warnings on every
 touched crate.
+## 12. The LaBRADOR + Greyhound papers wave (2026-10-02)
+
+The two IACR papers the user designated for the 53KB@2^30 compactness claim,
+implemented end-to-end in the new `lattice-greyhound` crate (~5.5k lines, 60
+tests + the bench):
+
+* **LaBRADOR** (2022/1341) — the principal relation (§5.1, F/F'), the Figure 2
+  prover / Figure 3 verifier with all twenty checks, the JL projection
+  (§4, both matrix modes, the q/125 bound), the LIFTS aggregation rounds, the
+  uniform R_q α/β F-aggregation (Theorem 5.1's distribution — NOT the
+  reference's quarternary pre-folding: the papers' rule), the amortization
+  with g/h garbage, the §5.3 target relation E1–E6 with the corrected
+  positional chunk-pairing expansion (⟨sᵢ,sⱼ⟩ = Σₓ⟨chunkₓⁱ,chunkₓʲ⟩ — the
+  reference's same-index structure, which the porting initially got wrong as
+  a double sum and which the E6 identity failure exposed), the §5.6 tail with
+  2r−1 interleaved garbage, §5.4's restart remedy (the dynamic norm
+  divergence → the parameter inflation retry), the §6 R1CS reductions
+  (binary Figure 4 + mod-2^64+1 Figure 5 with the NAF Enc machinery), and the
+  §5.7 size model.
+* **Greyhound** (2024/1293) — the PCS (Figure 4: Setup/Commit/Open/Eval with
+  the σ^{-1}(x) Z_q→R_q translation), the Figure 1 three-round protocol, the
+  Lemma 3.2 CWSS extractor as executable code, the Figure 2 batching, the
+  Lemma 2.11 weak-binding reduction, the §4.5 hiding commitment + the HVZK
+  masking protocol (equation (13) + the ct checks), the Table 4 parameter
+  sets verbatim, and the 53KB accounting.
+* **The claim**: the analytic Table 4 accounting lands at 34.2/53.4/48.2 KB
+  across 2^26/2^28/2^30 (the paper: 46/53/53 KB — the same regime,
+  near-constant in N); the full pipeline runs end-to-end at 256–4096 ring
+  elements (34–45 KB proofs, 1.9–4.7s prove); the LaBRADOR sub-proof RUNS at
+  the real 2^26-derived statement (34,791 ring elements, 2.2M coefficients:
+  52.5s prove, 44.3s verify, 85.6 KB measured); the 2^30 statement
+  (138,880 ring elements) runs with GREYHOUND_230=1.
+* The honest deviations are ledgered in
+  `docs/papers/implemented/{labrador,greyhound}.md` — notably: power-of-two
+  bases, the ±1 JL mode as default, the disjoint key windows, the
+  locally-optimized level parameters (85.6 vs ~46 KB at 2^26), and the
+  front-end witness padding for the quadratic joining.

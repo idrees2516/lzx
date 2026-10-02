@@ -31,6 +31,7 @@ members = [
     "crates/lattice-holo",
     "crates/lattice-accordion",
     "crates/lattice-cauchyfold",
+    "crates/lattice-greyhound",
 ]
 
 [workspace.package]
@@ -70,6 +71,7 @@ lattice-pcd = { path = "crates/lattice-pcd" }
 lattice-holo = { path = "crates/lattice-holo" }
 lattice-accordion = { path = "crates/lattice-accordion" }
 lattice-cauchyfold = { path = "crates/lattice-cauchyfold" }
+lattice-greyhound = { path = "crates/lattice-greyhound" }
 
 [profile.release]
 lto = "thin"

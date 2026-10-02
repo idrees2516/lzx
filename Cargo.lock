@@ -85,6 +85,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-greyhound"
+version = "0.1.0"
+dependencies = [
+ "lattice-core",
+]
+
+[[package]]
 name = "lattice-guest"
 version = "0.2.0"
 dependencies = [

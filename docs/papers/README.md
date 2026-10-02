@@ -38,6 +38,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | **LF+ ℓ2-norm checks (2026/721)** | lattice-folding/lfplus_l2.rs | — | **implemented** (the JL projection RoK with the concentration analysis + the exact-shortening RoK + the no-drift norm ledger) | 6 |
 | **ZK-PCD from Accumulation Schemes (2026/289)** | lattice-pcd | — | **implemented** (the SPS framework with R1CS/CCS/permutation instances + the CFS17/XZZ+19 masked sum-check with the KS24 point-update + the zk-Protogalaxy accumulation + the two-circuit ZK-PCD construction over vector-Pedersen BN254) | 43 |
 | **PCD via Holography Accumulation (2026/538)** | lattice-holo | — | **implemented** (the GBF relation family both ν + Π_GBF1/Π_GBF2 + Π_batchM + Π_Collapse + Barebones + Π_Fold + the non-uniform decider + the PCD chain driver) | 25 |
+| **LaBRADOR (2022/1341)** | lattice-greyhound (protocol/relation/jl/r1cs/recursion) | §5.2–§5.7, §6 | **implemented** (the paper-faithful engine at q=2^32-99: Figure 2/3, LIFTS, the §5.3 target relation, the §5.6 tail, the §6 R1CS reductions, §5.4's restart remedy) | 57 |
+| **Greyhound (2024/1293)** | lattice-greyhound (greyhound/batch/cwss/zk/sizes) | §2.5, §3–§5 | **implemented** (Figure 1 + the CWSS extractor of Lemma 3.2, Figure 2 batching, Figure 4 PCS with the σ^{-1} translation, Lemma 2.11 weak binding, §4.5 hiding/HVZK, Table 4 + the 53KB accounting) | (shared) |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`
