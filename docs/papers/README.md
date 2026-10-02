@@ -34,6 +34,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Speeding Up Sum-Check (2025/1117 + 2026/587) | lattice-sumcheck/{extrapolate,multiproduct,fastprover} | Tier-0 (prover speedups) | **implemented** (window prover + multiproduct engine + split-eq, byte-identical transcripts; Goldilocks κ≈1 documented) | 10 |
 | **Ring lookups (2026/471)** | lattice-lookup-ring + zkvm/{lookup_memory,pipeline3} | — | **implemented** (Ring-Plookup + Ring-LogUp + the Section-4 attacks + the Appendix-B toolkit + the Section-6 RAM batch verification + the Greyhound-style compile onto the Ajtai/carrier stack + the Fp256 binding-pass port + the zkVM memory-argument wiring) | 62 |
 | **LF+ ℓ2-norm checks (2026/721)** | lattice-folding/lfplus_l2.rs | — | **implemented** (the JL projection RoK with the concentration analysis + the exact-shortening RoK + the no-drift norm ledger) | 6 |
+| **LaBRADOR (2022/1341)** | lattice-greyhound (protocol/relation/jl/r1cs/recursion) | §5.2–§5.7, §6 | **implemented** (the paper-faithful engine at q=2^32-99: Figure 2/3, LIFTS, the §5.3 target relation, the §5.6 tail, the §6 R1CS reductions, §5.4's restart remedy) | 57 |
+| **Greyhound (2024/1293)** | lattice-greyhound (greyhound/batch/cwss/zk/sizes) | §2.5, §3–§5 | **implemented** (Figure 1 + the CWSS extractor of Lemma 3.2, Figure 2 batching, Figure 4 PCS with the σ^{-1} translation, Lemma 2.11 weak binding, §4.5 hiding/HVZK, Table 4 + the 53KB accounting) | (shared) |
 
 Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`

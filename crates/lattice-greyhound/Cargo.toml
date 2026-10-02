@@ -1,0 +1,15 @@
+[package]
+name = "lattice-greyhound"
+version = "0.1.0"
+edition = "2021"
+description = "The LaBRADOR (ePrint 2022/1341) proof system and Greyhound (ePrint 2024/1293) polynomial commitment scheme, implemented paper-faithfully over Z_q[X]/(X^64+1), q = 2^32-99"
+license = "MIT"
+
+[dependencies]
+lattice-core = { path = "../lattice-core" }
+
+[dev-dependencies]
+
+[[example]]
+name = "greyhound_bench"
+path = "examples/greyhound_bench.rs"

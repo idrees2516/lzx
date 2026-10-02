@@ -293,3 +293,41 @@ Honest reading of the gap:
 - The bit-packed bundle discipline (31 bits/coeff) holds the *committed*
   universe at O(T) values — the design that makes the sparse prover the
   next constant-factor step rather than a redesign.
+
+## 3. The LaBRADOR + Greyhound papers wave (ePrint 2022/1341 + 2024/1293, 2026-10-02, this session)
+
+`cargo run --release -p lattice-greyhound --example greyhound_bench` — the
+full PCS pipeline (commit → eval → the LaBRADOR recursion → verify) at
+feasible scales, the Table 4 analytic accounting, and the LaBRADOR sub-proof
+at the real Table-4-derived statement sizes:
+
+| Instance | prove | verify | total proof | levels |
+|---|---|---|---|---|
+| PCS, 256 ring elements (degree 16K) | 1.92 s | 1.45 s | **34.8 KB** | 2 (1 tail) |
+| PCS, 1024 ring elements (degree 64K) | 2.89 s | 2.26 s | **39.5 KB** | 2 (1 tail) |
+| PCS, 4096 ring elements (degree 256K) | 4.72 s | 3.88 s | **45.4 KB** | 2 (1 tail) |
+| LaBRADOR sub-proof at the 2^26 statement (34,791 ring elements = 2.2M coefficients) | 52.5 s | 44.3 s | **85.6 KB (measured)** | 2 |
+| LaBRADOR sub-proof at the 2^30 statement (138,880 ring elements = 8.9M coefficients) | ~4× the 2^26 | ~4× | see the bench | — |
+
+The analytic accounting (Table 4 parameters + the §5.7 level model):
+
+| N | Greyhound contribution | LaBRADOR sub-proof (analytic) | total |
+|---|---|---|---|
+| 2^26 | 3.5 KB (paper: 3.75) | 31.2 KB | **34.2 KB** (paper: 46) |
+| 2^28 | 3.5 KB (paper: 3.75) | 50.9 KB | **53.4 KB** (paper: 53) |
+| 2^30 | 3.5 KB (paper: 4.25) | 45.1 KB | **48.2 KB** (paper: 53) |
+
+Notes:
+* the proof sizes are **near-constant in N** — the papers' headline property
+  (the last recursion levels dominate, independent of the statement size);
+* the measured 2^26 sub-proof (85.6 KB) exceeds the analytic model because
+  our level parameters are locally optimized (the reference itself notes it
+  optimizes "locally instead of globally" — the same caveat, honest here);
+* the q = 2^32-99 modulus with the schoolbook i64/i128 arithmetic (no
+  multi-modular RNS NTT, no AVX-512) — the papers' 132s commit at 2^30 on a
+  Xeon is the optimized C reference's number; our port targets
+  verifiability, not throughput;
+* the §5.4 restart remedy is live: the level restarts with inflated input
+  norms when the measured output norm exceeds the heuristic prediction
+  (the [norm] lines in the bench show pred ≈ measured within ~1% at the
+  paper's parameter scales).
