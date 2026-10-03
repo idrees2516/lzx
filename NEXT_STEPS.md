@@ -17,6 +17,22 @@ Companion documents: `PERFORMANCE.md` (the labinius-parity performance audit),
 
 ---
 
+## Session update (2026-10-03)
+
+Landed this session: SALSAA D3 (Pi-batch-star row-count-preserving
+batching, Theorem 4 — lattice-sumcheck/batch.rs + the ring-norm batch
+instantiation), SALSAA D6 (the sumcheck engine constant-factor pass:
+single-binding rounds, zero-copy t=0/1 half borrows, in-place factor
+binding — byte-identical transcripts), and the T&S instruction-semantics
+constraint families T2 (ten legs: booleanity, selectors, flags, arith,
+comparisons, control, routing, termination — see
+docs/papers/implemented/constraints-families.md; the v1 coverage gate
+excludes shifts/MUL/DIV fail-closed). Also fixed the never-executed
+substrate's structural defects: consistent bit-tensor MLEs
+(bit_tensor's num_vars), the MSB-first ledger row mapping in
+limb/value_combo/instr_word, and the stage() view/factor-claim pairing.
+Workspace 1,155 tests green.
+
 ## 0. Executive summary — the brutal bottom line
 
 1. **The algebra kernels are exact and well-tested (256 tests, 0 clippy

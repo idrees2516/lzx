@@ -344,7 +344,10 @@ impl<'a> Ledger<'a> {
         }
     }
 
-    /// Claim = tensor(idx_point(nbits, bit) ++ tail): bit-row `bit`.
+    /// Claim = tensor(idx_point(log2(nbits), bit) ++ tail): bit-row
+    /// `bit`. The tensor's bit block is `log2(nbits)` variables (the
+    /// row-major grid's row axis), so the row point is the row index in
+    /// binary, MSB first.
     fn bit_row_claim(
         &mut self,
         factor: Factor,
@@ -352,13 +355,20 @@ impl<'a> Ledger<'a> {
         bit: usize,
         tail: &[Goldilocks],
     ) -> Result<Goldilocks, LedgerError> {
-        let mut point = idx_point(nbits, bit);
+        let mut point = idx_point(nbits.trailing_zeros() as usize, bit);
         point.extend_from_slice(tail);
         self.tensor_claim(factor, &point)
     }
 
+    /// The tensor row holding value-bit `bit` (LSB numbering) of an
+    /// `nbits`-wide bit tensor: the tensors are packed MSB-first, so
+    /// value-bit `b` lives at row `nbits - 1 - b`.
+    fn value_bit_row(nbits: usize, bit: usize) -> usize {
+        nbits - 1 - bit
+    }
+
     /// The limb-`limb` (16-bit) MLE evaluation of value slot `slot` at a
-    /// cycle point — 16 tensor row claims.
+    /// cycle point — 16 tensor row claims (MSB-first row packing).
     pub fn limb(
         &mut self,
         slot: usize,
@@ -369,7 +379,8 @@ impl<'a> Ledger<'a> {
         let mut acc = Goldilocks::ZERO;
         for i in 0..16usize {
             let bit = limb * 16 + i;
-            let v = self.bit_row_claim(factor, 64, bit, cycle_pt)?;
+            let row = Self::value_bit_row(64, bit);
+            let v = self.bit_row_claim(factor, 64, row, cycle_pt)?;
             acc = acc.add(&fe(1u64 << i).mul(&v));
         }
         Ok(acc)
@@ -384,7 +395,8 @@ impl<'a> Ledger<'a> {
         let factor = Factor::ValueBits { slot };
         let mut acc = Goldilocks::ZERO;
         for bit in 0..64usize {
-            let v = self.bit_row_claim(factor, 64, bit, cycle_pt)?;
+            let row = Self::value_bit_row(64, bit);
+            let v = self.bit_row_claim(factor, 64, row, cycle_pt)?;
             acc = acc.add(&fe(1u64 << bit).mul(&v));
         }
         Ok(acc)
@@ -394,7 +406,8 @@ impl<'a> Ledger<'a> {
     pub fn instr_word(&mut self, cycle_pt: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {
         let mut acc = Goldilocks::ZERO;
         for bit in 0..32usize {
-            let v = self.bit_row_claim(Factor::InstrBits, 32, bit, cycle_pt)?;
+            let row = Self::value_bit_row(32, bit);
+            let v = self.bit_row_claim(Factor::InstrBits, 32, row, cycle_pt)?;
             acc = acc.add(&fe(1u64 << bit).mul(&v));
         }
         Ok(acc)

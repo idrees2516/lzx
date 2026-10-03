@@ -102,8 +102,11 @@ fn bits_of(v: u64, nbits: usize) -> Vec<u8> {
     (0..nbits).map(|i| ((v >> (nbits - 1 - i)) & 1) as u8).collect()
 }
 
-/// Build a bit tensor: MLE over `(nbits + log_t)`; evaluation index
-/// `bit * T + t`; variable order: bit block (MSB first) then cycle block.
+/// Build a bit tensor: MLE over `(log2(nbits) + log_t)` variables; the
+/// evaluation table is the row-major `bit-row x cycle` grid (row block =
+/// most significant variables, MSB first); evaluation index
+/// `bit * T + t`. The bit-row count is `nbits` (2^log2(nbits)), so the
+/// MLE is structurally consistent: 2^(log2(nbits) + log_t) evaluations.
 fn bit_tensor(bits_per_cycle: &[Vec<u8>], log_t: usize, nbits: usize) -> DenseMle {
     let t = 1usize << log_t;
     let mut evals = Vec::with_capacity(nbits * t);
@@ -112,7 +115,10 @@ fn bit_tensor(bits_per_cycle: &[Vec<u8>], log_t: usize, nbits: usize) -> DenseMl
             evals.push(fe(bits_per_cycle[tt][b] as u64));
         }
     }
-    DenseMle { num_vars: nbits + log_t, evaluations: evals }
+    DenseMle {
+        num_vars: nbits.trailing_zeros() as usize + log_t,
+        evaluations: evals,
+    }
 }
 
 /// The RAM window: `2^log_k` 8-byte words (word keys `addr >> 3`).

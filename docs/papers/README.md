@@ -16,7 +16,7 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Paper | Crate | Wave-7 items | Status | Tests |
 |---|---|---|---|---|
 | ProtogaLattice (2026/1317) | lattice-folding/pgl.rs | 7.1, 7.14 | **implemented** (PGL-Fold + PGL-Boot + range attach) | 11 |
-| SALSAA (2025/2124) | lattice-salsa/ring_norm.rs + lattice-akita/salsa_response.rs | 7.2, 7.3 | **implemented** (D1+D2 + the D4 response-layer swap consumed by the Akita PCS) | 12 |
+| SALSAA (2025/2124) | lattice-salsa/ring_norm.rs + lattice-akita/salsa_response.rs | 7.2, 7.3 | **implemented** (D1+D2 + the D4 response-layer swap consumed by the Akita PCS + D3 Pi-batch-star row-count-preserving batching + the D6 engine constant-factor pass) | 18 |
 | labinius (upstream PCS) | lattice-labinius | 7.16 | **implemented** (wire/); 7.5 Recursive partial | 9 wire |
 | Cyclo (2026/359) | lattice-folding/cyclo.rs | 7.6 | partial (Π^range/Π^ext designs; kernel fold exists) | — |
 | LatticeFold+ (2025/247) | lattice-folding/latticefold_plus.rs | 7.7 | partial (monomial/ψ layer open; range proof + padding fix landed) | — |
@@ -27,7 +27,7 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Akita (2026/1983) | lattice-akita | 7.11 | partial (packed commit + sumcheck eval; A1–A5 open) | — |
 | HyperWolf (2025/1903) | lattice-pcs | 7.12 | partial (PcsBackend + transparent mode; guarded IPA open) | — |
 | RoKoko (2026/575) | lattice-rokoko | 7.13 | partial (projection kernels; Π^proj-c/COM open) | — |
-| Twist & Shout (2025/105) | lattice-memory + zkvm | 7.3, 7.4 | partial/unimplemented (oracles + envelope strong; PIOPs + response-layer swap open) | — |
+| Twist & Shout (2025/105) | lattice-memory + zkvm | 7.3, 7.4 | **implemented** (the sparse `0s are free` engine + the v1 instruction-semantics constraint families — see `implemented/constraints-families.md`; shifts/MUL/DIV gated out) | 8 |
 | **Monomial-basis sum-check (2026/762)** | lattice-projsumcheck | — | **implemented** (projective protocol + structured tables + claim-preserving batching + Fp256 upper-limb challenges + grinding) | 27 |
 | **Small-space CPU proving (2025/611)** | lattice-streaming + zkvm/streaming.rs | — | **implemented** (oracles + Algorithm 1 + hybrid + prefix-suffix + grand product + matrix commitment + client facade + e2e path) | 25 |
 | Accordion / IPA-sumcheck (2025/1325) | lattice-accordion | Tier-1 (the accumulatable ml-PCS) | **implemented** (module sum-check + reduce/accumulate/decide + the two-α extractor) | 23 |
@@ -46,6 +46,32 @@ Reading order for an auditor: `docs/ARCHITECTURE.md`, then the paper
 files in status order (implemented → partial), then `NEXT_STEPS.md`
 (the full 831-line gap analysis with per-paper tables and the Wave 6–8
 roadmap), `PERFORMANCE.md`, `SECURITY.md`, `AUDIT_CHECKLIST.md`.
+
+## Session updates (2026-10-03)
+
+- **SALSAA D3 + D6** (2025/2124 Theorem 4 + the engine pass):
+  `lattice-sumcheck/batch.rs` — `prove_batch_star`/`verify_batch_star`
+  (m claims, heterogeneous variable counts, ONE sumcheck with round
+  count = max(num_vars); the padding lift ignores the last k bits so the
+  claim scales by 2^k and the terminal never scales) and the
+  `lattice-salsa/ring_norm.rs` norm-layer instantiation
+  (`prove_ring_norm_batch`/`verify_ring_norm_batch` with per-instance
+  Lemma-4 gates and the single F_{q^2} batch terminal);
+  `lattice-sumcheck/sumcheck.rs` — the single-binding round discipline
+  (t=0/1 borrow the raw halves zero-copy; one reusable bind buffer per
+  factor per round) + in-place factor binding (no per-round
+  fix_variables clones), byte-identical transcripts pinned by a
+  reference test.
+- **The T&S instruction-semantics constraint families** (T2): the ten
+  legs of `constraints-families.md` — booleanity (per-row),
+  selectors/decode, flags, arith limb recurrences, full-width
+  comparisons, the next-pc MUX, memory routing + bitwise ALU, and
+  termination — with the fail-closed v1 coverage gate and tamper
+  suites. Includes the structural fixes the never-executed substrate
+  needed (consistent bit-tensor MLEs, MSB-first ledger row mapping,
+  the per-row booleanity construction, the stage() pairing fix) and
+  the Goldilocks negative-constant correction
+  (`fe(0u64.wrapping_sub(k))` is wrong — `from_u64` reduces mod p).
 
 ## Session updates (2026-10-01)
 
