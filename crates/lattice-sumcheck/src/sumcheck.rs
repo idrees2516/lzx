@@ -98,15 +98,14 @@ pub fn prove(
     let mut rounds: Vec<Vec<Goldilocks>> = Vec::with_capacity(m);
     let mut challenges: Vec<Goldilocks> = Vec::with_capacity(m);
 
-    for round in 0..m {
-        // g(X) evaluated at X = 0..=d: bind the current variable of every
-        // factor to t, then accumulate term products over the remaining
-        // hypercube (all terms at once inside sum_products).
-        let mut evals_at = Vec::with_capacity(d + 1);
-        for t in 0..=d {
-            let t_fe = Goldilocks::from_u64(t as u64);
-            evals_at.push(sum_products(&bound, &vp.terms, t_fe));
-        }
+    for _round in 0..m {
+        // g(X) evaluated at X = 0..=d — the D6 single-binding discipline:
+        // the per-factor half-binding structure (lo/hi slices) is computed
+        // ONCE per round; t = 0 and t = 1 borrow the raw halves (zero-copy —
+        // a + (b−a)·0 = a, a + (b−a)·1 = b are canonical), and every other t
+        // binds through one reusable packed kernel buffer. Byte-identical
+        // round values to the per-t half-binding form.
+        let evals_at = round_evals_single_bind(&bound, &vp.terms, d);
         // Absorb round polynomial, get challenge, bind all factors.
         transcript
             .append_field_slice(b"sumcheck-round", &evals_at)
@@ -124,11 +123,17 @@ pub fn prove(
         }
         current_claim = interpolate_at(&evals_at, &r);
 
+        // D6 in-place binding: fold every factor's first variable directly
+        // in its own buffer (the same `bind_first_half_in_place` kernel
+        // `fix_variables` uses on its clone) — no per-round allocation and
+        // no per-round full-table copy.
         for b in bound.iter_mut() {
-            *b = b.fix_variables(&[r]).map_err(SumcheckError::Mle)?;
+            let len = b.evaluations.len();
+            lattice_core::field_simd::bind_first_half_in_place(&mut b.evaluations, r);
+            b.evaluations.truncate(len / 2);
+            b.num_vars -= 1;
         }
         rounds.push(evals_at);
-        let _ = round;
     }
 
     // All variables bound: each factor is a constant. Compute P(r).
@@ -156,9 +161,79 @@ pub fn prove(
     })
 }
 
+/// The D6 single-binding round evaluation: `g(t)` for every `t = 0..=d`
+/// from ONE half-binding pass per factor per round.
+///
+/// `g(t) = Σ_p Σ_terms coeff · Π_i (a_i(p) + t·(b_i(p) − a_i(p)))` where
+/// `a = evs[..points]` and `b = evs[points..]` are the factor's raw halves.
+/// t = 0 borrows `a`, t = 1 borrows `b` (zero copies); each other t binds
+/// into a per-factor reusable buffer with the packed half-binding kernel.
+/// Values are bit-identical to the historical per-t `sum_products` form.
+fn round_evals_single_bind(
+    bound: &[DenseMle],
+    terms: &[(Goldilocks, Vec<usize>)],
+    d: usize,
+) -> Vec<Goldilocks> {
+    if bound.is_empty() {
+        return vec![Goldilocks::ZERO; d + 1];
+    }
+    let rem_vars = bound[0].num_vars;
+    let points = 1usize << (rem_vars - 1);
+    let num_factors = bound.len();
+    // One reusable binding buffer per factor, sized once per round.
+    let mut bind_bufs: Vec<Vec<Goldilocks>> =
+        vec![vec![Goldilocks::ZERO; points]; num_factors];
+    let mut evals_at = Vec::with_capacity(d + 1);
+    for t in 0..=d {
+        let t_fe = Goldilocks::from_u64(t as u64);
+        // Per-factor value slices at this t.
+        let mut bound_vals: Vec<&[Goldilocks]> = Vec::with_capacity(num_factors);
+        if t_fe.is_zero() {
+            for f in bound {
+                bound_vals.push(&f.evaluations[..points]);
+            }
+        } else if t_fe == Goldilocks::ONE {
+            for f in bound {
+                bound_vals.push(&f.evaluations[points..]);
+            }
+        } else {
+            // Bind every factor into its reusable buffer first (mutable
+            // borrows end here), then collect the immutable slices.
+            for (fi, f) in bound.iter().enumerate() {
+                let evs = &f.evaluations;
+                lattice_core::field_simd::bind_half_slices(
+                    &evs[..points],
+                    &evs[points..],
+                    t_fe,
+                    &mut bind_bufs[fi],
+                );
+            }
+            for buf in bind_bufs.iter() {
+                bound_vals.push(buf.as_slice());
+            }
+        }
+        // SIMD: 8-lane lazy term-product accumulation with exact carry
+        // accounting (bit-identical to the scalar sequential sum).
+        let mut acc = lattice_core::field_simd::Sum8::new();
+        let mut fslices: Vec<&[Goldilocks]> = Vec::with_capacity(8);
+        for (coeff, ids) in terms {
+            fslices.clear();
+            fslices.extend(ids.iter().map(|fi| bound_vals[*fi]));
+            acc.accumulate_term(*coeff, &fslices);
+        }
+        evals_at.push(acc.finish());
+    }
+    evals_at
+}
+
 /// g(t): sum over the remaining hypercube of the virtual polynomial with
 /// the current (first) variable of every factor set to t. Factors are
 /// half-bound on the fly: `f_t(p) = f[p] + t·(f[p + points] − f[p])`.
+///
+/// Kept as the reference form of the round evaluation (the tests pin it
+/// against `round_evals_single_bind`); the prover hot path uses the
+/// single-binding variant above.
+#[allow(dead_code)]
 pub(crate) fn sum_products(
     bound: &[DenseMle],
     terms: &[(Goldilocks, Vec<usize>)],
@@ -427,5 +502,49 @@ mod tests {
         let evals = [fe(1), fe(3), fe(7)]; // x=0,1,2
         let r = fe(5);
         assert_eq!(interpolate_at(&evals, &r), fe(31)); // 25+5+1
+    }
+
+    #[test]
+    fn single_binding_round_values_match_reference() {
+        // D6: the single-binding round evaluation must be bit-identical to
+        // the historical per-t half-binding reference at every t of every
+        // round (the byte-identical-transcript invariant).
+        for num_vars in [2usize, 4, 6] {
+            let vp = build_vp(num_vars);
+            let claim = vp.sum_over_hypercube();
+            let mut bound: Vec<DenseMle> = vp.factors.clone();
+            let d = vp.max_degree();
+            for round in 0..num_vars {
+                let fast = round_evals_single_bind(&bound, &vp.terms, d);
+                let mut reference = Vec::with_capacity(d + 1);
+                for t in 0..=d {
+                    reference.push(sum_products(&bound, &vp.terms, fe(t as u64)));
+                }
+                assert_eq!(fast, reference, "round {round} of {num_vars} vars");
+                // bind to the SAME next state both ways: in-place vs
+                // fix_variables.
+                let mut inplace = bound.clone();
+                let r = fe((round as u64) % 5 + 2); // a non-canonical t
+                for b in inplace.iter_mut() {
+                    let len = b.evaluations.len();
+                    lattice_core::field_simd::bind_first_half_in_place(
+                        &mut b.evaluations,
+                        r,
+                    );
+                    b.evaluations.truncate(len / 2);
+                    b.num_vars -= 1;
+                }
+                let cloned: Vec<DenseMle> = bound
+                    .iter()
+                    .map(|b| b.fix_variables(&[r]).ok().unwrap())
+                    .collect();
+                for (a, b) in inplace.iter().zip(cloned.iter()) {
+                    assert_eq!(a.num_vars, b.num_vars);
+                    assert_eq!(a.evaluations, b.evaluations);
+                }
+                bound = cloned;
+            }
+            let _ = claim;
+        }
     }
 }
