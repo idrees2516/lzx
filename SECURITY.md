@@ -165,14 +165,26 @@ bits at `n̄ ≥ 8` requires `k ≥ 16`, whose commitments
 (`r·k·64·4` bytes) alone exceed the 50 KB budget.
 
 **The sound posture** (the roadmap's own Stage 5.2, now estimator-
-mandated): the **second-level fold** — reduce the response to
-`n̄ ∈ {2, 4}` ring elements before the opening (the LaBRADOR decider's
-job) — where `k = 4, r = 4, A ≤ 2^8` holds 329+ classical bits with
-~4 KB of commitments. Until that lands, the compact mode's opening
-must be read as a **size prototype with an under-sized module**: the
-protocol's tamper tests pin the honest path, but the binding claim at
-`k = 2` is `~2^12` — the interim hardening is `k = 4` + `A = 2^6`
-(60 bits at `n̄ = 4`; still shy of 128 at longer responses).
+mandated): the **second-level fold** (`lattice-zkvm/src/second_fold.rs`,
+landed) — the LaBRADOR-decider amortization: the level-1 responses of
+`r` bundles sharing the column key fold into ONE short response bound
+by a fresh Ajtai key at the estimator's sound row (`κ = 4, n̄ ∈ {2, 4},
+r = 4, A = 2^8` → 329+ classical bits, re-verified FAIL-CLOSED at
+construction by the estimator-gated profile). Every check is exact and
+linear — the public-target fold `F̄·z = Σ γ_i·t_i`, the short-key
+binding `A₂·z = Σ γ_i·T_i`, the commuting functional `Φ(z) = Σ γ_i·u_i`
+— with no garbage terms. **The honest width-reduction finding**: the
+DESIGN doc's benchmark-scale "~5 KB" needs the response WIDTH reduced
+(hundreds → {2,4}), and that reduction — splitting one response into
+parts whose link images are PROVER data — necessarily produces the
+`F̄_i·s_j` cross terms the LaBRADOR level commits as quadratic garbage;
+there is no garbage-free width-reducing fold. The landed construction
+amortizes over public targets instead (sound at every shape) and the
+profile rejects the below-floor shapes fail-closed; the width reduction
+at benchmark scale remains the LaBRADOR-tail follow-up. Until the
+compact mode consumes it, its opening must still be read as a **size
+prototype with an under-sized module** (the interim `k = 4` + `A = 2^6`
+at 60 bits for `n̄ = 4`).
 
 The table itself regenerates with:
 `cargo run --release -p lattice-sis-estimator --example fold_security_table`.

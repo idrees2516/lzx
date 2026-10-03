@@ -1418,12 +1418,29 @@ mod compact_tests {
         }
         assert!(verify_memory_argument_compact(&bad3, &program, &input).is_err());
 
-        // Reordered claims: rejected (the pop order is protocol-fixed).
+        // Reordered claims across DIFFERENT factors are semantically
+        // neutral under the key-indexed claim store (the values pair by
+        // key; the carrier's rho derivation is unchanged) — the
+        // meaningful order tamper is swapping the VALUES of two claims
+        // on the SAME factor (the per-key FIFO): rejected.
         let mut bad9 = clone_proof(&proof);
-        if bad9.claims.len() > 2 {
-            bad9.claims.swap(0, 1);
+        let mut pair: Option<(usize, usize)> = None;
+        'outer: for i in 0..bad9.claims.len() {
+            for j in (i + 1)..bad9.claims.len() {
+                if bad9.claims[i].factor == bad9.claims[j].factor
+                    && bad9.claims[i].value != bad9.claims[j].value
+                {
+                    pair = Some((i, j));
+                    break 'outer;
+                }
+            }
         }
-        assert!(verify_memory_argument_compact(&bad9, &program, &input).is_err());
+        if let Some((i, j)) = pair {
+            let (vi, vj) = (bad9.claims[i].value, bad9.claims[j].value);
+            bad9.claims[i].value = vj;
+            bad9.claims[j].value = vi;
+            assert!(verify_memory_argument_compact(&bad9, &program, &input).is_err());
+        }
 
         // Tampered carrier terminal w: rejected.
         let mut bad4 = clone_proof(&proof);

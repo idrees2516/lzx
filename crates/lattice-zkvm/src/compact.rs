@@ -695,7 +695,7 @@ fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldi
 
 
 /// The Goldilocks functional term for one coefficient: weight·(balanced c).
-fn phi_term(weight: &Goldilocks, c: u32, q: u32) -> Goldilocks {
+pub fn phi_term(weight: &Goldilocks, c: u32, q: u32) -> Goldilocks {
     let c_int = if c > q / 2 {
         c as i64 - q as i64
     } else {

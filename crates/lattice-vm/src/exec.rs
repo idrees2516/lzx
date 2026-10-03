@@ -184,8 +184,11 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Srlw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
+            // RV64 spec: the 32-bit logical-shift result is SIGN-extended
+            // (bit 31 of `a >> s` is zero for s >= 1, but s == 0 keeps
+            // bit 31 — the plain `as u64` was a latent zero-extension bug).
             let w = (a as u32).wrapping_shr(b as u32 & 0x1f);
-            rd_write(&mut reg_writes, rd, w as u64);
+            rd_write(&mut reg_writes, rd, w as i32 as i64 as u64);
         }
         Instr::Sraw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
@@ -324,8 +327,11 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Divuw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
+            // The 32-bit quotient is sign-extended per the M-spec (the
+            // plain `as u64` zero-extended quotients >= 2^31 and the
+            // divide-by-zero -1).
             let v = (a as u32).checked_div(b as u32).unwrap_or(u32::MAX);
-            rd_write(&mut reg_writes, rd, v as u64);
+            rd_write(&mut reg_writes, rd, v as i32 as i64 as u64);
         }
         Instr::Remw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
@@ -338,12 +344,14 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
         }
         Instr::Remuw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));
+            // The 32-bit remainder is sign-extended per the M-spec
+            // (remainders can reach bit 31 when the divisor exceeds it).
             let v = if (b as u32) == 0 {
                 a as u32
             } else {
                 (a as u32) % (b as u32)
             };
-            rd_write(&mut reg_writes, rd, v as u64);
+            rd_write(&mut reg_writes, rd, v as i32 as i64 as u64);
         }
         Instr::Mulw { rd, rs1, rs2 } => {
             let (a, b) = (rr!(rs1), rr!(rs2));

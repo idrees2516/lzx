@@ -177,6 +177,7 @@ pub struct Ledger<'a> {
     table: Vec<(Factor, &'a DenseMle)>,
     claims: Vec<BaseClaim>,
     seen: HashMap<(u8, usize, Vec<u8>), Goldilocks>,
+    #[allow(dead_code)]
     queue: VecDeque<BaseClaim>,
     /// **`fix_last_variables` cache** (the prover-throughput design): the
     /// per-factor tensor bound at the most recent claim tail. The hot
@@ -187,6 +188,14 @@ pub struct Ledger<'a> {
     /// `O(N·vars)` evaluate each — the `(log_k + 1)×` resolution win the
     /// prover profile identified.
     tail_cache: HashMap<(u8, usize), (Vec<Goldilocks>, DenseMle)>,
+    /// Verifier-mode key-indexed claim store: (disc, payload, point) ->
+    /// FIFO of values. Consumption order ACROSS keys is free (the
+    /// carrier's rho derivation uses the transmitted list order, which
+    /// is unchanged); repeated keys (the values-only mode and the
+    /// duplicated recordings) consume in list order.
+    claim_map: HashMap<(u8, usize, Vec<u8>), VecDeque<Goldilocks>>,
+    /// The unconsumed claim count (verifier mode).
+    pending: usize,
 }
 
 /// The head size for the tail cache: claims whose points agree beyond the
@@ -211,17 +220,30 @@ impl<'a> Ledger<'a> {
             seen: HashMap::new(),
             queue: VecDeque::new(),
             tail_cache: HashMap::new(),
+            claim_map: HashMap::new(),
+            pending: 0,
         }
     }
 
-    /// Verifier-mode ledger over the proof's claim list.
+    /// Verifier-mode ledger over the proof's claim list (key-indexed:
+    /// the families consume the claims in their own order).
     pub fn verifier(claims: Vec<BaseClaim>) -> Self {
+        let pending = claims.len();
+        let mut claim_map: HashMap<(u8, usize, Vec<u8>), VecDeque<Goldilocks>> = HashMap::new();
+        for c in claims.iter() {
+            claim_map
+                .entry((c.factor.discriminant(), c.factor.payload(), point_bytes(&c.point)))
+                .or_default()
+                .push_back(c.value);
+        }
         Ledger {
             table: Vec::new(),
             claims: Vec::new(),
             seen: HashMap::new(),
-            queue: claims.into_iter().collect(),
+            queue: VecDeque::new(),
             tail_cache: HashMap::new(),
+            claim_map,
+            pending,
         }
     }
 
@@ -230,17 +252,17 @@ impl<'a> Ledger<'a> {
         &self.claims
     }
 
-    /// The number of un-popped verifier claims (0 when the replay
+    /// The number of unconsumed verifier claims (0 when the replay
     /// consumed exactly the transmitted list).
     pub fn queue_len(&self) -> usize {
-        self.queue.len()
+        self.pending
     }
 
     fn record(&mut self, factor: Factor, point: &[Goldilocks], value: Goldilocks) {
         let key = (factor.discriminant(), factor.payload(), point_bytes(point));
         if self.seen.insert(key, value).is_some() {
-            // Duplicate: keep the first recording (the queue-pop path
-            // checks consistency on the verifier side).
+            // Duplicate: keep the first recording (the verifier's
+            // multi-valued key store consumes repeats in FIFO order).
         }
         self.claims.push(BaseClaim {
             factor,
@@ -254,27 +276,37 @@ impl<'a> Ledger<'a> {
         if let Some(prev) = self.seen.get(&key) {
             return Ok(*prev);
         }
-        let claim = self.queue.pop_front().ok_or(LedgerError::QueueEmpty)?;
-        let got = (claim.factor.discriminant(), claim.factor.payload());
-        let expected = (factor.discriminant(), factor.payload());
-        // Values-only mode (empty transmitted point): the point is the
-        // verifier's own derivation — record it as the claim's point.
-        let point_ok = claim.point.is_empty() || claim.point == point;
-        if got != expected || !point_ok {
-            return Err(LedgerError::KeyMismatch { expected, got });
-        }
-        let claim = BaseClaim {
-            factor: claim.factor,
-            point: point.to_vec(),
-            value: claim.value,
-        };
-        if let Some(prev) = self.seen.insert(key, claim.value) {
-            if prev != claim.value {
-                return Err(LedgerError::InconsistentDuplicate);
+        // The key-indexed store: consumption order across keys is free;
+        // repeated keys consume in list order (FIFO per key).
+        let value = if let Some(q) = self.claim_map.get_mut(&key) {
+            match q.pop_front() {
+                Some(v) => {
+                    self.pending = self.pending.saturating_sub(1);
+                    v
+                }
+                None => return Err(LedgerError::QueueEmpty),
             }
-        }
-        self.claims.push(claim.clone());
-        Ok(claim.value)
+        } else {
+            // Values-only fallback: the empty-point convention.
+            let vkey = (factor.discriminant(), factor.payload(), Vec::new());
+            match self.claim_map.get_mut(&vkey) {
+                Some(q) => match q.pop_front() {
+                    Some(v) => {
+                        self.pending = self.pending.saturating_sub(1);
+                        v
+                    }
+                    None => return Err(LedgerError::QueueEmpty),
+                },
+                None => return Err(LedgerError::QueueEmpty),
+            }
+        };
+        self.seen.insert(key, value);
+        self.claims.push(BaseClaim {
+            factor,
+            point: point.to_vec(),
+            value,
+        });
+        Ok(value)
     }
 
     fn eval_tensor(&mut self, factor: Factor, point: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {
@@ -310,22 +342,34 @@ impl<'a> Ledger<'a> {
         tensor.evaluate(point).map_err(LedgerError::Mle)
     }
 
-        /// The values-only verifier ledger: pops match by factor only; the
-    /// claim's point is the verifier's own derivation.
+    /// The values-only verifier ledger: pops match by factor only; the
+    /// claim's point is the verifier's own derivation (keyed on the
+    /// empty-point convention).
     pub fn verifier_values(pairs: Vec<ValueClaim>) -> Self {
+        let claims: Vec<BaseClaim> = pairs
+            .into_iter()
+            .map(|vc| BaseClaim {
+                factor: vc.factor,
+                point: Vec::new(),
+                value: vc.value,
+            })
+            .collect();
+        let pending = claims.len();
+        let mut claim_map: HashMap<(u8, usize, Vec<u8>), VecDeque<Goldilocks>> = HashMap::new();
+        for c in claims.iter() {
+            claim_map
+                .entry((c.factor.discriminant(), c.factor.payload(), Vec::new()))
+                .or_default()
+                .push_back(c.value);
+        }
         Ledger {
             table: Vec::new(),
             claims: Vec::new(),
             seen: HashMap::new(),
-            queue: pairs
-                .into_iter()
-                .map(|vc| BaseClaim {
-                    factor: vc.factor,
-                    point: Vec::new(),
-                    value: vc.value,
-                })
-                .collect(),
+            queue: VecDeque::new(),
             tail_cache: HashMap::new(),
+            claim_map,
+            pending,
         }
     }
 
@@ -647,16 +691,33 @@ fn prove_grouped_carrier(
     let rhos = transcript
         .challenge_fields(b"bundle-rho", points.len())
         .map_err(LedgerError::Transcript)?;
-    let mut vp = VirtualPolynomial::new(flat.num_vars);
-    let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
     let mut combined = Goldilocks::ZERO;
+    // The factored carrier: sum_i rho_i·flat·eq_i = flat·(sum_i rho_i·eq_i)
+    // — ONE product term whose round values are IDENTICAL to the
+    // per-claim-term form (the products distribute), so the transcript
+    // and the round messages are byte-identical while the sumcheck work
+    // drops from (claims x flat x rounds) to (claims x flat + rounds x
+    // flat). The per-claim eq table is streamed (one live at a time).
+    let flat_len = 1usize << flat.num_vars;
+    let mut combined_eq = vec![Goldilocks::ZERO; flat_len];
     for (i, pt) in points.iter().enumerate() {
         let eq = DenseMle::eq_extension(pt);
-        let ei = vp.add_factor(eq).map_err(LedgerError::Virtual)?;
-        vp.add_term(rhos[i], vec![fi, ei])
-            .map_err(LedgerError::Virtual)?;
-        combined = combined.add(&rhos[i].mul(&values[i]));
+        let rho = rhos[i];
+        for (e, v) in combined_eq.iter_mut().zip(eq.evaluations.iter()) {
+            *e = e.add(&rho.mul(v));
+        }
+        combined = combined.add(&rho.mul(&values[i]));
     }
+    let mut vp = VirtualPolynomial::new(flat.num_vars);
+    let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
+    let ei = vp
+        .add_factor(DenseMle {
+            num_vars: flat.num_vars,
+            evaluations: combined_eq,
+        })
+        .map_err(LedgerError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, vec![fi, ei])
+        .map_err(LedgerError::Virtual)?;
     let out = sumcheck::prove(&vp, combined, transcript).map_err(LedgerError::Sumcheck)?;
     let norm = compact_norm_proof(s, norm_bound, norm_digits)
         .map_err(|e| LedgerError::Layout(format!("norm: {e:?}")))?;

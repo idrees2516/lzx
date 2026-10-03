@@ -924,9 +924,11 @@ impl Assembler {
         Ok(self)
     }
 
-    /// `mulhu rd, rs1, rs2` (unsigned x unsigned high)
+    /// `mulhu rd, rs1, rs2` (unsigned x unsigned high) — funct3 = 3
+    /// per the M-spec (the previous f3 = 2 was MULHSU's slot, paired
+    /// with the old decoder's swapped mapping).
     pub fn mulhu(&mut self, rd: u8, rs1: u8, rs2: u8) -> Result<&mut Self, AsmError> {
-        self.emit_r(OPC_OP, 2, 0x01, rd, rs1, rs2)?;
+        self.emit_r(OPC_OP, 3, 0x01, rd, rs1, rs2)?;
         Ok(self)
     }
 

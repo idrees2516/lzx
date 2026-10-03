@@ -38,6 +38,8 @@ pub mod pipeline2;
 pub mod ttrp;
 pub mod lookup_memory;
 pub mod pipeline3;
+pub mod semantics;
+pub mod second_fold;
 
 #[cfg(test)]
 mod fuzz;

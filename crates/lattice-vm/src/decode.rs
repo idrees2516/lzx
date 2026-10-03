@@ -269,7 +269,10 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
             (7, 0x00) => Instr::And { rd, rs1, rs2 },
             (0, 0x01) => Instr::Mul { rd, rs1, rs2 },
             (1, 0x01) => Instr::Mulh { rd, rs1, rs2 },
-            (2, 0x01) => Instr::Mulhu { rd, rs1, rs2 },
+            // MULHU is funct3 = 3 (0b011) per the M-spec; the previous
+            // (2, 0x01) arm decoded a non-existent encoding and rejected
+            // every real MULHU.
+            (3, 0x01) => Instr::Mulhu { rd, rs1, rs2 },
             (4, 0x01) => Instr::Div { rd, rs1, rs2 },
             (5, 0x01) => Instr::Divu { rd, rs1, rs2 },
             (6, 0x01) => Instr::Rem { rd, rs1, rs2 },

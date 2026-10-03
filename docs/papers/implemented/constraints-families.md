@@ -1,11 +1,17 @@
 # Twist-and-Shout constraint families (the instruction-semantics layer)
 
-Status: **the v1 constraint set is implemented** (Wave 8 session, 2026-10-03):
-`lattice-zkvm/src/constraints.rs` (~2.9k lines) + the integration suite
-`crates/lattice-zkvm/tests/constraints.rs` (8 tests: honest roundtrips on a
-memory program and a jal control-flow program, tamper rejection per family,
-witness/selector corruption rejection at prove time, and the fail-closed
-coverage gate).
+Status: **the FULL RV64IM constraint set is implemented** (the
+family-completion session, 2026-10-03): `lattice-zkvm/src/constraints.rs`
+(~5.4k lines) + the integration suite
+`crates/lattice-zkvm/tests/constraints.rs` (14 tests) +
+`crates/lattice-zkvm/tests/semantics.rs` (9 end-to-end tests through the
+bundle-commitment layer) + the pipeline integration
+(`lattice-zkvm/src/semantics.rs` + the pipeline2 Stage 4.5 + 4
+full-pipeline tests). The shifts, MUL, and DIV/REM families landed with
+range-linked limbs (every limb/carry column decomposed into boolean bits —
+the integer-semantics anchor), the DECODE leg (the instruction tensor bound
+to the fetched word + the coverage partition identities — the verifier-side
+coverage gate the pipeline needs), and the RANGE-LINKS leg.
 
 ## What landed
 
@@ -22,16 +28,26 @@ Ten legs in fixed protocol order (`prove_constraints` / `verify_constraints`):
 | `cmp` | comparisons | full-width eq-prefix recurrence (65 columns per comparison: `eqp[i+1] = eqp[i]·(1−a−b+2ab)`), the unsigned `ltu = Σ eqp·(1−a)b` and the signed head-term form |
 | `ctrl` | control | `pc = 4·fetch_word`; the next-pc MUX `np = A + b·t·(T−A) + j·(T−A) + r·(J−A)` with A = pc+4 (carry_pc4), T = pc+imm (carry_ctrl), J = rs1+imm (carry_jalr); post-halt inactivity `h·(rd_we+mem_we+mem_re) = 0` |
 | `route` | routing | effective address `mem_addr = rs1+imm` (limb-wise over the jalr chain, committed addr-limb columns); word addressing `addr = 8·word + 4·half` (word accesses) / `8·word` (double); SD `mem_new = rs2`; LD `rd = mem_old`; SW/LW half-MUX routing with the LW sign extension via committed bit rows; the bitwise AND/OR/XOR per-bit identities (register + immediate forms); the comparison rd routing |
+| `decode` | decode | the instruction tensor bound to the fetched word (`Σ 2^i·bit_i = iw`); the class partition (`Σ 12 class selectors = 1`); the sub-class partitions per class; the SYSTEM discipline (f3 = 0, funct12 ∈ {0,1}) — **the verifier-side coverage gate** |
+| `shift` | shifts | the shamt one-hots (register 6-bit / W 5-bit from rs2's low bits, immediate from the instruction's shamt field — each = the product of polarized source-bit rows); the per-bit shift MUXes (left: `rd_i = Σ_{s≤i} oh_s·rs1_{i−s}`; right-logical: the in-range sum; right-arithmetic: the in-range sum + the sign fill via the one-hot complement); the W sign extension (`rd_i = rd_31` for i ≥ 32) |
+| `mul` | multiply | the limb recurrence `S_k + c_k − p_k − 2^16·c_{k+1} = 0` over the range-linked limbs/carries (k = 0..7 for MULH/MULHU with the 128-bit closure; k = 0..3 for MUL with the free c_4 wrap; k = 0..1 for MULW); the MULHU rd routing (rd = hi); the MULH rd composition (`rd ≡ hi_u − a₆₃·b − b₆₃·a mod 2^64` via the borrow chain); the W sign extension |
+| `div` | divide | the eq-to-zero prefixes (bz for the 64- and 32-bit divisor checks); the magnitude definitions (the class-dependent sign sources: unsigned raw, signed \|x\| via the negation identity); the Euclidean recurrence `\|a\| = \|q\|·\|b\| + \|r\|` with the closure carry; the remainder bound (`\|r\| < \|b\|` via the subtraction borrow chain with the range-linked out limbs); the rd routing (the sign compositions `sq = sa ⊕ sb` expanded, the W extensions); the divide-by-zero specials (rd = −1 / rd = rs1) |
+| `rangelinks` | range | every mul/div limb and carry column composed from boolean bit columns (`limb_l = Σ_j 2^j·bit_{l,j}`) — **the integer-semantics anchor**: without the range, the limb recurrences only constrain field combinations |
 | `halt-end` | termination | `Σ e_last·halted = halted[T−1] = 1` — the indicator-MLE point check forcing termination |
 
-## The v1 coverage set (fail-closed)
+## The coverage set (fail-closed)
 
-Covered: ADD/ADDI/ADDW/ADDIW/SUB/SUBW, AND/OR/XOR (+ immediates),
-SLT/SLTU/SLTI/SLTIU, LUI, AUIPC, JAL/JALR, all six branches, LD/LW/LWU,
-SD/SW, ECALL/EBREAK. `prove_constraints`/`verify_constraints` reject any
-other instruction class with `UncoveredInstruction` (shifts, the MUL
-family, and the DIV/REM family are the follow-up wave; the `AUX_*` tensor
-namespace is reserved for them).
+Covered: **the full RV64IM subset** — ADD/ADDI/ADDW/ADDIW/SUB/SUBW,
+AND/OR/XOR (+ immediates), SLT/SLTU/SLTI/SLTIU, LUI, AUIPC, JAL/JALR, all
+six branches, LD/LW/LWU, SD/SW, ECALL/EBREAK, **all twelve shift classes**
+(SLL/SRL/SRA + W + I forms with the shamt one-hots — register 6-bit, W
+5-bit, immediate from the instruction bits), **the MUL family** (MUL,
+MULH, MULHU, MULW — the limb recurrence with the MULH sign-corrected rd
+composition), and **the DIV/REM family** (DIV/DIVU/REM/REMU + the W forms
+— the Euclidean quotient/remainder discipline over range-linked
+magnitudes with the sign compositions and the divide-by-zero specials).
+`prove_constraints`/`verify_constraints` reject anything else (the
+atomics, the CSR space) with `UncoveredInstruction`.
 
 ## Structural fixes forced by execution (the staged substrate had never run)
 

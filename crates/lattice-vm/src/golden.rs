@@ -179,7 +179,7 @@ pub fn corpus() -> Vec<Golden> {
             enc_r(OP, 3, 0, 1, 2, 0),       // x3 = add(-1 + -2) = -3 (sanity)
             enc_r(OP, 4, 0, 1, 2, 1),       // x4 = mul(-1 * -2) = 2
             enc_r(OP, 5, 1, 1, 2, 1),       // x5 = mulh(-1 * -2 >> 64) = 0
-            enc_r(OP, 6, 2, 1, 2, 1),       // x6 = mulhu(MAX * (MAX-1) >> 64)
+            enc_r(OP, 6, 3, 1, 2, 1),       // x6 = mulhu(MAX * (MAX-1) >> 64)
             SYSTEM,
         ],
         memory: vec![],
@@ -250,8 +250,10 @@ pub fn corpus() -> Vec<Golden> {
             (3, 0xFFFF_FFFF_8000_0000u64),
             (4, 0),
             (5, NEG1),
-            (6, 0xFFFF_FFFFu64),
-            (7, 0x8000_0000u64),
+            // DIVUW by zero: the 32-bit all-ones quotient sign-extended.
+            (6, NEG1),
+            // REMUW by zero: se32 of the 32-bit dividend (0x80000000).
+            (7, 0xFFFF_FFFF_8000_0000u64),
             // mulw(i32::MIN * -1) wraps to i32::MIN, sign-extended.
             (8, 0xFFFF_FFFF_8000_0000u64),
         ],

@@ -286,6 +286,7 @@ dependencies = [
  "lattice-lookup-ring",
  "lattice-memory",
  "lattice-ring",
+ "lattice-sis-estimator",
  "lattice-streaming",
  "lattice-sumcheck",
  "lattice-ttrp",

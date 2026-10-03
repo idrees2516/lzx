@@ -220,12 +220,19 @@ compatibility break — the proof format is versioned by the envelope).
    second-level fold's `n̄ ∈ {2, 4}` at `k = 4, A ≤ 2^8` (329+ bits).
    **Shipped as the interim**: `k = 4`, `A = 2^6` (the gate tightened
    64×, the commitments doubled — 33 KB total, still under budget).
-2. The LaBRADOR decider (completing `lattice-labrador`'s core: the
-   response vector per part, γ/δ wiring, the real verifier) — the
-   second-level fold that takes the openings to ~5 KB and removes the
-   (k, n̄) security/size tension entirely. **Now estimator-mandated**
-   (the Stage 5.1 verdict): the single-level fold's binding does not
-   reach 128 bits at the benchmark response lengths without it.
+2. The LaBRADOR decider — **the second-level fold has landed**
+   (`lattice-zkvm/src/second_fold.rs`): the public-target amortization
+   (r level-1 responses sharing the column key fold into one short
+   response; the exact linear checks L1-L4; the fresh short Ajtai key
+   at the estimator's sound row) with the **estimator-gated profile**
+   (fail-closed below 128 classical bits — the "estimator-gated
+   SecurityProfiles" discipline). The width-reduction finding: the
+   benchmark-scale width fold requires the LaBRADOR quadratic garbage
+   (the `F̄_i·s_j` cross terms) — there is no garbage-free width-
+   reducing fold; that completion (the LaBRADOR tail) remains the
+   follow-up. **The Stage 5.1 verdict stands**: the single-level fold's
+   binding does not reach 128 bits at the benchmark response lengths
+   without the width reduction.
 3. The verifier's O(K) public-table work → MLE-structured tables
    (O(log K)) at RAM scale.
 

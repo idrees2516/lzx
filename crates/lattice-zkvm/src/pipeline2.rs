@@ -8,12 +8,15 @@
 //! at the public final state, in which every read observes the value of
 //! the most recent write" — the Twist & Shout memory argument, with
 //! one-hot well-formedness checks and read-only table (Shout) bindings
-//! for the fetch and input streams. The instruction-semantics AIR (the
-//! P0-4 constraint families: arithmetic/control/comparison polynomials)
-//! is the documented next layer; `pipeline.rs` carries its trace builder
-//! and decode table as the substrate.
+//! for the fetch and input streams — AND the instruction-semantics AIR
+//! (Stage 4.5: `semantics.rs` — the full constraint families over the
+//! trace's witness: decode (with the coverage partition identities),
+//! booleanity, selectors, flags, arithmetic, shifts, MUL, DIV,
+//! comparisons, control, routing, and termination, every auxiliary
+//! column range-linked to boolean bits). The verifier never re-executes.
 
 use crate::pipeline::*;
+use crate::semantics::{prove_instruction_semantics, SemanticsProof};
 use lattice_akita::pcs::{AkitaPcs, EvaluationProof, GroupedOpening};
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
@@ -126,6 +129,10 @@ pub struct ProofV2 {
     pub twist_ram: TwistProof,
     pub twist_reg_a: TwistProof,
     pub twist_reg_b: TwistProof,
+    /// The instruction-semantics layer (Stage 4.5): every constraint
+    /// family over the trace's witness, bound through the bits/values
+    /// bundles.
+    pub semantics: SemanticsProof,
     pub claims: Vec<ColumnClaim>,
     pub openings: Vec<EvaluationProof>,
 }
@@ -471,6 +478,20 @@ pub fn prove_v2(
         }));
         p
     };
+    // ---- Stage 4.5: the instruction-semantics constraint families. ----
+    // The trace's witness (the executed instructions' decode/ALU/
+    // control/routing/termination constraints), committed through the
+    // bits/values bundles with its own statement transcript. The
+    // verifier consumes only public material (the statement's final
+    // registers come from the public state).
+    let (semantics, _) = prove_instruction_semantics(
+        program,
+        public_input,
+        max_steps,
+        log_k_ram,
+        log_k_fetch,
+    )
+    .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
     // ---- Stage 5: grouped openings (the stage-4 leg batching). ----
     let mut openings = Vec::new();
     for (ci, col) in t_cols.iter().enumerate() {
@@ -508,6 +529,7 @@ pub fn prove_v2(
             twist_ram,
             twist_reg_a,
             twist_reg_b,
+            semantics,
             claims,
             openings,
         },
@@ -773,6 +795,14 @@ pub fn verify_v2(
     verify_twist_ports_checked(&proof.twist_reg_a, &reg_init, &reg_final, 5, log_t, 5, &rega_tw, &mut transcript)?;
     let regb_tw = TableRes { claims, map: reg_map_b() };
     verify_twist_ports_checked(&proof.twist_reg_b, &reg_init, &reg_final, 5, log_t, 5, &regb_tw, &mut transcript)?;
+    // Stage 4.5: the instruction semantics (no re-execution; the
+    // statement's digests + the public final registers).
+    crate::semantics::verify_instruction_semantics(
+        &proof.semantics,
+        program,
+        public_input,
+    )
+    .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
     // Stage 5: grouped openings per committed column.
     let ring = &pcs.pk.params.ring;
     for (ci, opening) in proof.openings.iter().enumerate() {
@@ -878,5 +908,102 @@ mod tests {
         let mut other = program.clone();
         other[0] ^= 0x01;
         assert!(verify_v2(&pcs, &other, &input, &state, &proof, 64).is_err());
+    }
+}
+
+#[cfg(test)]
+mod semantics_pipeline_tests {
+    use super::*;
+
+    fn setup() -> AkitaPcs {
+        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32]).ok().unwrap()
+    }
+
+    fn enc_addi(rd: u8, rs1: u8, imm: i64) -> u32 {
+        ((imm as u32 & 0xFFF) << 20) | ((rs1 as u32) << 15) | ((rd as u32) << 7) | 0x13
+    }
+    fn enc_r(f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
+        (f7 << 25) | ((rs2 as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12) | ((rd as u32) << 7) | op
+    }
+
+    /// A full-semantics program through the COMPLETE v2 pipeline:
+    /// memory + arithmetic + shifts + MUL + DIV + branches.
+    fn full_semantics_program() -> Vec<u8> {
+        let mut p = Vec::new();
+        p.extend_from_slice(&enc_addi(1, 0, -7).to_le_bytes()); // x1 = -7
+        p.extend_from_slice(&enc_addi(2, 0, 3).to_le_bytes()); // x2 = 3
+        p.extend_from_slice(&enc_addi(10, 0, 40).to_le_bytes()); // shamt source
+        p.extend_from_slice(&enc_r(1, 2, 1, 0, 3, 0x33).to_le_bytes()); // mul x3
+        p.extend_from_slice(&enc_r(1, 2, 1, 1, 4, 0x33).to_le_bytes()); // mulh x4
+        p.extend_from_slice(&enc_r(1, 2, 1, 4, 5, 0x33).to_le_bytes()); // div x5
+        p.extend_from_slice(&enc_r(1, 2, 1, 6, 6, 0x33).to_le_bytes()); // rem x6
+        p.extend_from_slice(&enc_r(0, 10, 1, 1, 7, 0x33).to_le_bytes()); // sll x7
+        p.extend_from_slice(&enc_r(0x20, 10, 1, 5, 8, 0x33).to_le_bytes()); // sra x8
+        // Memory: store x3 then load it back.
+        p.extend_from_slice(&enc_addi(20, 0, 64).to_le_bytes());
+        let sd: u32 = (3u32 << 20) | (20 << 15) | (3 << 12) | 0x23;
+        p.extend_from_slice(&sd.to_le_bytes());
+        let ld: u32 = (20 << 15) | (3 << 12) | (21 << 7) | 0x03;
+        p.extend_from_slice(&ld.to_le_bytes());
+        p.extend_from_slice(&0x73u32.to_le_bytes());
+        p
+    }
+
+    #[test]
+    fn v2_full_semantics_prove_and_verify() {
+        let pcs = setup();
+        let program = full_semantics_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (state, proof) = prove_v2(&pcs, &program, &input, 128).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        // The semantics roundtrip: mul(-7*3) = -21 (wrapping), div
+        // truncating, the load returns the stored word.
+        assert_eq!(state.final_regs[3], (-21i64) as u64);
+        assert_eq!(state.final_regs[5], (-7i64 / 3i64) as u64);
+        assert_eq!(state.final_regs[21], (-21i64) as u64);
+        match verify_v2(&pcs, &program, &input, &state, &proof, 128) {
+            Ok(_) => {}
+            Err(e) => panic!("verify err: {e:?}"),
+        }
+    }
+
+    #[test]
+    fn v2_full_semantics_tampered_final_rejected() {
+        let pcs = setup();
+        let program = full_semantics_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (mut state, proof) = prove_v2(&pcs, &program, &input, 128).ok().unwrap();
+        // Tamper a register the CONSTRAINT layer pins (the mul result).
+        state.final_regs[3] = state.final_regs[3].wrapping_add(1);
+        assert!(verify_v2(&pcs, &program, &input, &state, &proof, 128).is_err());
+    }
+
+    #[test]
+    fn v2_full_semantics_tampered_leg_rejected() {
+        let pcs = setup();
+        let program = full_semantics_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (state, mut proof) = prove_v2(&pcs, &program, &input, 128).ok().unwrap();
+        // Corrupt the semantics layer's mul leg: the family identity
+        // must fail at verify.
+        if let Some(leg) = proof.semantics.legs.iter_mut().find(|l| l.name == "mul") {
+            if let Some(r0) = leg.sc.rounds.first_mut() {
+                if let Some(e0) = r0.first_mut() {
+                    *e0 = e0.add(&Goldilocks::ONE);
+                }
+            }
+        }
+        assert!(verify_v2(&pcs, &program, &input, &state, &proof, 128).is_err());
+    }
+
+    #[test]
+    fn v2_full_semantics_tampered_claim_rejected() {
+        let pcs = setup();
+        let program = full_semantics_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (state, mut proof) = prove_v2(&pcs, &program, &input, 128).ok().unwrap();
+        if let Some(c) = proof.semantics.claims.first_mut() {
+            c.value = c.value.add(&Goldilocks::ONE);
+        }
+        assert!(verify_v2(&pcs, &program, &input, &state, &proof, 128).is_err());
     }
 }

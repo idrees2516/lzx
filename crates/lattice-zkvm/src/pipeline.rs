@@ -197,14 +197,52 @@ pub fn decode_family(word: u32) -> u64 {
             (0x0, 0x00) => one << fam::ADD,
             (0x0, 0x20) => one << fam::SUB,
             (0x0, 0x01) => one << fam::MUL,
+            // MULH / MULHU ride the MUL family shape.
+            (0x1, 0x01) => one << fam::MUL,
+            (0x3, 0x01) => one << fam::MUL,
+            // Signed DIV/REM and the unsigned forms share the DIVQ/DIVR
+            // column shapes.
+            (0x4, 0x01) => one << fam::DIVQ,
+            (0x5, 0x01) => one << fam::DIVQ,
+            (0x6, 0x01) => one << fam::DIVR,
+            (0x7, 0x01) => one << fam::DIVR,
             (0x4, 0x00) => one << fam::DIVQ,
             (0x7, 0x00) => one << fam::DIVR,
             (0x3, 0x00) => one << fam::SLTU,
+            // Register shifts ride the SLLI/SRLI shapes (SRA's funct6
+            // is 0x10 = f7 0x20 >> 1).
+            (0x1, 0x00) => one << fam::SLLI,
+            (0x5, 0x00) => one << fam::SRLI,
+            (0x5, 0x10) => one << fam::SRLI,
+            // Bitwise and comparisons route with the ADD class.
+            (0x2, 0x00) => one << fam::ADD,
+            (0x4, 0x00) => one << fam::ADD,
+            (0x6, 0x00) => one << fam::ADD,
+            (0x7, 0x00) => one << fam::ADD,
             _ => 0,
         },
         0x0b => match funct3 {
             0x1 => one << fam::SLLI,
             0x5 if funct6 == 0x00 => one << fam::SRLI,
+            _ => 0,
+        },
+        0x3b => match (funct3, funct6) {
+            (0x0, 0x00) => one << fam::ADD,
+            (0x0, 0x20) => one << fam::SUB,
+            (0x0, 0x01) => one << fam::MUL,
+            (0x1, 0x00) => one << fam::SLLI,
+            (0x5, 0x00) => one << fam::SRLI,
+            (0x5, 0x10) => one << fam::SRLI,
+            (0x4, 0x01) => one << fam::DIVQ,
+            (0x5, 0x01) => one << fam::DIVQ,
+            (0x6, 0x01) => one << fam::DIVR,
+            (0x7, 0x01) => one << fam::DIVR,
+            _ => 0,
+        },
+        0x1b => match funct3 {
+            0x0 => one << fam::ADD,
+            0x1 => one << fam::SLLI,
+            0x5 => one << fam::SRLI,
             _ => 0,
         },
         0x13 => match funct3 {
@@ -374,7 +412,15 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
             if rs2v == 0 && family != fam::SRLI {
                 0
             } else {
-                let bnd = if family == fam::SRLI { 1u64 << (iw >> 20) & 0x3f } else { rs2v };
+                // The shift bound: register forms take the shamt from
+                // rs2 (& 63); immediate forms from the encoded field.
+                let opcode = iw & 0x7f;
+                let shamt = if opcode == 0x33 || opcode == 0x3b {
+                    (rs2v & 0x3f) as u32
+                } else {
+                    ((iw >> 20) & 0x3f) as u32
+                };
+                let bnd = if family == fam::SRLI { 1u64 << shamt } else { rs2v };
                 bnd.wrapping_sub(r).wrapping_sub(1)
             }
         } else {

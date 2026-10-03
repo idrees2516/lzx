@@ -95,65 +95,83 @@ pub const AUX_TENSORS: usize = 4;
 // funct7 field is free (the class is f3-determined).
 // ---------------------------------------------------------------------------
 
-pub const SELECTOR_TABLE: &[( &str, u32, u32, Option<u32>)] = &[
+/// One selector-table row: (name, opcode, funct3, funct7?, funct6?).
+pub type SelectorRow = (&'static str, u32, u32, Option<u32>, Option<u32>);
+
+pub const SELECTOR_TABLE: &[SelectorRow] = &[
     // class selectors
-    ("sel_opimm", 0x13, 99, None),
-    ("sel_op", 0x33, 99, None),
-    ("sel_op32", 0x3b, 99, None),
-    ("sel_opimm32", 0x1b, 99, None),
-    ("sel_lui", 0x37, 99, None),
-    ("sel_auipc", 0x17, 99, None),
-    ("sel_jal", 0x6f, 99, None),
-    ("sel_jalr", 0x67, 99, None),
-    ("sel_branch", 0x63, 99, None),
-    ("sel_load", 0x03, 99, None),
-    ("sel_store", 0x23, 99, None),
-    ("sel_system", 0x73, 99, None),
+    ("sel_opimm", 0x13, 99, None, None),
+    ("sel_op", 0x33, 99, None, None),
+    ("sel_op32", 0x3b, 99, None, None),
+    ("sel_opimm32", 0x1b, 99, None, None),
+    ("sel_lui", 0x37, 99, None, None),
+    ("sel_auipc", 0x17, 99, None, None),
+    ("sel_jal", 0x6f, 99, None, None),
+    ("sel_jalr", 0x67, 99, None, None),
+    ("sel_branch", 0x63, 99, None, None),
+    ("sel_load", 0x03, 99, None, None),
+    ("sel_store", 0x23, 99, None, None),
+    ("sel_system", 0x73, 99, None, None),
     // sub-class selectors (register)
-    ("sel_add", 0x33, 0, Some(0x00)),
-    ("sel_sub", 0x33, 0, Some(0x20)),
-    ("sel_xor", 0x33, 4, Some(0x00)),
-    ("sel_or", 0x33, 6, Some(0x00)),
-    ("sel_and", 0x33, 7, Some(0x00)),
-    ("sel_sll", 0x33, 1, Some(0x00)),
-    ("sel_srl", 0x33, 5, Some(0x00)),
-    ("sel_sra", 0x33, 5, Some(0x20)),
-    ("sel_slt", 0x33, 2, Some(0x00)),
-    ("sel_sltu", 0x33, 3, Some(0x00)),
-    ("sel_mul", 0x33, 0, Some(0x01)),
-    ("sel_divu", 0x33, 5, Some(0x01)),
-    ("sel_remu", 0x33, 7, Some(0x01)),
-    // sub-class selectors (immediate)
-    ("sel_addi", 0x13, 0, None),
-    ("sel_xori", 0x13, 4, None),
-    ("sel_ori", 0x13, 6, None),
-    ("sel_andi", 0x13, 7, None),
-    ("sel_slti", 0x13, 2, None),
-    ("sel_sltiu", 0x13, 3, None),
-    ("sel_slli", 0x13, 1, None),
-    ("sel_srxi", 0x13, 5, None),
+    ("sel_add", 0x33, 0, Some(0x00), None),
+    ("sel_sub", 0x33, 0, Some(0x20), None),
+    ("sel_xor", 0x33, 4, Some(0x00), None),
+    ("sel_or", 0x33, 6, Some(0x00), None),
+    ("sel_and", 0x33, 7, Some(0x00), None),
+    ("sel_sll", 0x33, 1, Some(0x00), None),
+    ("sel_srl", 0x33, 5, Some(0x00), None),
+    ("sel_sra", 0x33, 5, Some(0x20), None),
+    ("sel_slt", 0x33, 2, Some(0x00), None),
+    ("sel_sltu", 0x33, 3, Some(0x00), None),
+    ("sel_mul", 0x33, 0, Some(0x01), None),
+    ("sel_mulh", 0x33, 1, Some(0x01), None),
+    ("sel_mulhu", 0x33, 3, Some(0x01), None),
+    ("sel_div", 0x33, 4, Some(0x01), None),
+    ("sel_divu", 0x33, 5, Some(0x01), None),
+    ("sel_rem", 0x33, 6, Some(0x01), None),
+    ("sel_remu", 0x33, 7, Some(0x01), None),
+    // sub-class selectors (immediate) — the 64-bit shift immediates
+    // carry a 6-bit shamt, so their discriminant is funct6 (bits
+    // 26..31), NOT funct7: bit 25 is shamt data.
+    ("sel_addi", 0x13, 0, None, None),
+    ("sel_xori", 0x13, 4, None, None),
+    ("sel_ori", 0x13, 6, None, None),
+    ("sel_andi", 0x13, 7, None, None),
+    ("sel_slti", 0x13, 2, None, None),
+    ("sel_sltiu", 0x13, 3, None, None),
+    ("sel_slli", 0x13, 1, None, Some(0x00)),
+    ("sel_srli", 0x13, 5, None, Some(0x00)),
+    ("sel_srai", 0x13, 5, None, Some(0x10)),
+    ("sel_srxi", 0x13, 5, None, None),
     // sub-class selectors (W)
-    ("sel_addiw", 0x1b, 0, None),
-    ("sel_slliw", 0x1b, 1, None),
-    ("sel_srxiw", 0x1b, 5, None),
-    ("sel_addw", 0x3b, 0, Some(0x00)),
-    ("sel_subw", 0x3b, 0, Some(0x20)),
-    ("sel_sllw", 0x3b, 1, Some(0x00)),
-    ("sel_srlw", 0x3b, 5, Some(0x00)),
-    ("sel_sraw", 0x3b, 5, Some(0x20)),
+    ("sel_addiw", 0x1b, 0, None, None),
+    ("sel_slliw", 0x1b, 1, Some(0x00), None),
+    ("sel_srxiw", 0x1b, 5, None, None),
+    ("sel_srliw", 0x1b, 5, Some(0x00), None),
+    ("sel_sraiw", 0x1b, 5, Some(0x20), None),
+    ("sel_addw", 0x3b, 0, Some(0x00), None),
+    ("sel_subw", 0x3b, 0, Some(0x20), None),
+    ("sel_sllw", 0x3b, 1, Some(0x00), None),
+    ("sel_srlw", 0x3b, 5, Some(0x00), None),
+    ("sel_sraw", 0x3b, 5, Some(0x20), None),
+    ("sel_mulw", 0x3b, 0, Some(0x01), None),
+    ("sel_divw", 0x3b, 4, Some(0x01), None),
+    ("sel_divuw", 0x3b, 5, Some(0x01), None),
+    ("sel_remw", 0x3b, 6, Some(0x01), None),
+    ("sel_remuw", 0x3b, 7, Some(0x01), None),
     // branches
-    ("sel_beq", 0x63, 0, None),
-    ("sel_bne", 0x63, 1, None),
-    ("sel_blt", 0x63, 4, None),
-    ("sel_bge", 0x63, 5, None),
-    ("sel_bltu", 0x63, 6, None),
-    ("sel_bgeu", 0x63, 7, None),
+    ("sel_beq", 0x63, 0, None, None),
+    ("sel_bne", 0x63, 1, None, None),
+    ("sel_blt", 0x63, 4, None, None),
+    ("sel_bge", 0x63, 5, None, None),
+    ("sel_bltu", 0x63, 6, None, None),
+    ("sel_bgeu", 0x63, 7, None, None),
     // loads / stores
-    ("sel_lw", 0x03, 2, None),
-    ("sel_lwu", 0x03, 6, None),
-    ("sel_ld", 0x03, 3, None),
-    ("sel_sw", 0x23, 2, None),
-    ("sel_sd", 0x23, 3, None),
+    ("sel_lw", 0x03, 2, None, None),
+    ("sel_lwu", 0x03, 6, None, None),
+    ("sel_ld", 0x03, 3, None, None),
+    ("sel_sw", 0x23, 2, None, None),
+    ("sel_sd", 0x23, 3, None, None),
 ];
 
 /// The number of eq-prefix columns per comparison (full width 0..=64).
@@ -193,17 +211,72 @@ pub struct AuxIndex {
     pub v_pc: usize,
     pub v_next_pc: usize,
     pub v_fetch_word: usize,
+    /// The fetched instruction word column (the instr-tensor binding).
+    pub v_instr: usize,
     /// pc limbs 0..=2 (pc < 2^48).
     pub v_pc_l: [usize; 3],
     /// next_pc limbs 0..=2.
     pub v_np_l: [usize; 3],
     /// mem_addr limbs 0..=3 (the effective-address chain result).
     pub v_addr_l: [usize; 4],
+    // --- the shift family (the AUX_ONEHOT namespace) ---
+    /// Register-shift one-hot over the 6-bit shamt (rs2 & 63).
+    pub shoh6_r: [usize; 64],
+    /// Immediate-shift one-hot over the 6-bit shamt (instr bits 20..25).
+    pub shoh6_i: [usize; 64],
+    /// Register W-shift one-hot over the 5-bit shamt (rs2 & 31).
+    pub shoh5_r: [usize; 32],
+    /// Immediate W-shift one-hot over the 5-bit shamt (bits 20..24).
+    pub shoh5_i: [usize; 32],
+    // --- the mul family (limbs linked from boolean bit columns) ---
+    /// The low 64 bits of the unsigned product (limb value columns).
+    pub v_mul_lo: [usize; 4],
+    /// The high 64 bits of the unsigned product.
+    pub v_mul_hi: [usize; 4],
+    /// The multiplication carries c_1..=c_7 (17-bit value columns).
+    pub v_mul_c: [usize; 7],
+    /// MULH's rd-composition borrows (2-bit value columns).
+    pub v_mulh_bor: [usize; 4],
+    // --- the div family ---
+    /// The quotient limbs (rd-facing for DIV/DIVU forms).
+    pub v_div_q: [usize; 4],
+    /// The remainder limbs (rd-facing for REM/REMU forms).
+    pub v_div_r: [usize; 4],
+    /// The division recurrence carries d_1..=d_4 (17-bit; d_4 = 0).
+    pub v_div_d: [usize; 4],
+    /// |a| limbs (the signed-division magnitudes; raw values for the
+    /// unsigned classes — the sign source is class-dependent).
+    pub v_mag_a: [usize; 4],
+    /// |b| limbs.
+    pub v_mag_b: [usize; 4],
+    /// |q| limbs.
+    pub v_mag_q: [usize; 4],
+    /// |r| limbs.
+    pub v_mag_r: [usize; 4],
+    /// The magnitude recurrence carries (17-bit value columns).
+    pub v_mag_d: [usize; 4],
+    /// The (mag_r - mag_b) borrow chain: bor_1..=bor_4, with bor_4 the
+    /// [mag_r < mag_b] indicator (boolean bit columns).
+    pub v_rbor: [usize; 4],
+    /// The out limbs of (mag_r - mag_b) mod 2^64 (range-linked).
+    pub v_rlt_out: [usize; 4],
+    /// The eq-to-zero prefix over rs2's 64 bits (bz = eqz[64]).
+    pub eqz: [usize; 65],
+    /// The eq-to-zero prefix over rs2's low 32 bits (bzw = eqzw[32]).
+    pub eqzw: [usize; 33],
+    /// The boolean bit decompositions of every mul/div limb and carry
+    /// column (flat, group-major): the range enforcement that makes the
+    /// limb-level recurrences carry INTEGER semantics.
+    ///
+    /// Layout: [mul_lo(4*16), mul_hi(4*16), mul_c(7*17), mulh_bor(4*2),
+    /// div_q(4*16), div_r(4*16), div_d(4*17), mag_a(4*16), mag_b(4*16),
+    /// mag_q(4*16), mag_r(4*16), mag_d(4*17)].
+    pub range_bits: Vec<usize>,
 }
 
 impl AuxIndex {
     pub fn sel_by(&self, name: &str) -> usize {
-        for (i, (n, _, _, _)) in SELECTOR_TABLE.iter().enumerate() {
+        for (i, (n, _, _, _, _)) in SELECTOR_TABLE.iter().enumerate() {
             if *n == name {
                 return self.sel[i];
             }
@@ -239,9 +312,18 @@ pub fn covered_instr(instr: &Instr) -> bool {
             | Xori { .. }
             | Ori { .. }
             | Andi { .. }
+            | Slli { .. }
+            | Srli { .. }
+            | Srai { .. }
             | Addiw { .. }
+            | Slliw { .. }
+            | Srliw { .. }
+            | Sraiw { .. }
             | Add { .. }
             | Sub { .. }
+            | Sll { .. }
+            | Srl { .. }
+            | Sra { .. }
             | Slt { .. }
             | Sltu { .. }
             | Xor { .. }
@@ -249,6 +331,21 @@ pub fn covered_instr(instr: &Instr) -> bool {
             | And { .. }
             | Addw { .. }
             | Subw { .. }
+            | Sllw { .. }
+            | Srlw { .. }
+            | Sraw { .. }
+            | Mul { .. }
+            | Mulh { .. }
+            | Mulhu { .. }
+            | Mulw { .. }
+            | Div { .. }
+            | Divu { .. }
+            | Rem { .. }
+            | Remu { .. }
+            | Divw { .. }
+            | Divuw { .. }
+            | Remw { .. }
+            | Remuw { .. }
             | Lui { .. }
             | Auipc { .. }
             | Beq { .. }
@@ -309,16 +406,15 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     }
 
     // --- selectors (class + sub-class, from the table) ---
-    for (name, op, f3, f7) in SELECTOR_TABLE {
+    for (name, op, f3, f7, f6) in SELECTOR_TABLE {
         let col: Vec<u8> = (0..t)
             .map(|i| {
                 if i < instrs.len() {
                     let ins = &instrs[i];
                     let f3_ok = *f3 == 99 || raw_funct3(ins) == *f3;
-                    (raw_opcode(ins) == *op
-                        && f3_ok
-                        && f7.map_or(true, |v| raw_funct7(ins) == v))
-                        as u8
+                    let f7_ok = f7.map_or(true, |v| raw_funct7(ins) == v);
+                    let f6_ok = f6.map_or(true, |v| raw_funct6(ins) == v);
+                    (raw_opcode(ins) == *op && f3_ok && f7_ok && f6_ok) as u8
                 } else {
                     // Padding cycles carry ECALL.
                     (*op == 0x73) as u8
@@ -440,16 +536,14 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     vals.push(w.mem_addr.clone());
     let v_mem_word = vals.len();
     vals.push(w.mem_word.clone());
-    // mul carries (staged for the MUL family; ids 2..=6).
-    for l in 0..5 {
-        vals.push((0..t).map(|c| mul_carry_at(w, instrs, c, l)).collect());
-    }
     let v_pc = vals.len();
     vals.push(w.pc.clone());
     let v_next_pc = vals.len();
     vals.push(w.next_pc.clone());
     let v_fetch_word = vals.len();
     vals.push(w.fetch_word.clone());
+    let v_instr = vals.len();
+    vals.push(w.instr.clone());
     let limb_of = |v: u64, l: usize| fe((v >> (16 * l)) & 0xFFFF);
     let mut v_pc_l = [0usize; 3];
     let mut v_np_l = [0usize; 3];
@@ -466,6 +560,273 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
         v_addr_l[l] = vals.len();
         vals.push((0..t).map(|c| limb_of(w.mem_addr[c].0, l)).collect());
     }
+
+    // --- the shift one-hots (the AUX_ONEHOT namespace) ---
+    let rs2w = |c: usize| tensor_word(w, T_RS2, c);
+    let iword = |c: usize| {
+        let mut acc = 0u64;
+        for bit in 0..32usize {
+            let row = 31 - bit;
+            acc |= w.instr_bits.evaluations[row * t + c].0 << bit;
+        }
+        acc
+    };
+    let mut shoh6_r = [0usize; 64];
+    for s in 0..64usize {
+        shoh6_r[s] = bits.len();
+        push_bit!(
+            (0..t).map(|c| ((rs2w(c) & 63) as usize == s) as u8).collect::<Vec<u8>>(),
+            ""
+        );
+    }
+    let mut shoh6_i = [0usize; 64];
+    for s in 0..64usize {
+        shoh6_i[s] = bits.len();
+        push_bit!(
+            (0..t).map(|c| (((iword(c) >> 20) & 0x3f) as usize == s) as u8).collect::<Vec<u8>>(),
+            ""
+        );
+    }
+    let mut shoh5_r = [0usize; 32];
+    for s in 0..32usize {
+        shoh5_r[s] = bits.len();
+        push_bit!(
+            (0..t).map(|c| ((rs2w(c) & 31) as usize == s) as u8).collect::<Vec<u8>>(),
+            ""
+        );
+    }
+    let mut shoh5_i = [0usize; 32];
+    for s in 0..32usize {
+        shoh5_i[s] = bits.len();
+        push_bit!(
+            (0..t).map(|c| (((iword(c) >> 20) & 0x1f) as usize == s) as u8).collect::<Vec<u8>>(),
+            ""
+        );
+    }
+
+    // --- the eq-to-zero prefixes over rs2 (bz for the 64- and 32-bit
+    //     divisor-zero checks) ---
+    let mut eqz = [0usize; 65];
+    for i in 0..65usize {
+        eqz[i] = bits.len();
+        push_bit!(
+            (0..t)
+                .map(|c| {
+                    let b = rs2w(c);
+                    let mask = if i == 0 { 0 } else { u64::MAX << (64 - i) };
+                    ((b & mask) == 0) as u8
+                })
+                .collect::<Vec<u8>>(),
+            ""
+        );
+    }
+    let mut eqzw = [0usize; 33];
+    for i in 0..33usize {
+        eqzw[i] = bits.len();
+        push_bit!(
+            (0..t)
+                .map(|c| {
+                    let b = rs2w(c) & 0xFFFF_FFFF;
+                    let mask = if i == 0 { 0 } else { (1u64 << i) - 1 };
+                    ((b & mask) == 0) as u8
+                })
+                .collect::<Vec<u8>>(),
+            ""
+        );
+    }
+
+    // --- the mul/div value columns (limbs + carries; each range-linked
+    //     to boolean bit columns below) ---
+    let limbs_of = |v: u64| -> [u64; 4] {
+        [v & 0xFFFF, (v >> 16) & 0xFFFF, (v >> 32) & 0xFFFF, (v >> 48) & 0xFFFF]
+    };
+    let rdw = |c: usize| tensor_word(w, T_RD, c);
+    let rs1w = |c: usize| tensor_word(w, T_RS1, c);
+    let immw = |c: usize| tensor_word(w, T_IMM, c);
+    // The per-cycle mul witness: (lo, hi, carries) of |rs1|*|rs2|.
+    let mul_wit = |c: usize| -> ([u64; 4], [u64; 4], [u64; 7]) {
+        let a = rs1w(c);
+        let b = rs2w(c);
+        let (lo, hi, car) = mul_recurrence(a, b);
+        (lo, hi, car)
+    };
+    // The per-cycle div witness per class.
+    let div_wit = |c: usize| -> DivWitness {
+        let a = rs1w(c);
+        let b = rs2w(c);
+        let rd = rdw(c);
+        let ins = instrs.get(c).copied().unwrap_or(Instr::Ecall);
+        div_witness_of(a, b, rd, &ins)
+    };
+    let mut v_mul_lo = [0usize; 4];
+    for l in 0..4 {
+        v_mul_lo[l] = vals.len();
+        vals.push((0..t).map(|c| fe(mul_wit(c).0[l])).collect());
+    }
+    let mut v_mul_hi = [0usize; 4];
+    for l in 0..4 {
+        v_mul_hi[l] = vals.len();
+        vals.push((0..t).map(|c| fe(mul_wit(c).1[l])).collect());
+    }
+    let mut v_mul_c = [0usize; 7];
+    for l in 0..7 {
+        v_mul_c[l] = vals.len();
+        vals.push((0..t).map(|c| fe(mul_wit(c).2[l])).collect());
+    }
+    let mut v_mulh_bor = [0usize; 4];
+    {
+        let bor: Vec<[u64; 4]> = (0..t)
+            .map(|c| {
+                let a = rs1w(c);
+                let b = rs2w(c);
+                let rd = rdw(c);
+                let hi = limbs_of(((a as u128 * b as u128) >> 64) as u64);
+                mulh_borrows(hi, (a >> 63) & 1, (b >> 63) & 1, limbs_of(a), limbs_of(b), limbs_of(rd))
+            })
+            .collect();
+        for l in 0..4 {
+            v_mulh_bor[l] = vals.len();
+            vals.push((0..t).map(|c| fe(bor[c][l])).collect());
+        }
+    }
+    let mut v_div_q = [0usize; 4];
+    for l in 0..4 {
+        v_div_q[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).q[l])).collect());
+    }
+    let mut v_div_r = [0usize; 4];
+    for l in 0..4 {
+        v_div_r[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).r[l])).collect());
+    }
+    let mut v_div_d = [0usize; 4];
+    {
+        let ds: Vec<[u64; 4]> = (0..t)
+            .map(|c| {
+                let d = div_wit(c);
+                div_recurrence(d.mag_a, d.mag_q, d.mag_b, d.mag_r)
+            })
+            .collect();
+        for l in 0..4 {
+            v_div_d[l] = vals.len();
+            vals.push((0..t).map(|c| fe(ds[c][l])).collect());
+        }
+    }
+    let mut v_mag_a = [0usize; 4];
+    for l in 0..4 {
+        v_mag_a[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).mag_a[l])).collect());
+    }
+    let mut v_mag_b = [0usize; 4];
+    for l in 0..4 {
+        v_mag_b[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).mag_b[l])).collect());
+    }
+    let mut v_mag_q = [0usize; 4];
+    for l in 0..4 {
+        v_mag_q[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).mag_q[l])).collect());
+    }
+    let mut v_mag_r = [0usize; 4];
+    for l in 0..4 {
+        v_mag_r[l] = vals.len();
+        vals.push((0..t).map(|c| fe(div_wit(c).mag_r[l])).collect());
+    }
+    let mut v_mag_d = [0usize; 4];
+    {
+        let ds: Vec<[u64; 4]> = (0..t)
+            .map(|c| {
+                let d = div_wit(c);
+                div_recurrence(d.mag_a, d.mag_q, d.mag_b, d.mag_r)
+            })
+            .collect();
+        for l in 0..4 {
+            v_mag_d[l] = vals.len();
+            vals.push((0..t).map(|c| fe(ds[c][l])).collect());
+        }
+    }
+    let _ = immw;
+    // The (mag_r - mag_b) subtraction: the out limbs (range-linked) and
+    // the borrow bits (bor_4 = [mag_r < mag_b]).
+    let mut v_rlt_out = [0usize; 4];
+    let mut v_rbor = [0usize; 4];
+    {
+        let chain: Vec<([u64; 4], [u8; 4])> = (0..t)
+            .map(|c| {
+                let d = div_wit(c);
+                borrow_chain(d.mag_r, d.mag_b)
+            })
+            .collect();
+        for l in 0..4 {
+            v_rlt_out[l] = vals.len();
+            vals.push((0..t).map(|c| fe(chain[c].0[l])).collect());
+        }
+        for l in 0..4 {
+            v_rbor[l] = bits.len();
+            push_bit!((0..t).map(|c| chain[c].1[l]).collect::<Vec<u8>>(), "");
+        }
+    }
+
+    // --- the range bit decompositions (the integer-semantics anchor) ---
+    // Layout (group-major, limb-major, bit-minor):
+    //   [0..64)    mul_lo  (4 x 16)
+    //   [64..128)  mul_hi  (4 x 16)
+    //   [128..261) mul_c   (7 x 19)
+    //   [261..269) mulh_bor(4 x 2)
+    //   [269..333) div_q   (4 x 16)
+    //   [333..397) div_r   (4 x 16)
+    //   [397..473) div_d   (4 x 19)
+    //   [473..537) mag_a   (4 x 16)
+    //   [537..601) mag_b   (4 x 16)
+    //   [601..665) mag_q   (4 x 16)
+    //   [665..729) mag_r   (4 x 16)
+    //   [729..805) mag_d   (4 x 19)
+    //   [805..869) rlt_out (4 x 16)
+    let mut range_bits: Vec<usize> = Vec::with_capacity(RANGE_BITS_LEN);
+    macro_rules! push_range_group {
+        ($cols:expr, $width:expr) => {{
+            let mut ids: Vec<usize> = Vec::with_capacity($cols.len() * $width);
+            for &col in $cols.iter() {
+                for j in 0..$width {
+                    ids.push(bits.len());
+                    push_bit!(
+                        (0..t)
+                            .map(|c| ((vals[col][c].0 >> j) & 1) as u8)
+                            .collect::<Vec<u8>>(),
+                        ""
+                    );
+                }
+            }
+            ids
+        }};
+    }
+    let rb_mul_lo = push_range_group!(v_mul_lo, 16);
+    let rb_mul_hi = push_range_group!(v_mul_hi, 16);
+    let rb_mul_c = push_range_group!(v_mul_c, 19);
+    let rb_mulh_bor = push_range_group!(v_mulh_bor, 2);
+    let rb_div_q = push_range_group!(v_div_q, 16);
+    let rb_div_r = push_range_group!(v_div_r, 16);
+    let rb_div_d = push_range_group!(v_div_d, 19);
+    let rb_mag_a = push_range_group!(v_mag_a, 16);
+    let rb_mag_b = push_range_group!(v_mag_b, 16);
+    let rb_mag_q = push_range_group!(v_mag_q, 16);
+    let rb_mag_r = push_range_group!(v_mag_r, 16);
+    let rb_mag_d = push_range_group!(v_mag_d, 19);
+    let rb_rlt_out = push_range_group!(v_rlt_out, 16);
+    range_bits.extend_from_slice(&rb_mul_lo);
+    range_bits.extend_from_slice(&rb_mul_hi);
+    range_bits.extend_from_slice(&rb_mul_c);
+    range_bits.extend_from_slice(&rb_mulh_bor);
+    range_bits.extend_from_slice(&rb_div_q);
+    range_bits.extend_from_slice(&rb_div_r);
+    range_bits.extend_from_slice(&rb_div_d);
+    range_bits.extend_from_slice(&rb_mag_a);
+    range_bits.extend_from_slice(&rb_mag_b);
+    range_bits.extend_from_slice(&rb_mag_q);
+    range_bits.extend_from_slice(&rb_mag_r);
+    range_bits.extend_from_slice(&rb_mag_d);
+    range_bits.extend_from_slice(&rb_rlt_out);
+    debug_assert_eq!(range_bits.len(), RANGE_BITS_LEN);
 
     let index = AuxIndex {
         sel,
@@ -492,9 +853,31 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
         v_pc,
         v_next_pc,
         v_fetch_word,
+        v_instr,
         v_pc_l,
         v_np_l,
         v_addr_l,
+        shoh6_r,
+        shoh6_i,
+        shoh5_r,
+        shoh5_i,
+        v_mul_lo,
+        v_mul_hi,
+        v_mul_c,
+        v_mulh_bor,
+        v_div_q,
+        v_div_r,
+        v_div_d,
+        v_mag_a,
+        v_mag_b,
+        v_mag_q,
+        v_mag_r,
+        v_mag_d,
+        v_rbor,
+        v_rlt_out,
+        eqz,
+        eqzw,
+        range_bits,
     };
     Ok(AuxCols { bits, vals, bit_names: names, index })
 }
@@ -507,8 +890,17 @@ fn raw_opcode(instr: &Instr) -> u32 {
         Addiw { .. } | Slliw { .. } | Srliw { .. } | Sraiw { .. } => 0x1b,
         Add { .. } | Sub { .. } | Sll { .. } | Slt { .. } | Sltu { .. } | Xor { .. }
         | Srl { .. } | Sra { .. } | Or { .. } | And { .. } | Mul { .. } | Mulh { .. }
-        | Mulhu { .. } | Divu { .. } | Remu { .. } => 0x33,
-        Addw { .. } | Subw { .. } | Sllw { .. } | Srlw { .. } | Sraw { .. } => 0x3b,
+        | Mulhu { .. } | Div { .. } | Divu { .. } | Rem { .. } | Remu { .. } => 0x33,
+        Addw { .. }
+        | Subw { .. }
+        | Sllw { .. }
+        | Srlw { .. }
+        | Sraw { .. }
+        | Mulw { .. }
+        | Divw { .. }
+        | Divuw { .. }
+        | Remw { .. }
+        | Remuw { .. } => 0x3b,
         Lui { .. } => 0x37,
         Auipc { .. } => 0x17,
         Jal { .. } => 0x6f,
@@ -541,9 +933,13 @@ fn raw_funct3(instr: &Instr) -> u32 {
         Xor { .. } => 4,
         Or { .. } => 6,
         And { .. } => 7,
-        Mulh { .. } | Mulhu { .. } => 1,
-        Divu { .. } => 5,
-        Remu { .. } => 7,
+        Mulh { .. } => 1,
+        Mulhu { .. } => 3,
+        Div { .. } | Divw { .. } => 4,
+        Divu { .. } | Divuw { .. } => 5,
+        Rem { .. } | Remw { .. } => 6,
+        Remu { .. } | Remuw { .. } => 7,
+        Mulw { .. } => 0,
         // branches
         Beq { .. } => 0,
         Bne { .. } => 1,
@@ -565,13 +961,36 @@ fn raw_funct3(instr: &Instr) -> u32 {
     }
 }
 
+/// The funct6 field (bits 26..31): the RV64 6-bit-shamt discriminant
+/// for the 64-bit shift immediates.
+fn raw_funct6(instr: &Instr) -> u32 {
+    use Instr::*;
+    match instr {
+        Slli { .. } | Srli { .. } => 0,
+        Srai { .. } => 0x10,
+        _ => 0,
+    }
+}
+
 fn raw_funct7(instr: &Instr) -> u32 {
     use Instr::*;
     match instr {
-        Sub { .. } | Subw { .. } | Sra { .. } | Sraw { .. } => 0x20,
-        Mul { .. } | Mulh { .. } | Mulhu { .. } | Divu { .. } | Remu { .. } => 0x01,
+        Sub { .. } | Subw { .. } | Sra { .. } | Sraw { .. } | Sraiw { .. } => 0x20,
+        Mul { .. }
+        | Mulh { .. }
+        | Mulhu { .. }
+        | Mulw { .. }
+        | Div { .. }
+        | Divu { .. }
+        | Divw { .. }
+        | Divuw { .. }
+        | Rem { .. }
+        | Remu { .. }
+        | Remw { .. }
+        | Remuw { .. } => 0x01,
         Add { .. } | Sll { .. } | Slt { .. } | Sltu { .. } | Xor { .. } | Srl { .. }
-        | Or { .. } | And { .. } | Addw { .. } | Sllw { .. } | Srlw { .. } => 0x00,
+        | Or { .. } | And { .. } | Addw { .. } | Sllw { .. } | Srlw { .. }
+        | Slliw { .. } | Srliw { .. } => 0x00,
         _ => 0,
     }
 }
@@ -662,20 +1081,265 @@ fn lt_at(w: &CycleWitness, _instrs: &[Instr], c: usize, cmp: usize, signed: bool
     }
 }
 
-fn mul_carry_at(w: &CycleWitness, _instrs: &[Instr], c: usize, l: usize) -> Goldilocks {
-    let a = tensor_word(w, T_RS1, c);
-    let b = tensor_word(w, T_RS2, c);
-    let limb = |v: u64, i: usize| (v >> (16 * i)) & 0xFFFF;
-    let mut acc: u128 = 0;
-    for k in 0..=l {
-        for (i, j) in (0..4).zip(0..4) {
-            if i + j == k {
-                acc += (limb(a, i) as u128) * (limb(b, j) as u128);
+// ---------------------------------------------------------------------------
+// The mul/div recurrence helpers (the limb-level integer discipline).
+// Every column they produce is range-linked to boolean bit columns, so
+// the limb recurrences carry INTEGER (not merely field) semantics.
+// ---------------------------------------------------------------------------
+
+/// The total number of range bit columns (see the layout table in
+/// `build_aux`).
+pub const RANGE_BITS_LEN: usize = 869;
+
+/// Range-group offsets into `AuxIndex::range_bits` (the carry groups
+/// carry 19 bits: positions with up to four 16-bit limb products plus
+/// the incoming carry reach ~2^18).
+pub const RG_MUL_LO: usize = 0;
+pub const RG_MUL_HI: usize = 64;
+pub const RG_MUL_C: usize = 128;
+pub const RG_MULH_BOR: usize = 261;
+pub const RG_DIV_Q: usize = 269;
+pub const RG_DIV_R: usize = 333;
+pub const RG_DIV_D: usize = 397;
+pub const RG_MAG_A: usize = 473;
+pub const RG_MAG_B: usize = 537;
+pub const RG_MAG_Q: usize = 601;
+pub const RG_MAG_R: usize = 665;
+pub const RG_MAG_D: usize = 729;
+pub const RG_RLT_OUT: usize = 805;
+
+/// The 4-limb decomposition of a u64.
+fn limbs64(v: u64) -> [u64; 4] {
+    [v & 0xFFFF, (v >> 16) & 0xFFFF, (v >> 32) & 0xFFFF, (v >> 48) & 0xFFFF]
+}
+
+/// The multiplication recurrence over 16-bit limbs:
+/// `t_k = S_k(a,b) + c_k`, `p_k = t_k mod 2^16`, `c_{k+1} = t_k >> 16`.
+/// Returns (lo limbs p_0..3, hi limbs p_4..7, carries c_1..=c_7);
+/// `c_8 = 0` by the 128-bit closure (the k = 7 identity omits the
+/// carry-out term).
+fn mul_recurrence(a: u64, b: u64) -> ([u64; 4], [u64; 4], [u64; 7]) {
+    let al = limbs64(a);
+    let bl = limbs64(b);
+    let mut out = [0u64; 8];
+    let mut carries = [0u64; 7];
+    let mut c = 0u64; // c_k (c_0 = 0)
+    for k in 0..8usize {
+        let mut s = c;
+        for i in 0..4usize {
+            for j in 0..4usize {
+                if i + j == k {
+                    s += al[i] * bl[j];
+                }
             }
         }
+        out[k] = s & 0xFFFF;
+        c = s >> 16;
+        if k < 7 {
+            carries[k] = c; // carries[k] = c_{k+1}
+        }
     }
-    let carry = acc >> (16 * (l + 1) as u32);
-    fe((carry & 0x1FFFF) as u64)
+    ([out[0], out[1], out[2], out[3]], [out[4], out[5], out[6], out[7]], carries)
+}
+
+/// The division recurrence `a = q·b + r` over 16-bit limbs: at position
+/// k, `S_k(q,b) + d_k + r_k - a_k - 2^16·d_{k+1} = 0`. Returns
+/// `d_1..=d_4` (d_4 = 0 when the identity closes over 64 bits).
+fn div_recurrence(_a: [u64; 4], q: [u64; 4], b: [u64; 4], r: [u64; 4]) -> [u64; 4] {
+    let mut d = [0u64; 4];
+    let mut carry = 0u64; // d_k
+    for k in 0..4usize {
+        let mut s = carry;
+        for i in 0..4usize {
+            for j in 0..4usize {
+                if i + j == k {
+                    s += q[i] * b[j];
+                }
+            }
+        }
+        s += r[k];
+        let next = s >> 16;
+        if k < 3 {
+            d[k] = next; // d_{k+1}
+        } else {
+            d[3] = next; // d_4
+        }
+        carry = next;
+    }
+    d
+}
+
+/// The subtraction borrow chain `r - b = out - 2^64·bor_4`: returns
+/// (the out limbs of `(r - b) mod 2^64`, the borrows bor_1..=bor_4 with
+/// bor_4 = [r < b]).
+fn borrow_chain(r: [u64; 4], b: [u64; 4]) -> ([u64; 4], [u8; 4]) {
+    let mut out = [0u64; 4];
+    let mut bor = [0u8; 4];
+    let mut bin = 0i128;
+    for l in 0..4usize {
+        let v = r[l] as i128 - b[l] as i128 - bin;
+        if v < 0 {
+            out[l] = (v + (1i128 << 16)) as u64;
+            bor[l] = 1;
+            bin = 1;
+        } else {
+            out[l] = v as u64;
+            bor[l] = 0;
+            bin = 0;
+        }
+    }
+    (out, bor)
+}
+
+/// The MULH rd-composition borrows: `rd_l = hi_l - sa·b_l - sb·a_l -
+/// bor_l + 2^16·bor_{l+1}` (bor_0 = 0; bor values in {0, 1, 2}).
+fn mulh_borrows(
+    hi: [u64; 4],
+    sa: u64,
+    sb: u64,
+    a: [u64; 4],
+    b: [u64; 4],
+    _rd: [u64; 4],
+) -> [u64; 4] {
+    let mut bor = [0u64; 4];
+    let mut bin = 0i128;
+    for l in 0..4usize {
+        let x = sa * b[l] + sb * a[l];
+        let v = hi[l] as i128 - x as i128 - bin;
+        let bout = if v < 0 {
+            ((-v + (1i128 << 16) - 1) / (1i128 << 16)) as u64
+        } else {
+            0
+        };
+        bor[l] = bout;
+        bin = bout as i128;
+    }
+    bor
+}
+
+/// The per-cycle division witness.
+#[derive(Clone, Copy, Debug)]
+struct DivWitness {
+    /// The quotient (the rd value for the DIV forms).
+    q: [u64; 4],
+    /// The remainder (the rd value for the REM forms).
+    r: [u64; 4],
+    /// The operand magnitude |a| (raw for the unsigned classes).
+    mag_a: [u64; 4],
+    /// |b| (raw for unsigned).
+    mag_b: [u64; 4],
+    /// |q| (raw for unsigned).
+    mag_q: [u64; 4],
+    /// |r| (raw for unsigned).
+    mag_r: [u64; 4],
+}
+
+/// The division witness per instruction class (matching the executor's
+/// semantics exactly, including the divide-by-zero specials).
+fn div_witness_of(a: u64, b: u64, _rd: u64, ins: &Instr) -> DivWitness {
+    use Instr::*;
+    let limbs = limbs64;
+    let (q, r, ma, mb, mq, mr) = match ins {
+        Divu { .. } => {
+            let (q, r) = match (b, a.checked_div(b), a.checked_rem(b)) {
+                (0, _, _) => (u64::MAX, a),
+                (_, Some(q), Some(r)) => (q, r),
+                _ => (u64::MAX, a),
+            };
+            (q, r, a, b, q, r)
+        }
+        Remu { .. } => {
+            let (q, r) = match (b, a.checked_div(b), a.checked_rem(b)) {
+                (0, _, _) => (u64::MAX, a),
+                (_, Some(q), Some(r)) => (q, r),
+                _ => (u64::MAX, a),
+            };
+            (q, r, a, b, q, r)
+        }
+        Div { .. } => {
+            let (q, r) = if b == 0 {
+                (u64::MAX, a)
+            } else {
+                ((a as i64).wrapping_div(b as i64) as u64, (a as i64).wrapping_rem(b as i64) as u64)
+            };
+            let ma = (a as i64).unsigned_abs();
+            let mb = (b as i64).unsigned_abs();
+            let mq = (q as i64).unsigned_abs();
+            let mr = (r as i64).unsigned_abs();
+            (q, r, ma, mb, mq, mr)
+        }
+        Rem { .. } => {
+            let (q, r) = if b == 0 {
+                (u64::MAX, a)
+            } else {
+                ((a as i64).wrapping_div(b as i64) as u64, (a as i64).wrapping_rem(b as i64) as u64)
+            };
+            let ma = (a as i64).unsigned_abs();
+            let mb = (b as i64).unsigned_abs();
+            let mq = (q as i64).unsigned_abs();
+            let mr = (r as i64).unsigned_abs();
+            (q, r, ma, mb, mq, mr)
+        }
+        Divw { .. } => {
+            let a32 = a as u32 as i32 as i64;
+            let b32 = b as u32 as i32 as i64;
+            let (q, r) = if (b as u32) == 0 {
+                (-1i64, a32)
+            } else {
+                (a32.wrapping_div(b32), a32.wrapping_rem(b32))
+            };
+            let q64 = q as u64;
+            let r64 = r as u64;
+            (q64, r64, a32.unsigned_abs(), b32.unsigned_abs(), q.unsigned_abs(), r.unsigned_abs())
+        }
+        Remw { .. } => {
+            let a32 = a as u32 as i32 as i64;
+            let b32 = b as u32 as i32 as i64;
+            let (q, r) = if (b as u32) == 0 {
+                (-1i64, a32)
+            } else {
+                (a32.wrapping_div(b32), a32.wrapping_rem(b32))
+            };
+            let q64 = q as u64;
+            let r64 = r as u64;
+            (q64, r64, a32.unsigned_abs(), b32.unsigned_abs(), q.unsigned_abs(), r.unsigned_abs())
+        }
+        Divuw { .. } => {
+            let au = a as u32 as u64;
+            let bu = b as u32 as u64;
+            let (q, r) = if (b as u32) == 0 {
+                (u32::MAX as u64, au)
+            } else {
+                (au / bu, au % bu)
+            };
+            // The executor's se32 composition happens at rd-routing;
+            // the raw 32-bit witness here.
+            let q32 = q as u32 as u64;
+            let r32 = r as u32 as u64;
+            (q32, r32, au, bu, q32, r32)
+        }
+        Remuw { .. } => {
+            let au = a as u32 as u64;
+            let bu = b as u32 as u64;
+            let (q, r) = if (b as u32) == 0 {
+                (u32::MAX as u64, au)
+            } else {
+                (au / bu, au % bu)
+            };
+            let q32 = q as u32 as u64;
+            let r32 = r as u32 as u64;
+            (q32, r32, au, bu, q32, r32)
+        }
+        _ => (0, 0, 0, 0, 0, 0),
+    };
+    DivWitness {
+        q: limbs(q),
+        r: limbs(r),
+        mag_a: limbs(ma),
+        mag_b: limbs(mb),
+        mag_q: limbs(mq),
+        mag_r: limbs(mr),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -709,6 +1373,9 @@ pub enum FV {
     /// A fixed tensor row, lifted constant over the bit block: the claim
     /// is the tensor-row claim.
     TensorRow { factor: Factor, nbits: usize, row: usize },
+    /// The complement of a fixed tensor row (the flipped-polarity
+    /// factors of the selector decode): the claim is 1 - the row.
+    FlipTensorRow { factor: Factor, nbits: usize, row: usize },
 }
 
 /// A (VP factor index, view) pair — the explicit pairing that keeps the
@@ -738,6 +1405,24 @@ fn bind_views(
     point: &[Goldilocks],
     factor_claims: &[Goldilocks],
 ) -> Result<(), ConstraintError> {
+    #[cfg(debug_assertions)]
+    {
+        let seq: Vec<(u8, usize)> = views
+            .iter()
+            .filter_map(|(_, v)| match v {
+                FV::PubTable(_) => None,
+                FV::Tensor(f) => Some((f.discriminant(), f.payload())),
+                FV::Limb { slot, .. } => Some((0, *slot)),
+                FV::Combo { slot } => Some((0, *slot)),
+                FV::InstrWord => Some((1, 0)),
+                FV::Bit(id) => Some((3, *id)),
+                FV::Val(id) => Some((4, *id)),
+                FV::TensorRow { factor, .. } => Some((factor.discriminant(), factor.payload())),
+                FV::FlipTensorRow { factor, .. } => Some((factor.discriminant(), factor.payload())),
+            })
+            .collect();
+        let _ = seq;
+    }
     for (fi, view) in views {
         let claimed = factor_claims.get(*fi).copied();
         let value = resolve_view(ledger, view, point)?;
@@ -768,6 +1453,11 @@ fn resolve_view(
             let mut pt = idx_point((*nbits).trailing_zeros() as usize, *row);
             pt.extend_from_slice(point);
             Some(ledger.tensor_claim(*factor, &pt)?)
+        }
+        FV::FlipTensorRow { factor, nbits, row } => {
+            let mut pt = idx_point((*nbits).trailing_zeros() as usize, *row);
+            pt.extend_from_slice(point);
+            Some(Goldilocks::ONE.sub(&ledger.tensor_claim(*factor, &pt)?))
         }
     };
     Ok(v)
@@ -902,6 +1592,31 @@ fn claim_val(ledger: &mut Ledger<'_>, id: usize, pt: &[Goldilocks]) -> Result<Go
 fn claim_limb(ledger: &mut Ledger<'_>, slot: usize, limb: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
     Ok(ledger.limb(slot, limb, pt)?)
 }
+/// Resolve a value-tensor bit (LSB numbering) at the verdict point.
+fn claim_tensor_bit(
+    ledger: &mut Ledger<'_>,
+    slot: usize,
+    bit: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
+    let mut p = idx_point(6, 63 - bit);
+    p.extend_from_slice(pt);
+    Ok(ledger.tensor_claim(Factor::ValueBits { slot }, &p)?)
+}
+
+/// Resolve a carry value c_k (k = 0 -> ZERO) from its column family.
+fn claim_carry(
+    ledger: &mut Ledger<'_>,
+    cols: &[usize],
+    k: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
+    if k == 0 {
+        return Ok(Goldilocks::ZERO);
+    }
+    claim_val(ledger, cols[k - 1], pt)
+}
+
 fn claim_vbit(ledger: &mut Ledger<'_>, slot: usize, bit: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
     let row = 63 - bit;
     let mut p = idx_point(6, row);
@@ -1021,14 +1736,17 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
     Ok(())
 }
 
-fn verify_booleanity<'l>(
-    w: &CycleWitness,
+fn verify_booleanity_shape<'l>(
     aux: &AuxCols,
     iter: &mut LegIter<'_>,
     ledger: &mut Ledger<'l>,
     transcript: &mut Transcript,
 ) -> Result<(), ConstraintError> {
-    let log_t = w.log_t;
+    let log_t = aux
+        .bits
+        .first()
+        .map(|c| c.len().trailing_zeros() as usize)
+        .unwrap_or(0);
     // (a) value-tensor row booleanity.
     {
         let r = transcript
@@ -1104,8 +1822,9 @@ fn verify_booleanity<'l>(
 // ---------------------------------------------------------------------------
 
 /// The instr-bit mask of a selector: (bit position in LSB numbering,
-/// required value). Derived from (opcode, funct3, funct7).
-fn selector_mask(op: u32, f3: u32, f7: Option<u32>) -> Vec<(usize, u8)> {
+/// required value). Derived from (opcode, funct3, funct7, funct6). The
+/// `funct6` field (bits 26..31) is the RV64 6-bit-shamt discriminant.
+fn selector_mask(op: u32, f3: u32, f7: Option<u32>, f6: Option<u32>) -> Vec<(usize, u8)> {
     let mut mask = Vec::new();
     for b in 0..7 {
         mask.push((b, ((op >> b) & 1) as u8));
@@ -1120,6 +1839,11 @@ fn selector_mask(op: u32, f3: u32, f7: Option<u32>) -> Vec<(usize, u8)> {
             mask.push((25 + b, ((v >> b) & 1) as u8));
         }
     }
+    if let Some(v) = f6 {
+        for b in 0..6 {
+            mask.push((26 + b, ((v >> b) & 1) as u8));
+        }
+    }
     mask
 }
 
@@ -1127,7 +1851,7 @@ fn selector_mask(op: u32, f3: u32, f7: Option<u32>) -> Vec<(usize, u8)> {
 fn sel_max_degree() -> usize {
     SELECTOR_TABLE
         .iter()
-        .map(|(_, op, f3, f7)| selector_mask(*op, *f3, *f7).len())
+        .map(|(_, op, f3, f7, f6)| selector_mask(*op, *f3, *f7, *f6).len())
         .max()
         .unwrap_or(0)
         + 1
@@ -1152,9 +1876,9 @@ fn prove_selectors(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErro
     // Instruction-bit row factors, both polarities, memoized by (bit, req).
     let mut memo: std::collections::HashMap<(usize, u8), usize> =
         std::collections::HashMap::new();
-    for (j, (name, op, f3, f7)) in SELECTOR_TABLE.iter().enumerate() {
+    for (j, (name, op, f3, f7, f6)) in SELECTOR_TABLE.iter().enumerate() {
         let _ = name;
-        let mask = selector_mask(*op, *f3, *f7);
+        let mask = selector_mask(*op, *f3, *f7, *f6);
         // s_j - prod(indicators): two term groups.
         let s = DenseMle {
             num_vars: log_t,
@@ -1183,8 +1907,17 @@ fn prove_selectors(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErro
                     flip_mle(&col)
                 };
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+                // BOTH polarities claim their row (the queue stays in
+                // lockstep with the verifier's per-row resolution; the
+                // flipped factor's view resolves to 1 - the row).
                 if *req == 1 {
                     views.push((fi, FV::TensorRow {
+                        factor: Factor::InstrBits,
+                        nbits: 32,
+                        row,
+                    }));
+                } else {
+                    views.push((fi, FV::FlipTensorRow {
                         factor: Factor::InstrBits,
                         nbits: 32,
                         row,
@@ -1241,9 +1974,9 @@ fn verify_selectors(
     let mut row_memo: std::collections::HashMap<usize, Goldilocks> =
         std::collections::HashMap::new();
     let mut expect = Goldilocks::ZERO;
-    for (j, (_, op, f3, f7)) in SELECTOR_TABLE.iter().enumerate() {
+    for (j, (_, op, f3, f7, f6)) in SELECTOR_TABLE.iter().enumerate() {
         let s = ledger.tensor_claim(Factor::BitCol { id: aux.index.sel[j] }, &verdict.point)?;
-        let mask = selector_mask(*op, *f3, *f7);
+        let mask = selector_mask(*op, *f3, *f7, *f6);
         let mut prod = Goldilocks::ONE;
         for (bit, req) in &mask {
             let key = (*bit, *req);
@@ -1413,13 +2146,20 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             vp.add_term(alphas[2].neg(), vec![*id, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
-        // term C: + sum_k s_k * prod(1 - rd_i)
+        // term C: + sum_k s_k * prod(1 - rd_i) — the flipped rows carry
+        // FlipTensorRow views so their claims ride the queue (the
+        // verifier resolves each rd bit row and derives the flip).
         let mut not_rd_ids = Vec::new();
         for bit in 7..12 {
             let row = 31 - bit;
             let col = instr_row_of(&w.instr_bits, row, log_t);
             let f = flip_mle(&col);
             let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+            views.push((fi, FV::FlipTensorRow {
+                factor: Factor::InstrBits,
+                nbits: 32,
+                row,
+            }));
             not_rd_ids.push(fi);
         }
         for id in &w_ids {
@@ -1492,17 +2232,11 @@ fn verify_flags(
             .add(&bgeu.mul(&one.sub(&ltu0)));
         expect = expect.add(&alphas[1].mul(&t.sub(&v)).mul(&eq_at));
     }
-    // (5) rd_we = W - W * prod(1 - rd_i)
+    // (5) rd_we = W - W * prod(1 - rd_i) — claim order follows the
+    // prover's view order (rd_we, the write-class selectors, then the
+    // rd-bit rows).
     {
         let t = claim_bit(ledger, idx.rd_we, pt)?;
-        let mut not_rd = Goldilocks::ONE;
-        for bit_pos in 7..12 {
-            let row = 31 - bit_pos;
-            let mut p = idx_point(5, row);
-            p.extend_from_slice(pt);
-            let b = ledger.tensor_claim(Factor::InstrBits, &p)?;
-            not_rd = not_rd.mul(&Goldilocks::ONE.sub(&b));
-        }
         let write_classes = [
             "sel_opimm",
             "sel_op",
@@ -1517,6 +2251,14 @@ fn verify_flags(
         let mut w_sum = Goldilocks::ZERO;
         for name in write_classes {
             w_sum = w_sum.add(&claim_bit(ledger, idx.sel_by(name), pt)?);
+        }
+        let mut not_rd = Goldilocks::ONE;
+        for bit_pos in 7..12 {
+            let row = 31 - bit_pos;
+            let mut p = idx_point(5, row);
+            p.extend_from_slice(pt);
+            let b = ledger.tensor_claim(Factor::InstrBits, &p)?;
+            not_rd = not_rd.mul(&Goldilocks::ONE.sub(&b));
         }
         expect = expect.add(
             &alphas[2]
@@ -2162,13 +2904,17 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let imm_l: Vec<usize> = (0..3)
             .map(|l| {
                 let f = limb_mle(w, T_IMM, l, log_t);
-                vp.add_factor(f).map_err(ConstraintError::Virtual)
+                let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::Limb { slot: T_IMM, limb: l }));
+                Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
         let rs1_l: Vec<usize> = (0..3)
             .map(|l| {
                 let f = limb_mle(w, T_RS1, l, log_t);
-                vp.add_factor(f).map_err(ConstraintError::Virtual)
+                let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::Limb { slot: T_RS1, limb: l }));
+                Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
         let b = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_branch"), log_t)?;
@@ -2418,13 +3164,17 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let rs1_l: Vec<usize> = (0..4)
             .map(|l| {
                 let f = limb_mle(w, T_RS1, l, log_t);
-                vp.add_factor(f).map_err(ConstraintError::Virtual)
+                let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::Limb { slot: T_RS1, limb: l }));
+                Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
         let imm_l: Vec<usize> = (0..4)
             .map(|l| {
                 let f = limb_mle(w, T_IMM, l, log_t);
-                vp.add_factor(f).map_err(ConstraintError::Virtual)
+                let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::Limb { slot: T_IMM, limb: l }));
+                Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
         let a = &alphas[0];
@@ -2900,6 +3650,1682 @@ fn combo_mle(w: &CycleWitness, slot: usize, log_t: usize) -> DenseMle {
 }
 
 // ---------------------------------------------------------------------------
+// Family: range links — every mul/div limb and carry column is composed
+// from boolean bit columns (the integer-semantics anchor: without the
+// range, the limb recurrences would only constrain field combinations).
+// ---------------------------------------------------------------------------
+
+/// One range-decomposed group: (base offset, the limb columns, bits per
+/// limb, limb count).
+fn range_groups(aux: &AuxCols) -> Vec<(usize, &[usize], usize, usize)> {
+    let i = &aux.index;
+    vec![
+        (RG_MUL_LO, &i.v_mul_lo, 16, 4),
+        (RG_MUL_HI, &i.v_mul_hi, 16, 4),
+        (RG_MUL_C, &i.v_mul_c, 19, 7),
+        (RG_MULH_BOR, &i.v_mulh_bor, 2, 4),
+        (RG_DIV_Q, &i.v_div_q, 16, 4),
+        (RG_DIV_R, &i.v_div_r, 16, 4),
+        (RG_DIV_D, &i.v_div_d, 19, 4),
+        (RG_MAG_A, &i.v_mag_a, 16, 4),
+        (RG_MAG_B, &i.v_mag_b, 16, 4),
+        (RG_MAG_Q, &i.v_mag_q, 16, 4),
+        (RG_MAG_R, &i.v_mag_r, 16, 4),
+        (RG_MAG_D, &i.v_mag_d, 19, 4),
+        (RG_RLT_OUT, &i.v_rlt_out, 16, 4),
+    ]
+}
+
+fn prove_range_links(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    let aux = ctx.aux;
+    let log_t = ctx.w.log_t;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-rl-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let groups = range_groups(aux);
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-rl-a", groups.len())
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let mut vp = VirtualPolynomial::new(log_t);
+    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
+    for (g, (base, cols, width, n)) in groups.iter().enumerate() {
+        for l in 0..*n {
+            let limb = add_val_factor(&mut vp, &mut views, &aux.vals, cols[l], log_t)?;
+            vp.add_term(alphas[g], vec![limb, ei]).map_err(ConstraintError::Virtual)?;
+            for j in 0..*width {
+                let bit = aux.index.range_bits[base + l * width + j];
+                let bf = add_bit_factor(&mut vp, &mut views, &aux.bits, bit, log_t)?;
+                vp.add_term(
+                    alphas[g].mul(&fe(1u64 << j).neg()),
+                    vec![bf, ei],
+                )
+                .map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    ctx.stage("rangelinks", &mut vp, &views, Goldilocks::ZERO)
+        .map(|_| ())
+}
+
+fn verify_range_links(
+    aux: &AuxCols,
+    iter: &mut LegIter<'_>,
+    log_t: usize,
+    ledger: &mut Ledger<'_>,
+    transcript: &mut Transcript,
+) -> Result<(), ConstraintError> {
+    let groups = range_groups(aux);
+    let r = transcript
+        .challenge_fields(b"con-rl-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = transcript
+        .challenge_fields(b"con-rl-a", groups.len())
+        .map_err(ConstraintError::Transcript)?;
+    let leg = next_constraint_leg(iter, "rangelinks")?;
+    let verdict = verify_leg_header("rangelinks", leg, log_t, 2, transcript)?;
+    let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
+    let pt = &verdict.point;
+    let mut expect = Goldilocks::ZERO;
+    for (g, (base, cols, width, n)) in groups.iter().enumerate() {
+        for l in 0..*n {
+            let limb = claim_val(ledger, cols[l], pt)?;
+            let mut e = limb;
+            for j in 0..*width {
+                let bit = aux.index.range_bits[base + l * width + j];
+                let b = claim_bit(ledger, bit, pt)?;
+                e = e.sub(&fe(1u64 << j).mul(&b));
+            }
+            expect = expect.add(&alphas[g].mul(&e).mul(&eq_at));
+        }
+    }
+    if expect != verdict.final_claim {
+        return Err(ConstraintError::FinalCheck("rangelinks"));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Family: decode — the instruction tensor is bound to the fetched word
+// (pc = 4·fetch already lives in ctrl; here the TENSOR is bound to the
+// fetch column), and the coverage partitions force every fetched word
+// into exactly one covered class/sub-class (the verifier-side coverage
+// gate: the kernel tests' `instrs` parameter is NOT available to the
+// pipeline verifier, so the decode itself must carry the gate).
+// ---------------------------------------------------------------------------
+
+/// The 12 opcode classes.
+const CLASS_SELECTORS: [&str; 12] = [
+    "sel_opimm",
+    "sel_op",
+    "sel_op32",
+    "sel_opimm32",
+    "sel_lui",
+    "sel_auipc",
+    "sel_jal",
+    "sel_jalr",
+    "sel_branch",
+    "sel_load",
+    "sel_store",
+    "sel_system",
+];
+
+/// The sub-class partition of each multi-member class.
+const SUBCLASS_PARTITIONS: [(&str, &[&str]); 7] = [
+    (
+        "sel_op",
+        &[
+            "sel_add", "sel_sub", "sel_xor", "sel_or", "sel_and", "sel_sll", "sel_srl",
+            "sel_sra", "sel_slt", "sel_sltu", "sel_mul", "sel_mulh", "sel_mulhu", "sel_div",
+            "sel_divu", "sel_rem", "sel_remu",
+        ],
+    ),
+    (
+        "sel_opimm",
+        &[
+            "sel_addi", "sel_slti", "sel_sltiu", "sel_xori", "sel_ori", "sel_andi", "sel_slli",
+            "sel_srli", "sel_srai",
+        ],
+    ),
+    (
+        "sel_op32",
+        &[
+            "sel_addw", "sel_subw", "sel_sllw", "sel_srlw", "sel_sraw", "sel_mulw", "sel_divw",
+            "sel_divuw", "sel_remw", "sel_remuw",
+        ],
+    ),
+    (
+        "sel_opimm32",
+        &["sel_addiw", "sel_slliw", "sel_srliw", "sel_sraiw"],
+    ),
+    (
+        "sel_branch",
+        &[
+            "sel_beq", "sel_bne", "sel_blt", "sel_bge", "sel_bltu", "sel_bgeu",
+        ],
+    ),
+    ("sel_load", &["sel_lw", "sel_lwu", "sel_ld"]),
+    ("sel_store", &["sel_sw", "sel_sd"]),
+];
+
+fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    let w = ctx.w;
+    let aux = ctx.aux;
+    let log_t = w.log_t;
+    let idx = &aux.index;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-dec-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-dec-a", 4)
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let mut vp = VirtualPolynomial::new(log_t);
+    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
+    // (1) the fetch binding: sum_i 2^i * instr_bit_i = fetch_word.
+    {
+        let a = &alphas[0];
+        for i in 0..32usize {
+            let row = 31 - i;
+            let f = instr_row_of(&w.instr_bits, row, log_t);
+            let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+            views.push((fi, FV::TensorRow {
+                factor: Factor::InstrBits,
+                nbits: 32,
+                row,
+            }));
+            vp.add_term(a.mul(&fe(1u64 << i)), vec![fi, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+        let iw = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_instr, log_t)?;
+        vp.add_term(a.neg(), vec![iw, ei]).map_err(ConstraintError::Virtual)?;
+    }
+    // (2) the class partition: sum(classes) - 1 = 0 (the constant rides
+    //     the eq table whose cube-sum is 1).
+    {
+        let a = &alphas[1];
+        for name in CLASS_SELECTORS {
+            let s = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+            vp.add_term(*a, vec![s, ei]).map_err(ConstraintError::Virtual)?;
+        }
+        vp.add_term(a.neg(), vec![ei]).map_err(ConstraintError::Virtual)?;
+    }
+    // (3) the sub-class partitions: sum(subs) - class = 0.
+    {
+        let a = &alphas[2];
+        for (class, subs) in SUBCLASS_PARTITIONS {
+            let cf = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class), log_t)?;
+            vp.add_term(a.neg(), vec![cf, ei]).map_err(ConstraintError::Virtual)?;
+            for name in subs {
+                let s = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+                vp.add_term(*a, vec![s, ei]).map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    // (4) the system discipline: sel_system forces f3 = 0 and
+    //     funct12 in {0, 1} (ECALL/EBREAK; CSR space excluded).
+    {
+        let a = &alphas[3];
+        let sys = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_system"), log_t)?;
+        for bit in [12usize, 13, 14, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
+            let row = 31 - bit;
+            let f = instr_row_of(&w.instr_bits, row, log_t);
+            let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+            views.push((fi, FV::TensorRow {
+                factor: Factor::InstrBits,
+                nbits: 32,
+                row,
+            }));
+            vp.add_term(*a, vec![sys, fi, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    ctx.stage("decode", &mut vp, &views, Goldilocks::ZERO)
+        .map(|_| ())
+}
+
+fn verify_decode(
+    aux: &AuxCols,
+    iter: &mut LegIter<'_>,
+    log_t: usize,
+    ledger: &mut Ledger<'_>,
+    transcript: &mut Transcript,
+) -> Result<(), ConstraintError> {
+    let idx = &aux.index;
+    let r = transcript
+        .challenge_fields(b"con-dec-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = transcript
+        .challenge_fields(b"con-dec-a", 4)
+        .map_err(ConstraintError::Transcript)?;
+    let leg = next_constraint_leg(iter, "decode")?;
+    let verdict = verify_leg_header("decode", leg, log_t, 3, transcript)?;
+    let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
+    let pt = &verdict.point;
+    let mut expect = Goldilocks::ZERO;
+    // (1) fetch binding (the row claims resolve BEFORE the instr
+    // column — the prover's view order).
+    {
+        let mut e = Goldilocks::ZERO;
+        for i in 0..32usize {
+            let row = 31 - i;
+            let mut p = idx_point(5, row);
+            p.extend_from_slice(pt);
+            let b = ledger.tensor_claim(Factor::InstrBits, &p)?;
+            e = e.add(&fe(1u64 << i).mul(&b));
+        }
+        let iw = claim_val(ledger, idx.v_instr, pt)?;
+        e = e.sub(&iw);
+        expect = expect.add(&alphas[0].mul(&e).mul(&eq_at));
+    }
+    // (2) class partition.
+    {
+        let mut s = Goldilocks::ZERO;
+        for name in CLASS_SELECTORS {
+            s = s.add(&claim_bit(ledger, idx.sel_by(name), pt)?);
+        }
+        expect = expect.add(&alphas[1].mul(&s.sub(&Goldilocks::ONE)).mul(&eq_at));
+    }
+    // (3) sub-class partitions.
+    {
+        for (class, subs) in SUBCLASS_PARTITIONS {
+            let c = claim_bit(ledger, idx.sel_by(class), pt)?;
+            let mut s = Goldilocks::ZERO;
+            for name in subs {
+                s = s.add(&claim_bit(ledger, idx.sel_by(name), pt)?);
+            }
+            expect = expect.add(&alphas[2].mul(&s.sub(&c)).mul(&eq_at));
+        }
+    }
+    // (4) system discipline.
+    {
+        let sys = claim_bit(ledger, idx.sel_by("sel_system"), pt)?;
+        let mut e = Goldilocks::ZERO;
+        for bit in [12usize, 13, 14, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
+            let row = 31 - bit;
+            let mut p = idx_point(5, row);
+            p.extend_from_slice(pt);
+            let b = ledger.tensor_claim(Factor::InstrBits, &p)?;
+            e = e.add(&b);
+        }
+        expect = expect.add(&alphas[3].mul(&sys).mul(&e).mul(&eq_at));
+    }
+    if expect != verdict.final_claim {
+        return Err(ConstraintError::FinalCheck("decode"));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Family: shifts — the shamt one-hots (register 6-bit / W 5-bit, register
+// vs immediate sources) and the per-bit shift MUXes.
+// ---------------------------------------------------------------------------
+
+/// The shift classes: (selector, one-hot group, kind, is_w).
+/// Kind: 0 = left, 1 = right-logical, 2 = right-arithmetic.
+#[derive(Clone, Copy)]
+struct ShiftClass {
+    sel: &'static str,
+    /// 0: shoh6_r, 1: shoh6_i, 2: shoh5_r, 3: shoh5_i.
+    oh: usize,
+    kind: u8,
+    is_w: bool,
+}
+
+const SHIFT_CLASSES: [ShiftClass; 12] = [
+    ShiftClass { sel: "sel_sll", oh: 0, kind: 0, is_w: false },
+    ShiftClass { sel: "sel_srl", oh: 0, kind: 1, is_w: false },
+    ShiftClass { sel: "sel_sra", oh: 0, kind: 2, is_w: false },
+    ShiftClass { sel: "sel_slli", oh: 1, kind: 0, is_w: false },
+    ShiftClass { sel: "sel_srli", oh: 1, kind: 1, is_w: false },
+    ShiftClass { sel: "sel_srai", oh: 1, kind: 2, is_w: false },
+    ShiftClass { sel: "sel_sllw", oh: 2, kind: 0, is_w: true },
+    ShiftClass { sel: "sel_srlw", oh: 2, kind: 1, is_w: true },
+    ShiftClass { sel: "sel_sraw", oh: 2, kind: 2, is_w: true },
+    ShiftClass { sel: "sel_slliw", oh: 3, kind: 0, is_w: true },
+    ShiftClass { sel: "sel_srliw", oh: 3, kind: 1, is_w: true },
+    ShiftClass { sel: "sel_sraiw", oh: 3, kind: 2, is_w: true },
+];
+
+fn prove_shift(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    let w = ctx.w;
+    let aux = ctx.aux;
+    let log_t = w.log_t;
+    let idx = &aux.index;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-sh-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-sh-a", 3)
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let mut vp = VirtualPolynomial::new(log_t);
+    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
+    // Memoized tensor-row factors.
+    let mut rs1_rows: Vec<Option<usize>> = vec![None; 64];
+    let mut rs2_rows: Vec<Option<usize>> = vec![None; 64];
+    let mut instr_rows: Vec<Option<usize>> = vec![None; 32];
+    let mut add_rs1_row = |vp: &mut VirtualPolynomial,
+                           views: &mut Vec<ViewPair>,
+                           bit: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = rs1_rows[bit] {
+            return Ok(f);
+        }
+        let row = 63 - bit;
+        let f = row_mle(&w.values[T_RS1], row, log_t);
+        let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+        views.push((fi, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RS1 },
+            nbits: 64,
+            row,
+        }));
+        rs1_rows[bit] = Some(fi);
+        Ok(fi)
+    };
+    let mut add_rs2_row = |vp: &mut VirtualPolynomial,
+                           views: &mut Vec<ViewPair>,
+                           bit: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = rs2_rows[bit] {
+            return Ok(f);
+        }
+        let row = 63 - bit;
+        let f = row_mle(&w.values[T_RS2], row, log_t);
+        let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+        views.push((fi, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RS2 },
+            nbits: 64,
+            row,
+        }));
+        rs2_rows[bit] = Some(fi);
+        Ok(fi)
+    };
+    let mut add_instr_row = |vp: &mut VirtualPolynomial,
+                             views: &mut Vec<ViewPair>,
+                             bit: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = instr_rows[bit] {
+            return Ok(f);
+        }
+        let row = 31 - bit;
+        let f = instr_row_of(&w.instr_bits, row, log_t);
+        let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+        views.push((fi, FV::TensorRow {
+            factor: Factor::InstrBits,
+            nbits: 32,
+            row,
+        }));
+        instr_rows[bit] = Some(fi);
+        Ok(fi)
+    };
+    let add_rd_row = |vp: &mut VirtualPolynomial,
+                      views: &mut Vec<ViewPair>,
+                      bit: usize|
+     -> Result<usize, ConstraintError> {
+        let row = 63 - bit;
+        let f = row_mle(&w.values[T_RD], row, log_t);
+        let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
+        views.push((fi, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RD },
+            nbits: 64,
+            row,
+        }));
+        Ok(fi)
+    };
+    // (1) the one-hot decodes: shoh[s] = prod over the source bits
+    //     (polarized). The sources: rs2's low bits (register forms) or
+    //     the instruction's shamt field (immediate forms).
+    {
+        let a = &alphas[0];
+        let groups: [(&[usize], usize, usize); 4] = [
+            (&idx.shoh6_r, 6, 0), // (columns, nbits, source: rs2)
+            (&idx.shoh6_i, 6, 1), // instr bits 20..25
+            (&idx.shoh5_r, 5, 0),
+            (&idx.shoh5_i, 5, 1),
+        ];
+        for (ohs, nbits, src) in groups {
+            for s in 0..(1usize << nbits) {
+                let oh = add_bit_factor(&mut vp, &mut views, &aux.bits, ohs[s], log_t)?;
+                vp.add_term(*a, vec![oh, ei]).map_err(ConstraintError::Virtual)?;
+                // -prod(polarized source bits)
+                let mut ids = Vec::with_capacity(nbits + 1);
+                for b in 0..nbits {
+                    let req = (s >> b) & 1;
+                    let fi = if src == 0 {
+                        add_rs2_row(&mut vp, &mut views, b)?
+                    } else {
+                        add_instr_row(&mut vp, &mut views, 20 + b)?
+                    };
+                    if req == 1 {
+                        ids.push(fi);
+                    } else {
+                        // flipped polarity: a fresh factor over the same
+                        // row (the view stays the unflipped row; the
+                        // verifier derives the flip).
+                        let row = if src == 0 { 63 - b } else { 31 - (20 + b) };
+                        let f = if src == 0 {
+                            row_mle(&w.values[T_RS2], row, log_t)
+                        } else {
+                            instr_row_of(&w.instr_bits, row, log_t)
+                        };
+                        let flipped = flip_mle(&f);
+                        let ffi = vp.add_factor(flipped).map_err(ConstraintError::Virtual)?;
+                        ids.push(ffi);
+                    }
+                }
+                ids.push(ei);
+                vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    // (2) the per-bit shift MUXes.
+    {
+        let a = &alphas[1];
+        let b2 = &alphas[2];
+        for class in SHIFT_CLASSES {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
+            let ohs: &[usize] = match class.oh {
+                0 => &idx.shoh6_r,
+                1 => &idx.shoh6_i,
+                2 => &idx.shoh5_r,
+                _ => &idx.shoh5_i,
+            };
+            let width = if class.oh < 2 { 64usize } else { 32usize };
+            let top = if class.is_w { 32usize } else { 64usize };
+            for i in 0..64usize {
+                let rd = add_rd_row(&mut vp, &mut views, i)?;
+                if i >= top {
+                    // The W sign extension: rd_bit[i] = rd_bit[31].
+                    if class.is_w {
+                        let rd31 = add_rd_row(&mut vp, &mut views, 31)?;
+                        vp.add_term(*b2, vec![sel, rd, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(b2.neg(), vec![sel, rd31, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                    continue;
+                }
+                // The in-range source bit and the shift bound.
+                let (lo_s, hi_s): (usize, usize) = match class.kind {
+                    0 => (0, i.min(width - 1)), // s <= i
+                    _ => (0, (top - 1 - i).min(width - 1)), // i + s <= top-1
+                };
+                let alpha = if class.is_w { *b2 } else { *a };
+                vp.add_term(alpha, vec![sel, rd, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                let mut covered = Vec::with_capacity(hi_s + 1);
+                for s in lo_s..=hi_s {
+                    let src_bit = match class.kind {
+                        0 => i - s, // SLL: rs1_bit[i - s]
+                        _ => i + s, // SRL/SRA: rs1_bit[i + s]
+                    };
+                    let oh = add_bit_factor(&mut vp, &mut views, &aux.bits, ohs[s], log_t)?;
+                    let sb = add_rs1_row(&mut vp, &mut views, src_bit)?;
+                    vp.add_term(alpha.neg(), vec![sel, oh, sb, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    covered.push(s);
+                }
+                // The arithmetic fill: out-of-range s contribute the
+                // sign bit (bit top-1) via the one-hot complement. The
+                // identity is rd - (main + sg·(1 - covered)) = 0, so the
+                // fill's constant term is SUBTRACTED and the covered
+                // correction added.
+                if class.kind == 2 {
+                    let sign_bit = top - 1;
+                    let sg = add_rs1_row(&mut vp, &mut views, sign_bit)?;
+                    vp.add_term(alpha.neg(), vec![sel, sg, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    for s in covered {
+                        let oh = add_bit_factor(&mut vp, &mut views, &aux.bits, ohs[s], log_t)?;
+                        vp.add_term(alpha, vec![sel, sg, oh, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+        }
+    }
+    ctx.stage("shift", &mut vp, &views, Goldilocks::ZERO)
+        .map(|_| ())
+}
+
+fn verify_shift(
+    aux: &AuxCols,
+    iter: &mut LegIter<'_>,
+    log_t: usize,
+    ledger: &mut Ledger<'_>,
+    transcript: &mut Transcript,
+) -> Result<(), ConstraintError> {
+    let idx = &aux.index;
+    let r = transcript
+        .challenge_fields(b"con-sh-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = transcript
+        .challenge_fields(b"con-sh-a", 3)
+        .map_err(ConstraintError::Transcript)?;
+    let leg = next_constraint_leg(iter, "shift")?;
+    let verdict = verify_leg_header("shift", leg, log_t, 8, transcript)?;
+    let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
+    let pt = &verdict.point;
+    // LAZY claim caches: the prover claims exactly the rows its leg
+    // references (the memoized factor pool), so the verifier must pop
+    // in the same on-demand pattern — resolving every row upfront would
+    // desync the claim queue.
+    let mut rs1_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
+    let mut rs2_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
+    let mut instr_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
+    let mut rd_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
+    let rs1_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+        if let Some(v) = memo.get(&bit) {
+            return Ok(*v);
+        }
+        let mut p = idx_point(6, 63 - bit);
+        p.extend_from_slice(pt);
+        let v = ledger.tensor_claim(Factor::ValueBits { slot: T_RS1 }, &p)?;
+        memo.insert(bit, v);
+        Ok(v)
+    };
+    let _ = &rs1_bits;
+    let rs2_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+        if let Some(v) = memo.get(&bit) {
+            return Ok(*v);
+        }
+        let mut p = idx_point(6, 63 - bit);
+        p.extend_from_slice(pt);
+        let v = ledger.tensor_claim(Factor::ValueBits { slot: T_RS2 }, &p)?;
+        memo.insert(bit, v);
+        Ok(v)
+    };
+    let instr_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+        if let Some(v) = memo.get(&bit) {
+            return Ok(*v);
+        }
+        let mut p = idx_point(5, 31 - bit);
+        p.extend_from_slice(pt);
+        let v = ledger.tensor_claim(Factor::InstrBits, &p)?;
+        memo.insert(bit, v);
+        Ok(v)
+    };
+    let rd_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+        if let Some(v) = memo.get(&bit) {
+            return Ok(*v);
+        }
+        let mut p = idx_point(6, 63 - bit);
+        p.extend_from_slice(pt);
+        let v = ledger.tensor_claim(Factor::ValueBits { slot: T_RD }, &p)?;
+        memo.insert(bit, v);
+        Ok(v)
+    };
+    let mut expect = Goldilocks::ZERO;
+    // (1) the one-hot decodes.
+    {
+        let a = &alphas[0];
+        let groups: [(&[usize], usize, usize); 4] = [
+            (&idx.shoh6_r, 6, 0),
+            (&idx.shoh6_i, 6, 1),
+            (&idx.shoh5_r, 5, 0),
+            (&idx.shoh5_i, 5, 1),
+        ];
+        for (ohs, nbits, src) in groups {
+            for s in 0..(1usize << nbits) {
+                let oh = claim_bit(ledger, ohs[s], pt)?;
+                let mut prod = Goldilocks::ONE;
+                for b in 0..nbits {
+                    let v = if src == 0 {
+                        rs2_bits(ledger, &mut rs2_memo, b)?
+                    } else {
+                        instr_bits(ledger, &mut instr_memo, 20 + b)?
+                    };
+                    let req = (s >> b) & 1;
+                    let term = if req == 1 { v } else { Goldilocks::ONE.sub(&v) };
+                    prod = prod.mul(&term);
+                }
+                expect = expect.add(&a.mul(&oh.sub(&prod)).mul(&eq_at));
+            }
+        }
+    }
+    // (2) the per-bit MUXes.
+    {
+        let a = &alphas[1];
+        let b2 = &alphas[2];
+        for class in SHIFT_CLASSES {
+            let sel = claim_bit(ledger, idx.sel_by(class.sel), pt)?;
+            let ohs: &[usize] = match class.oh {
+                0 => &idx.shoh6_r,
+                1 => &idx.shoh6_i,
+                2 => &idx.shoh5_r,
+                _ => &idx.shoh5_i,
+            };
+            let width = if class.oh < 2 { 64usize } else { 32usize };
+            let top = if class.is_w { 32usize } else { 64usize };
+            for i in 0..64usize {
+                // Claim order per the prover's view order: rd's row
+                // first, then the per-s one-hots and rs1 rows.
+                let rd_i = rd_bits(ledger, &mut rd_memo, i)?;
+                if i >= top {
+                    if class.is_w {
+                        let e = rd_i.sub(&rd_bits(ledger, &mut rd_memo, 31)?);
+                        expect = expect.add(&b2.mul(&sel).mul(&e).mul(&eq_at));
+                    }
+                    continue;
+                }
+                let (lo_s, hi_s): (usize, usize) = match class.kind {
+                    0 => (0, i.min(width - 1)),
+                    _ => (0, (top - 1 - i).min(width - 1)),
+                };
+                let alpha = if class.is_w { *b2 } else { *a };
+                let mut rhs = Goldilocks::ZERO;
+                for s in lo_s..=hi_s {
+                    let src_bit = match class.kind {
+                        0 => i - s,
+                        _ => i + s,
+                    };
+                    let oh = claim_bit(ledger, ohs[s], pt)?;
+                    rhs = rhs.add(&oh.mul(&rs1_bits(ledger, &mut rs1_memo, src_bit)?));
+                }
+                if class.kind == 2 {
+                    // + sign * (1 - sum of the covered one-hots)
+                    let sign = rs1_bits(ledger, &mut rs1_memo, top - 1)?;
+                    let mut covered = Goldilocks::ZERO;
+                    for s in lo_s..=hi_s {
+                        covered = covered.add(&claim_bit(ledger, ohs[s], pt)?);
+                    }
+                    rhs = rhs.add(&sign.mul(&Goldilocks::ONE.sub(&covered)));
+                }
+                expect = expect.add(&alpha.mul(&sel).mul(&rd_i.sub(&rhs)).mul(&eq_at));
+            }
+        }
+    }
+    if expect != verdict.final_claim {
+        return Err(ConstraintError::FinalCheck("shift"));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Family: mul — the limb recurrence of the unsigned product with
+// range-linked limbs/carries (integer semantics), the MUL/MULW rd
+// routing, and MULH's sign-corrected composition.
+// ---------------------------------------------------------------------------
+
+fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    let w = ctx.w;
+    let aux = ctx.aux;
+    let log_t = w.log_t;
+    let idx = &aux.index;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-mul-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-mul-a", 5)
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let mut vp = VirtualPolynomial::new(log_t);
+    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
+    // Memoized operand-limb factors.
+    let mut a_limbs: Vec<Option<usize>> = vec![None; 4];
+    let mut b_limbs: Vec<Option<usize>> = vec![None; 4];
+    let mut add_a = |vp: &mut VirtualPolynomial,
+                     views: &mut Vec<ViewPair>,
+                     l: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = a_limbs[l] {
+            return Ok(f);
+        }
+        let fi = add_limb_factor(vp, views, w, T_RS1, l, log_t)?;
+        a_limbs[l] = Some(fi);
+        Ok(fi)
+    };
+    let mut add_b = |vp: &mut VirtualPolynomial,
+                     views: &mut Vec<ViewPair>,
+                     l: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = b_limbs[l] {
+            return Ok(f);
+        }
+        let fi = add_limb_factor(vp, views, w, T_RS2, l, log_t)?;
+        b_limbs[l] = Some(fi);
+        Ok(fi)
+    };
+    // (1) MUL: k = 0..3 with p = rd limbs (c_4 free — the 2^64 wrap).
+    {
+        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mul"), log_t)?;
+        let a0 = alphas[0];
+        // Inline (the closure-over-closure borrow rules make a shared
+        // emitter awkward for the rd case): emit directly.
+        for k in 0..4usize {
+            for i in 0..4usize {
+                for j in 0..4usize {
+                    if i + j == k {
+                        let af = add_a(&mut vp, &mut views, i)?;
+                        let bf = add_b(&mut vp, &mut views, j)?;
+                        vp.add_term(a0, vec![sel, af, bf, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+            if k > 0 {
+                let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k - 1], log_t)?;
+                vp.add_term(a0, vec![sel, cf, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, k, log_t)?;
+            vp.add_term(a0.neg(), vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
+            let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k], log_t)?;
+            vp.add_term(a0.mul(&fe(1u64 << 16).neg()), vec![sel, cf, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // (2) MULH + MULHU: k = 0..7 with p = lo (k < 4) / hi (k >= 4);
+    //     the k = 7 identity closes without carry-out (c_8 = 0).
+    for name in ["sel_mulh", "sel_mulhu"] {
+        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+        let a1 = alphas[1];
+        for k in 0..8usize {
+            for i in 0..4usize {
+                for j in 0..4usize {
+                    if i + j == k {
+                        let af = add_a(&mut vp, &mut views, i)?;
+                        let bf = add_b(&mut vp, &mut views, j)?;
+                        vp.add_term(a1, vec![sel, af, bf, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+            if k > 0 {
+                let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k - 1], log_t)?;
+                vp.add_term(a1, vec![sel, cf, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            let pf = if k < 4 {
+                add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_lo[k], log_t)?
+            } else {
+                add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_hi[k - 4], log_t)?
+            };
+            vp.add_term(a1.neg(), vec![sel, pf, ei])
+                .map_err(ConstraintError::Virtual)?;
+            if k < 7 {
+                let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k], log_t)?;
+                vp.add_term(
+                    a1.mul(&fe(1u64 << 16).neg()),
+                    vec![sel, cf, ei],
+                )
+                .map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    // (3) MULW: k = 0..1 over the low limbs (c_2 free).
+    {
+        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulw"), log_t)?;
+        let a2 = alphas[2];
+        for k in 0..2usize {
+            for i in 0..2usize {
+                for j in 0..2usize {
+                    if i + j == k {
+                        let af = add_a(&mut vp, &mut views, i)?;
+                        let bf = add_b(&mut vp, &mut views, j)?;
+                        vp.add_term(a2, vec![sel, af, bf, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+            if k > 0 {
+                let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k - 1], log_t)?;
+                vp.add_term(a2, vec![sel, cf, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, k, log_t)?;
+            vp.add_term(a2.neg(), vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
+            let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k], log_t)?;
+            vp.add_term(a2.mul(&fe(1u64 << 16).neg()), vec![sel, cf, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+        // The W sign extension: rd_2 = rd_3 = s31·0xFFFF.
+        let sign = row_mle(&w.values[T_RD], 32, log_t);
+        let sf = vp.add_factor(sign).map_err(ConstraintError::Virtual)?;
+        views.push((sf, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RD },
+            nbits: 64,
+            row: 32,
+        }));
+        for l in 2..4usize {
+            let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
+            vp.add_term(a2, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a2.mul(&fe(0xFFFF).neg()), vec![sel, sf, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // (4) MULHU rd routing: rd_l = hi_l (limb copies).
+    {
+        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulhu"), log_t)?;
+        let a3 = alphas[3];
+        for l in 0..4usize {
+            let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
+            let hi = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_hi[l], log_t)?;
+            vp.add_term(a3, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a3.neg(), vec![sel, hi, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // (5) MULH rd composition: rd_l = hi_l - sa·b_l - sb·a_l - bor_l +
+    //     2^16·bor_{l+1} (bor_0 = 0, bor_4 free — the mod-2^64 wrap).
+    {
+        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulh"), log_t)?;
+        let a4 = alphas[4];
+        // sa = rs1 bit 63 (row 0), sb = rs2 bit 63 (row 0).
+        let sa = row_mle(&w.values[T_RS1], 0, log_t);
+        let saf = vp.add_factor(sa).map_err(ConstraintError::Virtual)?;
+        views.push((saf, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RS1 },
+            nbits: 64,
+            row: 0,
+        }));
+        let sb = row_mle(&w.values[T_RS2], 0, log_t);
+        let sbf = vp.add_factor(sb).map_err(ConstraintError::Virtual)?;
+        views.push((sbf, FV::TensorRow {
+            factor: Factor::ValueBits { slot: T_RS2 },
+            nbits: 64,
+            row: 0,
+        }));
+        for l in 0..4usize {
+            let hi = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_hi[l], log_t)?;
+            let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
+            let bf = add_b(&mut vp, &mut views, l)?;
+            let af = add_a(&mut vp, &mut views, l)?;
+            // + hi_l
+            vp.add_term(a4, vec![sel, hi, ei]).map_err(ConstraintError::Virtual)?;
+            // - sa·b_l - sb·a_l
+            vp.add_term(a4.neg(), vec![sel, saf, bf, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a4.neg(), vec![sel, sbf, af, ei])
+                .map_err(ConstraintError::Virtual)?;
+            // - rd_l
+            vp.add_term(a4.neg(), vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
+            // - bor_l (l > 0) + 2^16·bor_{l+1} (all l: bor_4 is the free
+            // mod-2^64 wrap borrow — it MUST appear to close the chain).
+            if l > 0 {
+                let bor = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mulh_bor[l - 1], log_t)?;
+                vp.add_term(a4.neg(), vec![sel, bor, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            {
+                let bor = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mulh_bor[l], log_t)?;
+                vp.add_term(a4.mul(&fe(1u64 << 16)), vec![sel, bor, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    ctx.stage("mul", &mut vp, &views, Goldilocks::ZERO)
+        .map(|_| ())
+}
+
+fn verify_mul(
+    aux: &AuxCols,
+    iter: &mut LegIter<'_>,
+    log_t: usize,
+    ledger: &mut Ledger<'_>,
+    transcript: &mut Transcript,
+) -> Result<(), ConstraintError> {
+    let idx = &aux.index;
+    let r = transcript
+        .challenge_fields(b"con-mul-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = transcript
+        .challenge_fields(b"con-mul-a", 5)
+        .map_err(ConstraintError::Transcript)?;
+    let leg = next_constraint_leg(iter, "mul")?;
+    let verdict = verify_leg_header("mul", leg, log_t, 4, transcript)?;
+    let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
+    let pt = &verdict.point;
+    let mut a_limbs = vec![Goldilocks::ZERO; 4];
+    let mut b_limbs = vec![Goldilocks::ZERO; 4];
+    for l in 0..4usize {
+        a_limbs[l] = claim_limb(ledger, T_RS1, l, pt)?;
+        b_limbs[l] = claim_limb(ledger, T_RS2, l, pt)?;
+    }
+    let rd_limbs: Vec<Goldilocks> = (0..4).map(|l| claim_limb(ledger, T_RD, l, pt)).collect::<Result<_, _>>()?;
+    let mut expect = Goldilocks::ZERO;
+    // (1) MUL.
+    {
+        let sel = claim_bit(ledger, idx.sel_by("sel_mul"), pt)?;
+        for k in 0..4usize {
+            let mut s = claim_carry(ledger, &idx.v_mul_c, k, pt)?;
+            for i in 0..4usize {
+                for j in 0..4usize {
+                    if i + j == k {
+                        s = s.add(&a_limbs[i].mul(&b_limbs[j]));
+                    }
+                }
+            }
+            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mul_c, k + 1, pt)?));
+            expect = expect.add(&alphas[0].mul(&sel).mul(&e).mul(&eq_at));
+        }
+    }
+    // (2) MULH + MULHU.
+    for name in ["sel_mulh", "sel_mulhu"] {
+        let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
+        for k in 0..8usize {
+            let mut s = claim_carry(ledger, &idx.v_mul_c, k, pt)?;
+            for i in 0..4usize {
+                for j in 0..4usize {
+                    if i + j == k {
+                        s = s.add(&a_limbs[i].mul(&b_limbs[j]));
+                    }
+                }
+            }
+            let p = if k < 4 {
+                claim_val(ledger, idx.v_mul_lo[k], pt)?
+            } else {
+                claim_val(ledger, idx.v_mul_hi[k - 4], pt)?
+            };
+            let carry_out = if k < 7 {
+                fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mul_c, k + 1, pt)?)
+            } else {
+                Goldilocks::ZERO
+            };
+            let e = s.sub(&p).sub(&carry_out);
+            expect = expect.add(&alphas[1].mul(&sel).mul(&e).mul(&eq_at));
+        }
+    }
+    // (3) MULW + sign.
+    {
+        let sel = claim_bit(ledger, idx.sel_by("sel_mulw"), pt)?;
+        for k in 0..2usize {
+            let mut s = claim_carry(ledger, &idx.v_mul_c, k, pt)?;
+            for i in 0..2usize {
+                for j in 0..2usize {
+                    if i + j == k {
+                        s = s.add(&a_limbs[i].mul(&b_limbs[j]));
+                    }
+                }
+            }
+            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mul_c, k + 1, pt)?));
+            expect = expect.add(&alphas[2].mul(&sel).mul(&e).mul(&eq_at));
+        }
+        let mut sgn_pt = idx_point(6, 32);
+        sgn_pt.extend_from_slice(pt);
+        let s31 = ledger.tensor_claim(Factor::ValueBits { slot: T_RD }, &sgn_pt)?;
+        for l in 2..4usize {
+            let e = rd_limbs[l].sub(&fe(0xFFFF).mul(&s31));
+            expect = expect.add(&alphas[2].mul(&sel).mul(&e).mul(&eq_at));
+        }
+    }
+    // (4) MULHU routing.
+    {
+        let sel = claim_bit(ledger, idx.sel_by("sel_mulhu"), pt)?;
+        for l in 0..4usize {
+            let hi = claim_val(ledger, idx.v_mul_hi[l], pt)?;
+            let e = rd_limbs[l].sub(&hi);
+            expect = expect.add(&alphas[3].mul(&sel).mul(&e).mul(&eq_at));
+        }
+    }
+    // (5) MULH composition.
+    {
+        let sel = claim_bit(ledger, idx.sel_by("sel_mulh"), pt)?;
+        let mut sa_pt = idx_point(6, 0);
+        sa_pt.extend_from_slice(pt);
+        let sa = ledger.tensor_claim(Factor::ValueBits { slot: T_RS1 }, &sa_pt)?;
+        let mut sb_pt = idx_point(6, 0);
+        sb_pt.extend_from_slice(pt);
+        let sb = ledger.tensor_claim(Factor::ValueBits { slot: T_RS2 }, &sb_pt)?;
+        for l in 0..4usize {
+            let hi = claim_val(ledger, idx.v_mul_hi[l], pt)?;
+            let bor_in = if l > 0 {
+                claim_val(ledger, idx.v_mulh_bor[l - 1], pt)?
+            } else {
+                Goldilocks::ZERO
+            };
+            let bor_out = claim_val(ledger, idx.v_mulh_bor[l], pt)?;
+            let e = hi
+                .sub(&sa.mul(&b_limbs[l]))
+                .sub(&sb.mul(&a_limbs[l]))
+                .sub(&bor_in)
+                .sub(&rd_limbs[l])
+                .add(&fe(1u64 << 16).mul(&bor_out));
+            expect = expect.add(&alphas[4].mul(&sel).mul(&e).mul(&eq_at));
+        }
+    }
+    if expect != verdict.final_claim {
+        return Err(ConstraintError::FinalCheck("mul"));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Family: div — the divide-by-remainder discipline over range-linked
+// magnitude limbs: |a| = |q|·|b| + |r| with 0 <= |r| < |b| (the Euclidean
+// uniqueness pins (q, r)); the sign compositions route rd; the
+// divide-by-zero specials follow the executor exactly.
+// ---------------------------------------------------------------------------
+
+/// The div classes: (selector, signed, is_w, is_rem).
+#[derive(Clone, Copy)]
+struct DivClass {
+    sel: &'static str,
+    signed: bool,
+    is_w: bool,
+    is_rem: bool,
+}
+
+const DIV_CLASSES: [DivClass; 8] = [
+    DivClass { sel: "sel_divu", signed: false, is_w: false, is_rem: false },
+    DivClass { sel: "sel_remu", signed: false, is_w: false, is_rem: true },
+    DivClass { sel: "sel_div", signed: true, is_w: false, is_rem: false },
+    DivClass { sel: "sel_rem", signed: true, is_w: false, is_rem: true },
+    DivClass { sel: "sel_divuw", signed: false, is_w: true, is_rem: false },
+    DivClass { sel: "sel_remuw", signed: false, is_w: true, is_rem: true },
+    DivClass { sel: "sel_divw", signed: true, is_w: true, is_rem: false },
+    DivClass { sel: "sel_remw", signed: true, is_w: true, is_rem: true },
+];
+
+fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    let w = ctx.w;
+    let aux = ctx.aux;
+    let log_t = w.log_t;
+    let idx = &aux.index;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-div-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-div-a", 6)
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let mut vp = VirtualPolynomial::new(log_t);
+    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
+    // Memoized factors.
+    let mut rs1_limbs: Vec<Option<usize>> = vec![None; 4];
+    let mut rs2_limbs: Vec<Option<usize>> = vec![None; 4];
+    let mut add_rs1 = |vp: &mut VirtualPolynomial,
+                       views: &mut Vec<ViewPair>,
+                       l: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = rs1_limbs[l] {
+            return Ok(f);
+        }
+        let fi = add_limb_factor(vp, views, w, T_RS1, l, log_t)?;
+        rs1_limbs[l] = Some(fi);
+        Ok(fi)
+    };
+    let mut add_rs2 = |vp: &mut VirtualPolynomial,
+                       views: &mut Vec<ViewPair>,
+                       l: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = rs2_limbs[l] {
+            return Ok(f);
+        }
+        let fi = add_limb_factor(vp, views, w, T_RS2, l, log_t)?;
+        rs2_limbs[l] = Some(fi);
+        Ok(fi)
+    };
+    let mut rd_limbs: Vec<Option<usize>> = vec![None; 4];
+    let mut add_rd = |vp: &mut VirtualPolynomial,
+                      views: &mut Vec<ViewPair>,
+                      l: usize|
+     -> Result<usize, ConstraintError> {
+        if let Some(f) = rd_limbs[l] {
+            return Ok(f);
+        }
+        let fi = add_limb_factor(vp, views, w, T_RD, l, log_t)?;
+        rd_limbs[l] = Some(fi);
+        Ok(fi)
+    };
+    // (1) the eqz/eqzw recurrences (unconditional).
+    {
+        let a = &alphas[0];
+        for i in 0..64usize {
+            let next = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqz[i + 1], log_t)?;
+            let prev = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqz[i], log_t)?;
+            let row = 63 - (63 - i); // bit (63 - i) at row (63 - (63-i)) = i
+            let b = row_mle(&w.values[T_RS2], row, log_t);
+            let bf = vp.add_factor(b).map_err(ConstraintError::Virtual)?;
+            views.push((bf, FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS2 },
+                nbits: 64,
+                row,
+            }));
+            // next - prev + prev·b = 0
+            vp.add_term(*a, vec![next, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![prev, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![prev, bf, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+        for i in 0..32usize {
+            let next = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqzw[i + 1], log_t)?;
+            let prev = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqzw[i], log_t)?;
+            let row = 63 - i; // bit i at row 63 - i
+            let b = row_mle(&w.values[T_RS2], row, log_t);
+            let bf = vp.add_factor(b).map_err(ConstraintError::Virtual)?;
+            views.push((bf, FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS2 },
+                nbits: 64,
+                row,
+            }));
+            vp.add_term(*a, vec![next, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![prev, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![prev, bf, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // The per-class bz factor index (eqz[64] or eqzw[32]) and its flip.
+    let bz_of = |vp: &mut VirtualPolynomial,
+                 views: &mut Vec<ViewPair>,
+                 is_w: bool|
+     -> Result<(usize, usize), ConstraintError> {
+        let bz = add_bit_factor(
+            vp,
+            views,
+            &aux.bits,
+            if is_w { idx.eqzw[32] } else { idx.eqz[64] },
+            log_t,
+        )?;
+        let nbz_col = if is_w { idx.eqzw[32] } else { idx.eqz[64] };
+        let flipped = DenseMle {
+            num_vars: log_t,
+            evaluations: aux.bits[nbz_col]
+                .iter()
+                .map(|v| fe(1 ^ *v as u64))
+                .collect(),
+        };
+        let nbz = vp.add_factor(flipped).map_err(ConstraintError::Virtual)?;
+        Ok((bz, nbz))
+    };
+    // (2) the magnitude definitions.
+    {
+        let a = &alphas[1];
+        for class in DIV_CLASSES {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
+            // The sign sources.
+            let (sa_f, sb_f): (Option<usize>, Option<usize>) = if !class.signed {
+                (None, None)
+            } else {
+                let row = if class.is_w { 32 } else { 0 };
+                let fa = row_mle(&w.values[T_RS1], row, log_t);
+                let saf = vp.add_factor(fa).map_err(ConstraintError::Virtual)?;
+                views.push((saf, FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS1 },
+                    nbits: 64,
+                    row,
+                }));
+                let fb = row_mle(&w.values[T_RS2], row, log_t);
+                let sbf = vp.add_factor(fb).map_err(ConstraintError::Virtual)?;
+                views.push((sbf, FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS2 },
+                    nbits: 64,
+                    row,
+                }));
+                (Some(saf), Some(sbf))
+            };
+            let limb_hi = if class.is_w { 2 } else { 4 };
+            for l in 0..limb_hi {
+                let delta = if l == 0 { 1u64 } else { 0 };
+                // mag_a vs rs1's limb l.
+                {
+                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_a[l], log_t)?;
+                    let x = add_rs1(&mut vp, &mut views, l)?;
+                    vp.add_term(*a, vec![sel, mag, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a.neg(), vec![sel, x, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    if let Some(sf) = sa_f {
+                        vp.add_term(a.mul(&fe(2)), vec![sel, sf, x, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a.mul(&fe(0xFFFF + delta).neg()), vec![sel, sf, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+                // mag_b vs rs2's limb l.
+                {
+                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[l], log_t)?;
+                    let x = add_rs2(&mut vp, &mut views, l)?;
+                    vp.add_term(*a, vec![sel, mag, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a.neg(), vec![sel, x, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    if let Some(sf) = sb_f {
+                        vp.add_term(a.mul(&fe(2)), vec![sel, sf, x, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a.mul(&fe(0xFFFF + delta).neg()), vec![sel, sf, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+            // The W top limbs are zero.
+            if class.is_w {
+                for l in 2..4usize {
+                    for mag_cols in [&idx.v_mag_a, &idx.v_mag_b] {
+                        let mag = add_val_factor(&mut vp, &mut views, &aux.vals, mag_cols[l], log_t)?;
+                        vp.add_term(*a, vec![sel, mag, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+        }
+    }
+    // (3) the division recurrence + closure, masked by (1 - bz).
+    {
+        let a = &alphas[2];
+        let a2 = &alphas[3];
+        for class in DIV_CLASSES {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
+            let (_bz, nbz) = bz_of(&mut vp, &mut views, class.is_w)?;
+            let k_hi = if class.is_w { 2 } else { 4 };
+            for k in 0..k_hi {
+                // + S_k(mag_q, mag_b)
+                for i in 0..4usize {
+                    for j in 0..4usize {
+                        if i + j == k {
+                            let qf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_q[i], log_t)?;
+                            let bf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[j], log_t)?;
+                            vp.add_term(*a, vec![sel, nbz, qf, bf, ei])
+                                .map_err(ConstraintError::Virtual)?;
+                        }
+                    }
+                }
+                // + d_k (k > 0) + mag_r_k - mag_a_k
+                if k > 0 {
+                    let df = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k - 1], log_t)?;
+                    vp.add_term(*a, vec![sel, nbz, df, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
+                let rf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_r[k], log_t)?;
+                vp.add_term(*a, vec![sel, nbz, rf, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                let af = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_a[k], log_t)?;
+                vp.add_term(a.neg(), vec![sel, nbz, af, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                // - 2^16·d_{k+1}
+                let df = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k], log_t)?;
+                vp.add_term(a.mul(&fe(1u64 << 16).neg()), vec![sel, nbz, df, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            // The closure: d_{k_hi} = 0 under (1 - bz).
+            {
+                let df = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k_hi - 1], log_t)?;
+                vp.add_term(*a2, vec![sel, nbz, df, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+        }
+    }
+    // (4) the (mag_r - mag_b) borrow chain (unconditional) + the bound.
+    {
+        let a = &alphas[3];
+        let a4 = &alphas[4];
+        for l in 0..4usize {
+            let rf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_r[l], log_t)?;
+            let bf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[l], log_t)?;
+            let out = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_rlt_out[l], log_t)?;
+            // mag_r_l - mag_b_l - bor_l + 2^16·bor_{l+1} - out_l = 0
+            // (bor_4 = the [mag_r < mag_b] indicator appears at l = 3).
+            vp.add_term(*a, vec![rf, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![bf, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![out, ei]).map_err(ConstraintError::Virtual)?;
+            if l > 0 {
+                let bor = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[l - 1], log_t)?;
+                vp.add_term(a.neg(), vec![bor, ei]).map_err(ConstraintError::Virtual)?;
+            }
+            {
+                let bor = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[l], log_t)?;
+                vp.add_term(a.mul(&fe(1u64 << 16)), vec![bor, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+        }
+        // The bound: sel·(1 - bz)·(1 - bor_4) = 0 per class (selector-
+        // masked: the bound only applies on division cycles).
+        for class in DIV_CLASSES {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
+            let (_bz, nbz) = bz_of(&mut vp, &mut views, class.is_w)?;
+            let bor4 = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[3], log_t)?;
+            vp.add_term(*a4, vec![sel, nbz, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a4.neg(), vec![sel, nbz, bor4, ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // (5) the rd routing.
+    {
+        let a5 = &alphas[5];
+        for class in DIV_CLASSES {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
+            let (bz, _nbz) = bz_of(&mut vp, &mut views, class.is_w)?;
+            // The W sign extension: rd_2 = rd_3 = s31·0xFFFF (s31 =
+            // rd's bit 31, row 32).
+            if class.is_w {
+                let sign = row_mle(&w.values[T_RD], 32, log_t);
+                let sf = vp.add_factor(sign).map_err(ConstraintError::Virtual)?;
+                views.push((sf, FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RD },
+                    nbits: 64,
+                    row: 32,
+                }));
+                for l in 2..4usize {
+                    let rd = add_rd(&mut vp, &mut views, l)?;
+                    vp.add_term(*a5, vec![sel, rd, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a5.mul(&fe(0xFFFF).neg()), vec![sel, sf, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
+            }
+            let n_limbs = if class.is_w { 2 } else { 4 };
+            // The value routing.
+            if !class.signed {
+                // rd_l = mag_l (copies) — q for DIV, r for REM.
+                let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+                for l in 0..n_limbs {
+                    let rd = add_rd(&mut vp, &mut views, l)?;
+                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, src[l], log_t)?;
+                    vp.add_term(*a5, vec![sel, rd, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a5.neg(), vec![sel, mag, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
+            } else {
+                // The conditional negation: rd_l = (1-s)·mag_l + s·(0xFFFF
+                // - mag_l) + s·delta_l with s the composed sign.
+                let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+                let row = if class.is_w { 32 } else { 0 };
+                let sa = row_mle(&w.values[T_RS1], row, log_t);
+                let saf = vp.add_factor(sa).map_err(ConstraintError::Virtual)?;
+                views.push((saf, FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS1 },
+                    nbits: 64,
+                    row,
+                }));
+                let sb = row_mle(&w.values[T_RS2], row, log_t);
+                let sbf = vp.add_factor(sb).map_err(ConstraintError::Virtual)?;
+                views.push((sbf, FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS2 },
+                    nbits: 64,
+                    row,
+                }));
+                for l in 0..n_limbs {
+                    let rd = add_rd(&mut vp, &mut views, l)?;
+                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, src[l], log_t)?;
+                    let delta = if l == 0 { 1u64 } else { 0 };
+                    // rd - mag + 2·s·mag - s·(0xFFFF + delta):
+                    // s = sa for REM; s = sa + sb - 2·sa·sb for DIV.
+                    vp.add_term(*a5, vec![sel, rd, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a5.neg(), vec![sel, mag, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    if class.is_rem {
+                        vp.add_term(a5.mul(&fe(2)), vec![sel, saf, mag, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(
+                            a5.mul(&fe(0xFFFF + delta).neg()),
+                            vec![sel, saf, ei],
+                        )
+                        .map_err(ConstraintError::Virtual)?;
+                    } else {
+                        for sf in [saf, sbf] {
+                            vp.add_term(a5.mul(&fe(2)), vec![sel, sf, mag, ei])
+                                .map_err(ConstraintError::Virtual)?;
+                            vp.add_term(
+                                a5.mul(&fe(0xFFFF + delta).neg()),
+                                vec![sel, sf, ei],
+                            )
+                            .map_err(ConstraintError::Virtual)?;
+                        }
+                        vp.add_term(
+                            a5.mul(&fe(4).neg()),
+                            vec![sel, saf, sbf, mag, ei],
+                        )
+                        .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(
+                            a5.mul(&fe(2 * (0xFFFF + delta))),
+                            vec![sel, saf, sbf, ei],
+                        )
+                        .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+            // (6) the divide-by-zero specials (selector-masked: only
+            // division cycles carry them).
+            {
+                if !class.is_rem {
+                    // rd = -1: all limbs 0xFFFF.
+                    for l in 0..4usize {
+                        let rd = add_rd(&mut vp, &mut views, l)?;
+                        vp.add_term(*a5, vec![sel, bz, rd, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        // the constant -0xFFFF rides eq
+                        vp.add_term(a5.mul(&fe(0xFFFF).neg()), vec![sel, bz, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                } else {
+                    // rd = rs1 (low limbs; the W extension above covers
+                    // the top).
+                    for l in 0..n_limbs {
+                        let rd = add_rd(&mut vp, &mut views, l)?;
+                        let x = add_rs1(&mut vp, &mut views, l)?;
+                        vp.add_term(*a5, vec![sel, bz, rd, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a5.neg(), vec![sel, bz, x, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+        }
+    }
+    ctx.stage("div", &mut vp, &views, Goldilocks::ZERO)
+        .map(|_| ())
+}
+
+fn verify_div(
+    aux: &AuxCols,
+    iter: &mut LegIter<'_>,
+    log_t: usize,
+    ledger: &mut Ledger<'_>,
+    transcript: &mut Transcript,
+) -> Result<(), ConstraintError> {
+    let idx = &aux.index;
+    let r = transcript
+        .challenge_fields(b"con-div-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = transcript
+        .challenge_fields(b"con-div-a", 6)
+        .map_err(ConstraintError::Transcript)?;
+    let leg = next_constraint_leg(iter, "div")?;
+    let verdict = verify_leg_header("div", leg, log_t, 5, transcript)?;
+    let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
+    let pt = &verdict.point;
+    let rs1_limbs: Vec<Goldilocks> = (0..4)
+        .map(|l| claim_limb(ledger, T_RS1, l, pt))
+        .collect::<Result<_, _>>()?;
+    let rs2_limbs: Vec<Goldilocks> = (0..4)
+        .map(|l| claim_limb(ledger, T_RS2, l, pt))
+        .collect::<Result<_, _>>()?;
+    let rd_limbs: Vec<Goldilocks> = (0..4)
+        .map(|l| claim_limb(ledger, T_RD, l, pt))
+        .collect::<Result<_, _>>()?;
+    let mut expect = Goldilocks::ZERO;
+    // (1) the eqz/eqzw recurrences.
+    {
+        let a = &alphas[0];
+        for i in 0..64usize {
+            let next = claim_bit(ledger, idx.eqz[i + 1], pt)?;
+            let prev = claim_bit(ledger, idx.eqz[i], pt)?;
+            let b = claim_tensor_bit(ledger, T_RS2, 63 - i, pt)?;
+            let e = next.sub(&prev).add(&prev.mul(&b));
+            expect = expect.add(&a.mul(&e).mul(&eq_at));
+        }
+        for i in 0..32usize {
+            let next = claim_bit(ledger, idx.eqzw[i + 1], pt)?;
+            let prev = claim_bit(ledger, idx.eqzw[i], pt)?;
+            let b = claim_tensor_bit(ledger, T_RS2, i, pt)?;
+            let e = next.sub(&prev).add(&prev.mul(&b));
+            expect = expect.add(&a.mul(&e).mul(&eq_at));
+        }
+    }
+    // (2) + (3) + (4) + (5) + (6) per class.
+    for class in DIV_CLASSES {
+        let sel = claim_bit(ledger, idx.sel_by(class.sel), pt)?;
+        let bz = claim_bit(
+            ledger,
+            if class.is_w { idx.eqzw[32] } else { idx.eqz[64] },
+            pt,
+        )?;
+        let nbz = Goldilocks::ONE.sub(&bz);
+        let limb_hi = if class.is_w { 2 } else { 4 };
+        // (2) the magnitude definitions.
+        {
+            let a = &alphas[1];
+            let sa = if class.signed {
+                Some(claim_tensor_bit(ledger, T_RS1, if class.is_w { 31 } else { 63 }, pt)?)
+            } else {
+                None
+            };
+            let sb = if class.signed {
+                Some(claim_tensor_bit(ledger, T_RS2, if class.is_w { 31 } else { 63 }, pt)?)
+            } else {
+                None
+            };
+            for l in 0..limb_hi {
+                for (cols, x, s) in [
+                    (&idx.v_mag_a, rs1_limbs[l], sa),
+                    (&idx.v_mag_b, rs2_limbs[l], sb),
+                ] {
+                    let m = claim_val(ledger, cols[l], pt)?;
+                    let mut e = m.sub(&x);
+                    if let Some(s) = s {
+                        let delta = if l == 0 { 1u64 } else { 0 };
+                        e = e
+                            .add(&fe(2).mul(&s).mul(&x))
+                            .sub(&s.mul(&fe(0xFFFF + delta)));
+                    }
+                    expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            }
+            if class.is_w {
+                for l in 2..4usize {
+                    for cols in [&idx.v_mag_a, &idx.v_mag_b] {
+                        let e = claim_val(ledger, cols[l], pt)?;
+                        expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+                    }
+                }
+            }
+        }
+        // (3) the recurrence + closure.
+        {
+            let a = &alphas[2];
+            let a2 = &alphas[3];
+            let k_hi = if class.is_w { 2 } else { 4 };
+            for k in 0..k_hi {
+                let mut s = claim_carry(ledger, &idx.v_mag_d, k, pt)?;
+                for i in 0..4usize {
+                    for j in 0..4usize {
+                        if i + j == k {
+                            s = s.add(&claim_val(ledger, idx.v_mag_q[i], pt)?.mul(&claim_val(ledger, idx.v_mag_b[j], pt)?));
+                        }
+                    }
+                }
+                s = s.add(&claim_val(ledger, idx.v_mag_r[k], pt)?);
+                let e = s
+                    .sub(&claim_val(ledger, idx.v_mag_a[k], pt)?)
+                    .sub(&fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mag_d, k + 1, pt)?));
+                expect = expect.add(&a.mul(&sel).mul(&nbz).mul(&e).mul(&eq_at));
+            }
+            let e = claim_carry(ledger, &idx.v_mag_d, k_hi, pt)?;
+            expect = expect.add(&a2.mul(&sel).mul(&nbz).mul(&e).mul(&eq_at));
+        }
+        // (4b) the bound.
+        {
+            let a4 = &alphas[4];
+            let bor4 = claim_bit(ledger, idx.v_rbor[3], pt)?;
+            let e = nbz.mul(&Goldilocks::ONE.sub(&bor4));
+            expect = expect.add(&a4.mul(&sel).mul(&e).mul(&eq_at));
+        }
+        // (5) the rd routing.
+        {
+            let a5 = &alphas[5];
+            if class.is_w {
+                let s31 = claim_tensor_bit(ledger, T_RD, 31, pt)?;
+                for l in 2..4usize {
+                    let e = rd_limbs[l].sub(&fe(0xFFFF).mul(&s31));
+                    expect = expect.add(&a5.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            }
+            let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+            if !class.signed {
+                for l in 0..limb_hi {
+                    let e = rd_limbs[l].sub(&claim_val(ledger, src[l], pt)?);
+                    expect = expect.add(&a5.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            } else {
+                let sa = claim_tensor_bit(ledger, T_RS1, if class.is_w { 31 } else { 63 }, pt)?;
+                let sb = claim_tensor_bit(ledger, T_RS2, if class.is_w { 31 } else { 63 }, pt)?;
+                let sq = if class.is_rem {
+                    sa
+                } else {
+                    sa.add(&sb).sub(&fe(2).mul(&sa.mul(&sb)))
+                };
+                for l in 0..limb_hi {
+                    let delta = if l == 0 { 1u64 } else { 0 };
+                    let e = rd_limbs[l]
+                        .sub(&claim_val(ledger, src[l], pt)?)
+                        .add(&fe(2).mul(&sq).mul(&claim_val(ledger, src[l], pt)?))
+                        .sub(&sq.mul(&fe(0xFFFF + delta)));
+                    expect = expect.add(&a5.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            }
+            // (6) the bz specials.
+            if !class.is_rem {
+                for l in 0..4usize {
+                    let e = rd_limbs[l].sub(&fe(0xFFFF));
+                    expect = expect.add(&a5.mul(&sel).mul(&bz).mul(&e).mul(&eq_at));
+                }
+            } else {
+                for l in 0..limb_hi {
+                    let e = rd_limbs[l].sub(&rs1_limbs[l]);
+                    expect = expect.add(&a5.mul(&sel).mul(&bz).mul(&e).mul(&eq_at));
+                }
+            }
+        }
+    }
+    // (4a) the borrow chain (class-independent).
+    {
+        let a = &alphas[3];
+        for l in 0..4usize {
+            let bor_in = if l > 0 {
+                claim_bit(ledger, idx.v_rbor[l - 1], pt)?
+            } else {
+                Goldilocks::ZERO
+            };
+            let bor_out = claim_bit(ledger, idx.v_rbor[l], pt)?;
+            let out = claim_val(ledger, idx.v_rlt_out[l], pt)?;
+            let e = claim_val(ledger, idx.v_mag_r[l], pt)?
+                .sub(&claim_val(ledger, idx.v_mag_b[l], pt)?)
+                .sub(&bor_in)
+                .add(&fe(1u64 << 16).mul(&bor_out))
+                .sub(&out);
+            expect = expect.add(&a.mul(&e).mul(&eq_at));
+        }
+    }
+    if expect != verdict.final_claim {
+        return Err(ConstraintError::FinalCheck("div"));
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrators
 // ---------------------------------------------------------------------------
 
@@ -2935,8 +5361,13 @@ pub fn prove_constraints(
     let mut ctx = FamilyCtx { w, aux, ledger, legs, transcript };
     prove_booleanity(&mut ctx)?;
     prove_selectors(&mut ctx)?;
+    prove_decode(&mut ctx)?;
     prove_flags(&mut ctx)?;
     prove_arith(&mut ctx)?;
+    prove_shift(&mut ctx)?;
+    prove_mul(&mut ctx)?;
+    prove_div(&mut ctx)?;
+    prove_range_links(&mut ctx)?;
     prove_cmp(&mut ctx)?;
     prove_ctrl(&mut ctx)?;
     prove_route(&mut ctx)?;
@@ -2944,27 +5375,115 @@ pub fn prove_constraints(
     Ok(())
 }
 
+/// The verifier-side constraint shape: everything `verify_constraints`
+/// needs that is layout-derived (the column registry, the counts, the
+/// alpha arities) — NO witness data. The pipeline verifier builds this
+/// from the public log_t; the kernel tests pass the prover's aux.
+#[derive(Clone, Debug)]
+pub struct ConstraintShape {
+    pub log_t: usize,
+    /// The aux column registry (selector positions, value-column ids).
+    pub index: AuxIndex,
+    /// The number of bit columns (the bool-cols alpha arity).
+    pub num_bits: usize,
+    /// The number of value columns.
+    pub num_vals: usize,
+}
+
+/// The layout-only aux registry: identical column positions to
+/// `build_aux` (construction order is instr-independent); the data
+/// columns are blanked with their lengths preserved as the counts the
+/// verifier's challenge derivations need.
+pub fn aux_shape(log_t: usize) -> Result<AuxCols, ConstraintError> {
+    let lt = log_t.max(1);
+    let t = 1usize << lt;
+    // A synthetic all-zero witness: the registry construction does not
+    // read the content for positions.
+    let zero_vals = vec![Goldilocks::ZERO; t];
+    let mut values = Vec::new();
+    for _ in 0..crate::columns::VALUE_TENSORS {
+        values.push(DenseMle {
+            num_vars: 6 + lt,
+            evaluations: vec![Goldilocks::ZERO; 64 * t],
+        });
+    }
+    let w = CycleWitness {
+        log_t: lt,
+        steps: 1,
+        pc: zero_vals.clone(),
+        next_pc: zero_vals.clone(),
+        instr: zero_vals.clone(),
+        instr_bits: DenseMle {
+            num_vars: 5 + lt,
+            evaluations: vec![Goldilocks::ZERO; 32 * t],
+        },
+        values: values.try_into().map_err(|_| ConstraintError::Shape)?,
+        rs1_idx: vec![0; t],
+        rs2_idx: vec![0; t],
+        rd_idx: vec![0; t],
+        rd_we: vec![0; t],
+        mem_re: vec![0; t],
+        mem_we: vec![0; t],
+        mem_half: vec![0; t],
+        mem_word: zero_vals.clone(),
+        mem_addr: zero_vals.clone(),
+        fetch_word: zero_vals.clone(),
+        halted: vec![0; t],
+    };
+    let mut aux = build_aux(&w, &[Instr::Ecall])?;
+    // Blank the data but PRESERVE the column lengths (the verifier's
+    // log_t derivation and the alpha arities read them).
+    for c in aux.bits.iter_mut() {
+        c.clear();
+        c.resize(t, 0);
+    }
+    for c in aux.vals.iter_mut() {
+        c.clear();
+        c.resize(t, Goldilocks::ZERO);
+    }
+    Ok(aux)
+}
+
+/// The shape of an aux registry (for `ConstraintShape`).
+pub fn constraint_shape(aux: &AuxCols) -> ConstraintShape {
+    let log_t = aux
+        .bits
+        .first()
+        .map(|c| c.len().trailing_zeros() as usize)
+        .unwrap_or(0);
+    ConstraintShape {
+        log_t,
+        index: aux.index.clone(),
+        num_bits: aux.bits.len(),
+        num_vals: aux.vals.len(),
+    }
+}
+
 /// Verify all constraint families (legs consumed in protocol order).
-#[allow(clippy::too_many_arguments)]
+/// The verifier never sees the witness: every factor value arrives as a
+/// ledger claim, and the coverage gate is enforced by the decode leg's
+/// partition identities (not by a prover-side instruction list).
 pub fn verify_constraints(
-    w: &CycleWitness,
     aux: &AuxCols,
-    instrs: &[Instr],
     proofs: &[ConstraintLeg],
     ledger: &mut Ledger<'_>,
     transcript: &mut Transcript,
 ) -> Result<(), ConstraintError> {
-    for (c, instr) in instrs.iter().enumerate() {
-        if !covered_instr(instr) {
-            return Err(ConstraintError::UncoveredInstruction { cycle: c });
-        }
-    }
-    let log_t = w.log_t;
+    let log_t = aux
+        .bits
+        .first()
+        .map(|c| c.len().trailing_zeros() as usize)
+        .unwrap_or(0);
     let mut iter = proofs.iter();
-    verify_booleanity(w, aux, &mut iter, ledger, transcript)?;
+    verify_booleanity_shape(aux, &mut iter, ledger, transcript)?;
     verify_selectors(aux, &mut iter, log_t, ledger, transcript)?;
+    verify_decode(aux, &mut iter, log_t, ledger, transcript)?;
     verify_flags(aux, &mut iter, log_t, ledger, transcript)?;
     verify_arith(aux, &mut iter, ledger, transcript)?;
+    verify_shift(aux, &mut iter, log_t, ledger, transcript)?;
+    verify_mul(aux, &mut iter, log_t, ledger, transcript)?;
+    verify_div(aux, &mut iter, log_t, ledger, transcript)?;
+    verify_range_links(aux, &mut iter, log_t, ledger, transcript)?;
     verify_cmp(aux, &mut iter, ledger, transcript)?;
     verify_ctrl(aux, &mut iter, ledger, transcript)?;
     verify_route(aux, &mut iter, ledger, transcript)?;
