@@ -33,13 +33,176 @@ const RC: [u64; 24] = [
     0x8000000080008008,
 ];
 
-/// Rotation offsets for the rho step, indexed by lane (x, y) -> y*5 + x.
+/// Rotation offsets for the rho step, indexed by lane (x, y) -> y*5 + x
+/// (used by the cfg(test) reference permutation form).
+#[cfg_attr(not(test), allow(dead_code))]
 const RHO: [u32; 25] = [
     0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14,
 ];
 
 /// Keccak-f\[1600\] permutation, in place over 25 lanes.
+///
+/// Fully unrolled over the 25 lanes (the tiny-keccak discipline: SSA
+/// lane variables, constant rotations, no inner-loop indexing or `%`
+/// arithmetic) — the zero-dependency loop form was the dominant cost of
+/// every XOF path (the verifier's seeded matrix regeneration measured
+/// ~22 us/element, ~4 us per permutation). Bit-identical output to the
+/// reference loop form below (test-pinned) and the FIPS 202 KATs.
+#[inline(always)]
 pub fn keccak_f1600(state: &mut [u64; 25]) {
+    let mut s0 = state[0];
+    let mut s1 = state[1];
+    let mut s2 = state[2];
+    let mut s3 = state[3];
+    let mut s4 = state[4];
+    let mut s5 = state[5];
+    let mut s6 = state[6];
+    let mut s7 = state[7];
+    let mut s8 = state[8];
+    let mut s9 = state[9];
+    let mut s10 = state[10];
+    let mut s11 = state[11];
+    let mut s12 = state[12];
+    let mut s13 = state[13];
+    let mut s14 = state[14];
+    let mut s15 = state[15];
+    let mut s16 = state[16];
+    let mut s17 = state[17];
+    let mut s18 = state[18];
+    let mut s19 = state[19];
+    let mut s20 = state[20];
+    let mut s21 = state[21];
+    let mut s22 = state[22];
+    let mut s23 = state[23];
+    let mut s24 = state[24];
+
+    for &rc in RC.iter() {
+        // theta
+        let c0 = s0 ^ s5 ^ s10 ^ s15 ^ s20;
+        let c1 = s1 ^ s6 ^ s11 ^ s16 ^ s21;
+        let c2 = s2 ^ s7 ^ s12 ^ s17 ^ s22;
+        let c3 = s3 ^ s8 ^ s13 ^ s18 ^ s23;
+        let c4 = s4 ^ s9 ^ s14 ^ s19 ^ s24;
+        let d0 = c4 ^ c1.rotate_left(1);
+        let d1 = c0 ^ c2.rotate_left(1);
+        let d2 = c1 ^ c3.rotate_left(1);
+        let d3 = c2 ^ c4.rotate_left(1);
+        let d4 = c3 ^ c0.rotate_left(1);
+        s0 ^= d0;
+        s5 ^= d0;
+        s10 ^= d0;
+        s15 ^= d0;
+        s20 ^= d0;
+        s1 ^= d1;
+        s6 ^= d1;
+        s11 ^= d1;
+        s16 ^= d1;
+        s21 ^= d1;
+        s2 ^= d2;
+        s7 ^= d2;
+        s12 ^= d2;
+        s17 ^= d2;
+        s22 ^= d2;
+        s3 ^= d3;
+        s8 ^= d3;
+        s13 ^= d3;
+        s18 ^= d3;
+        s23 ^= d3;
+        s4 ^= d4;
+        s9 ^= d4;
+        s14 ^= d4;
+        s19 ^= d4;
+        s24 ^= d4;
+
+        // rho + pi (b[y + 5*((2x+3y)%5)] = rot(s[x+5y], RHO[x+5y]))
+        let b0 = s0.rotate_left(0);
+        let b10 = s1.rotate_left(1);
+        let b20 = s2.rotate_left(62);
+        let b5 = s3.rotate_left(28);
+        let b15 = s4.rotate_left(27);
+        let b16 = s5.rotate_left(36);
+        let b1 = s6.rotate_left(44);
+        let b11 = s7.rotate_left(6);
+        let b21 = s8.rotate_left(55);
+        let b6 = s9.rotate_left(20);
+        let b7 = s10.rotate_left(3);
+        let b17 = s11.rotate_left(10);
+        let b2 = s12.rotate_left(43);
+        let b12 = s13.rotate_left(25);
+        let b22 = s14.rotate_left(39);
+        let b23 = s15.rotate_left(41);
+        let b8 = s16.rotate_left(45);
+        let b18 = s17.rotate_left(15);
+        let b3 = s18.rotate_left(21);
+        let b13 = s19.rotate_left(8);
+        let b14 = s20.rotate_left(18);
+        let b24 = s21.rotate_left(2);
+        let b9 = s22.rotate_left(61);
+        let b19 = s23.rotate_left(56);
+        let b4 = s24.rotate_left(14);
+
+        // chi
+        s0 = b0 ^ (!b1 & b2);
+        s1 = b1 ^ (!b2 & b3);
+        s2 = b2 ^ (!b3 & b4);
+        s3 = b3 ^ (!b4 & b0);
+        s4 = b4 ^ (!b0 & b1);
+        s5 = b5 ^ (!b6 & b7);
+        s6 = b6 ^ (!b7 & b8);
+        s7 = b7 ^ (!b8 & b9);
+        s8 = b8 ^ (!b9 & b5);
+        s9 = b9 ^ (!b5 & b6);
+        s10 = b10 ^ (!b11 & b12);
+        s11 = b11 ^ (!b12 & b13);
+        s12 = b12 ^ (!b13 & b14);
+        s13 = b13 ^ (!b14 & b10);
+        s14 = b14 ^ (!b10 & b11);
+        s15 = b15 ^ (!b16 & b17);
+        s16 = b16 ^ (!b17 & b18);
+        s17 = b17 ^ (!b18 & b19);
+        s18 = b18 ^ (!b19 & b15);
+        s19 = b19 ^ (!b15 & b16);
+        s20 = b20 ^ (!b21 & b22);
+        s21 = b21 ^ (!b22 & b23);
+        s22 = b22 ^ (!b23 & b24);
+        s23 = b23 ^ (!b24 & b20);
+        s24 = b24 ^ (!b20 & b21);
+
+        // iota
+        s0 ^= rc;
+    }
+
+    state[0] = s0;
+    state[1] = s1;
+    state[2] = s2;
+    state[3] = s3;
+    state[4] = s4;
+    state[5] = s5;
+    state[6] = s6;
+    state[7] = s7;
+    state[8] = s8;
+    state[9] = s9;
+    state[10] = s10;
+    state[11] = s11;
+    state[12] = s12;
+    state[13] = s13;
+    state[14] = s14;
+    state[15] = s15;
+    state[16] = s16;
+    state[17] = s17;
+    state[18] = s18;
+    state[19] = s19;
+    state[20] = s20;
+    state[21] = s21;
+    state[22] = s22;
+    state[23] = s23;
+    state[24] = s24;
+}
+
+/// The pre-unrolling reference form — retained for the differential
+/// test against [`keccak_f1600`].
+#[cfg(test)]
+pub(crate) fn keccak_f1600_reference(state: &mut [u64; 25]) {
     for &rc in RC.iter() {
         // theta
         let mut c = [0u64; 5];
@@ -212,6 +375,42 @@ pub fn shake256(input: &[u8], out_len: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrolled_permutation_matches_reference() {
+        // The unrolled keccak_f1600 must be bit-identical to the loop
+        // reference across random and structured states.
+        let mut rng: u64 = 0xdead_beef_cafe_f00d;
+        let mut next = || {
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            rng
+        };
+        for case in 0..200 {
+            let mut a = [0u64; 25];
+            let mut b = [0u64; 25];
+            if case == 0 {
+                // all-zero and single-lane states exercise the extremes
+            } else if case == 1 {
+                a[0] = u64::MAX;
+                b[0] = u64::MAX;
+            } else if case == 2 {
+                for i in 0..25 {
+                    a[i] = u64::MAX;
+                    b[i] = u64::MAX;
+                }
+            } else {
+                for lane in a.iter_mut() {
+                    *lane = next();
+                }
+                b.copy_from_slice(&a);
+            }
+            super::keccak_f1600(&mut a);
+            super::keccak_f1600_reference(&mut b);
+            assert_eq!(a, b, "case {case}");
+        }
+    }
 
     #[test]
     fn sha3_256_kat() {

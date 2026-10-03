@@ -692,22 +692,39 @@ fn prove_grouped_carrier(
         .challenge_fields(b"bundle-rho", points.len())
         .map_err(LedgerError::Transcript)?;
     let mut combined = Goldilocks::ZERO;
+    for (i, v) in values.iter().enumerate() {
+        combined = combined.add(&rhos[i].mul(v));
+    }
     // The factored carrier: sum_i rho_i·flat·eq_i = flat·(sum_i rho_i·eq_i)
     // — ONE product term whose round values are IDENTICAL to the
     // per-claim-term form (the products distribute), so the transcript
     // and the round messages are byte-identical while the sumcheck work
     // drops from (claims x flat x rounds) to (claims x flat + rounds x
-    // flat). The per-claim eq table is streamed (one live at a time).
+    // flat).
+    //
+    // The eq-table BUILD is itself prefix-factored (the second-level
+    // factoring): the flat points' leading coordinates are BOOLEAN —
+    // the layout's head/slice bits, and the bit-row heads of tensor
+    // claims — so claims ROUTE exactly through those coordinates
+    // (eq(b, x) for boolean b vanishes off the routed half), and only
+    // the remaining FIELD coordinates need a dense per-group eq table.
+    // Work drops from claims x 2^log_flat to
+    // sum_groups claims_g x 2^{field_vars_g} + 2^log_flat — at the
+    // semantics scale (30.8k claims, log_flat 17..21) a ~10^2-10^3x
+    // win — with the produced array bit-identical (field addition is
+    // commutative), so transcripts stay byte-identical.
     let flat_len = 1usize << flat.num_vars;
     let mut combined_eq = vec![Goldilocks::ZERO; flat_len];
-    for (i, pt) in points.iter().enumerate() {
-        let eq = DenseMle::eq_extension(pt);
-        let rho = rhos[i];
-        for (e, v) in combined_eq.iter_mut().zip(eq.evaluations.iter()) {
-            *e = e.add(&rho.mul(v));
-        }
-        combined = combined.add(&rho.mul(&values[i]));
-    }
+    let order: Vec<usize> = (0..points.len()).collect();
+    rec_eq_acc(
+        &mut combined_eq,
+        &order,
+        points,
+        &rhos,
+        0,
+        0,
+        flat.num_vars,
+    );
     let mut vp = VirtualPolynomial::new(flat.num_vars);
     let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
     let ei = vp
@@ -734,6 +751,77 @@ fn prove_grouped_carrier(
         digits,
         m,
     })
+}
+
+/// Prefix-routed eq accumulation (the prover-side carrier factoring):
+/// accumulate `sum_i rho_i · eq(q_i, x)` into `out` over the subcube
+/// rooted at `offset` with `log_flat - level` variables remaining.
+///
+/// At each coordinate, if EVERY live claim's coordinate is boolean, the
+/// claims split exactly (eq(b, ·) vanishes off the b-half for boolean b)
+/// and the recursion routes without any field work; otherwise the group
+/// accumulates densely over its remaining variables. The result is
+/// bit-identical to the naive full-cube per-claim accumulation (field
+/// addition is commutative and associative), so the transcript is
+/// byte-identical — only the work changes.
+fn rec_eq_acc(
+    out: &mut [Goldilocks],
+    live: &[usize],
+    points: &[Vec<Goldilocks>],
+    rhos: &[Goldilocks],
+    level: usize,
+    offset: usize,
+    log_flat: usize,
+) {
+    if live.is_empty() {
+        return;
+    }
+    if level == log_flat {
+        // All live claims share this exact flat point (they matched
+        // every routed coordinate); duplicates sum their weights.
+        let mut acc = Goldilocks::ZERO;
+        for &i in live {
+            acc = acc.add(&rhos[i]);
+        }
+        out[offset] = out[offset].add(&acc);
+        return;
+    }
+    let all_bool = live.iter().all(|&i| {
+        let c = points[i][level];
+        c == Goldilocks::ZERO || c == Goldilocks::ONE
+    });
+    let rem = log_flat - level;
+    if all_bool {
+        let mut zeros: Vec<usize> = Vec::with_capacity(live.len());
+        let mut ones: Vec<usize> = Vec::with_capacity(live.len());
+        for &i in live {
+            if points[i][level] == Goldilocks::ONE {
+                ones.push(i);
+            } else {
+                zeros.push(i);
+            }
+        }
+        rec_eq_acc(out, &zeros, points, rhos, level + 1, offset, log_flat);
+        rec_eq_acc(
+            out,
+            &ones,
+            points,
+            rhos,
+            level + 1,
+            offset + (1usize << (rem - 1)),
+            log_flat,
+        );
+    } else {
+        // Dense accumulation over this group's subcube only.
+        for &i in live {
+            let suffix = &points[i][level..];
+            let tab = DenseMle::eq_extension(suffix);
+            let rho = rhos[i];
+            for (t, v) in tab.evaluations.iter().enumerate() {
+                out[offset + t] = out[offset + t].add(&rho.mul(v));
+            }
+        }
+    }
 }
 
 /// Verify a bundle opening. `pk` must be the same seeded key the prover
@@ -910,6 +998,63 @@ mod tests {
 
     fn tensor(log_vars: usize, seed: u64) -> DenseMle {
         DenseMle::random(log_vars, &seed.to_le_bytes())
+    }
+
+    #[test]
+    fn prefix_routed_eq_matches_naive_build() {
+        // The factored carrier's eq build must be bit-identical to the
+        // naive full-cube per-claim accumulation, across mixed
+        // boolean-head / field-tail claim structures (the semantics
+        // layer's shape) and fully field-valued points (the adversarial
+        // shape where the factoring degenerates to the dense build).
+        let mut rng: u64 = 0x1234_5678_9abc_def0;
+        let mut next = || {
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            rng
+        };
+        for log_flat in [5usize, 7, 9] {
+            for n_claims in [1usize, 5, 40, 200] {
+                for shape in ["rowhead", "field"] {
+                    let points: Vec<Vec<Goldilocks>> = (0..n_claims)
+                        .map(|i| {
+                            (0..log_flat)
+                                .map(|j| {
+                                    if shape == "rowhead" && j < 3 {
+                                        // boolean head (row/slice bits)
+                                        fe(((i >> j) & 1) as u64)
+                                    } else if shape == "rowhead" && j == 3 && i % 3 == 0 {
+                                        fe(0) // some constant-boolean coords too
+                                    } else {
+                                        Goldilocks::from_u64(next() % 0xffff)
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    let rhos: Vec<Goldilocks> = (0..n_claims)
+                        .map(|_| Goldilocks::from_u64(next() % 0xffff))
+                        .collect();
+                    // Naive reference.
+                    let mut naive = vec![Goldilocks::ZERO; 1usize << log_flat];
+                    for (i, pt) in points.iter().enumerate() {
+                        let eq = DenseMle::eq_extension(pt);
+                        for (e, v) in naive.iter_mut().zip(eq.evaluations.iter()) {
+                            *e = e.add(&rhos[i].mul(v));
+                        }
+                    }
+                    // Factored build.
+                    let mut factored = vec![Goldilocks::ZERO; 1usize << log_flat];
+                    let order: Vec<usize> = (0..points.len()).collect();
+                    rec_eq_acc(&mut factored, &order, &points, &rhos, 0, 0, log_flat);
+                    assert_eq!(
+                        naive, factored,
+                        "log_flat={log_flat} n={n_claims} shape={shape}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

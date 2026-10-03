@@ -56,6 +56,10 @@ pub struct SparseFactor {
 ///
 /// Invariant: every sparse factor referenced by the term has entries
 /// aligned with `positions` (same length, same full-space positions).
+/// Terms with NO sparse factors are legal: they are evaluated densely
+/// over `positions`, which the caller sets to the full cube `0..2^n`
+/// (the dense-engine cost for that term — used when a term's factors
+/// are all dense, e.g. booleanity-style products).
 #[derive(Clone)]
 pub struct SparseTerm {
     pub coeff: Goldilocks,
@@ -260,8 +264,10 @@ pub fn prove_sparse_sumcheck(
         // a suffix (the per-entry product would drop them).
         let mut evals_at: Vec<Goldilocks> = vec![Goldilocks::ZERO; deg + 1];
         for (ti, term) in inst.terms.iter().enumerate() {
-            if term.sparse.is_empty() {
-                return Err(PiopError::Shape { expected: 1, got: 0 });
+            if term.positions.is_empty() {
+                // A term whose support is empty contributes zero to every
+                // round (all its sparse factors vanish identically).
+                continue;
             }
             let order = &term_orders[ti];
             let mut seg = 0usize;
@@ -1304,5 +1310,202 @@ mod tests {
         assert!(!proof.read_checking.rounds.is_empty());
         assert_eq!(proof.read_checking.rounds.len(), log_k + log_t);
         assert!(elapsed.as_secs() < 60, "sparse shout must be fast, took {elapsed:?}");
+    }
+}
+
+#[cfg(test)]
+mod identity_differential {
+    use super::*;
+    use lattice_sumcheck::sumcheck;
+    use lattice_sumcheck::VirtualPolynomial;
+
+    fn fe(x: u64) -> Goldilocks {
+        Goldilocks::from_u64(x)
+    }
+
+    /// Byte-identity of the sparse engine against the dense engine over
+    /// an arbitrary mixed instance: identity-var_map dense factors, full
+    /// boolean 0/1 sparse columns, terms with sparse+dense mixes and an
+    /// all-dense term — the constraint-family (shift) shape.
+    ///
+    /// THE MULTI-SPARSE DISCIPLINE (a real correctness finding this test
+    /// pins): a term with TWO sparse factors CANNOT filter their entries
+    /// to the boolean intersection of their supports — the multilinear
+    /// products have suffix-level cross terms OUTSIDE the boolean
+    /// intersection (the round polynomials at t >= 2 sample the
+    /// extensions at non-boolean points), so intersection filtering
+    /// silently drops nonzero contributions and the round messages
+    /// diverge from the dense engine at every t >= 2 while still
+    /// agreeing at t in {0,1} (the sum checks pass!). The correct
+    /// constructions are: (a) at most ONE sparse factor per term with
+    /// its OWN full support (the constraint families' route —
+    /// selectors ride as dense factors), or (b) multiple sparse factors
+    /// whose entries are aligned over the UNION of their supports,
+    /// zero-padded where a factor has no nonzero row. Both are
+    /// exercised here.
+    #[test]
+    fn mixed_sparse_instance_matches_dense_engine() {
+        for n in [4usize, 6] {
+            let r: Vec<Goldilocks> = (0..n).map(|i| fe(0x1234 + i as u64)).collect();
+            let eq = DenseMle::eq_extension(&r);
+            let row_a = DenseMle::random(n, b"row-a");
+            let row_b = DenseMle::random(n, b"row-b");
+            let mut rng: u64 = 99;
+            let mut next = || {
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                rng
+            };
+            let mut mkcol = |count: u64| -> (DenseMle, Vec<(u64, Goldilocks)>) {
+                let mut vals = vec![0u64; 1 << n];
+                let mut placed = 0u64;
+                while placed < count {
+                    let idx = (next() % (1u64 << n)) as usize;
+                    if vals[idx] == 0 {
+                        vals[idx] = 1;
+                        placed += 1;
+                    }
+                }
+                let mle = DenseMle::new(vals.iter().map(|v| fe(*v)).collect())
+                    .ok()
+                    .unwrap();
+                let entries = vals
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, v)| **v != 0)
+                    .map(|(i, v)| (i as u64, fe(*v)))
+                    .collect();
+                (mle, entries)
+            };
+            let (col0_mle, col0_entries) = mkcol(5);
+            let (col1_mle, col1_entries) = mkcol(7);
+
+            // ---- Dense reference ----
+            let mut vp = VirtualPolynomial::new(n);
+            let f_eq = vp.add_factor(eq.clone()).ok().unwrap();
+            let f_a = vp.add_factor(row_a.clone()).ok().unwrap();
+            let f_b = vp.add_factor(row_b.clone()).ok().unwrap();
+            let f_c0 = vp.add_factor(col0_mle.clone()).ok().unwrap();
+            let f_c1 = vp.add_factor(col1_mle.clone()).ok().unwrap();
+            vp.add_term(fe(3), vec![f_c0, f_eq]).ok().unwrap();
+            vp.add_term(fe(5).neg(), vec![f_a, f_b, f_eq]).ok().unwrap();
+            // The multi-sparse term (union construction).
+            vp.add_term(fe(7), vec![f_c0, f_c1, f_a, f_eq])
+                .ok()
+                .unwrap();
+            // The true total sum over the cube (the claimed sum).
+            let cube = 1usize << n;
+            let mut total = Goldilocks::ZERO;
+            for x in 0..cube {
+                let pt: Vec<Goldilocks> = (0..n)
+                    .map(|i| fe(((x >> (n - 1 - i)) & 1) as u64))
+                    .collect();
+                let e = eq.evaluate(&pt).ok().unwrap();
+                let av = row_a.evaluate(&pt).ok().unwrap();
+                let bv = row_b.evaluate(&pt).ok().unwrap();
+                let c0 = col0_mle.evaluate(&pt).ok().unwrap();
+                let c1 = col1_mle.evaluate(&pt).ok().unwrap();
+                total = total
+                    .add(&fe(3).mul(&c0).mul(&e))
+                    .add(&fe(5).neg().mul(&av).mul(&bv).mul(&e))
+                    .add(&fe(7).mul(&c0).mul(&c1).mul(&av).mul(&e));
+            }
+            let mut tr_d = Transcript::new_default(b"sc-diff");
+            let out_d = sumcheck::prove(&vp, total, &mut tr_d).ok().unwrap();
+
+            // ---- Sparse instance (the correct constructions) ----
+            let var_map: Vec<usize> = (0..n).collect();
+            // The UNION of the two columns' supports with zero-padded
+            // aligned entries (discipline (b) for multi-sparse terms).
+            let mut union_rows: Vec<u64> = col0_entries
+                .iter()
+                .chain(col1_entries.iter())
+                .map(|e| e.0)
+                .collect();
+            union_rows.sort_unstable();
+            union_rows.dedup();
+            let padded = |entries: &[(u64, Goldilocks)]| -> Vec<(u64, Goldilocks)> {
+                union_rows
+                    .iter()
+                    .map(|&row| {
+                        let v = entries
+                            .iter()
+                            .find(|e| e.0 == row)
+                            .map(|e| e.1)
+                            .unwrap_or(Goldilocks::ZERO);
+                        (row, v)
+                    })
+                    .collect()
+            };
+            let inst = SparseInstance {
+                num_vars: n,
+                sparse: vec![
+                    // col0 (single-sparse term's own support).
+                    SparseFactor {
+                        entries: col0_entries.clone(),
+                        var_map: var_map.clone(),
+                    },
+                    // col0 and col1 aligned over the union (zero-padded).
+                    SparseFactor {
+                        entries: padded(&col0_entries),
+                        var_map: var_map.clone(),
+                    },
+                    SparseFactor {
+                        entries: padded(&col1_entries),
+                        var_map: var_map.clone(),
+                    },
+                ],
+                dense: vec![
+                    ProjectedDense {
+                        mle: eq.clone(),
+                        var_map: var_map.clone(),
+                    },
+                    ProjectedDense {
+                        mle: row_a.clone(),
+                        var_map: var_map.clone(),
+                    },
+                    ProjectedDense {
+                        mle: row_b.clone(),
+                        var_map: var_map.clone(),
+                    },
+                ],
+                terms: vec![
+                    SparseTerm {
+                        coeff: fe(3),
+                        positions: col0_entries.iter().map(|e| e.0).collect(),
+                        sparse: vec![0],
+                        dense: vec![0],
+                    },
+                    SparseTerm {
+                        coeff: fe(5).neg(),
+                        positions: (0..(1u64 << n)).collect(),
+                        sparse: vec![],
+                        dense: vec![1, 2, 0],
+                    },
+                    SparseTerm {
+                        coeff: fe(7),
+                        positions: union_rows.clone(),
+                        sparse: vec![1, 2],
+                        dense: vec![1, 0],
+                    },
+                ],
+            };
+            let mut tr_s = Transcript::new_default(b"sc-diff");
+            let out_s = prove_sparse_sumcheck(&inst, total, &mut tr_s)
+                .ok()
+                .unwrap();
+
+            assert_eq!(out_d.proof.rounds.len(), out_s.proof.rounds.len());
+            for (ri, (rd, rs)) in out_d
+                .proof
+                .rounds
+                .iter()
+                .zip(out_s.proof.rounds.iter())
+                .enumerate()
+            {
+                assert_eq!(rd, rs, "round {ri} (n={n})");
+            }
+            assert_eq!(out_d.final_claim, out_s.final_claim);
+            assert_eq!(out_d.challenges, out_s.challenges);
+        }
     }
 }

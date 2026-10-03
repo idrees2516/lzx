@@ -17,6 +17,39 @@ Companion documents: `PERFORMANCE.md` (the labinius-parity performance audit),
 
 ---
 
+## Session update (2026-10-04)
+
+Landed this session (the semantics-stage factoring wave — see
+BENCHMARKS.md §2i): (1) the prefix-factored grouped-carrier eq build
+(the boolean-coordinate trie routing; openings 14.3 s -> 15 ms at
+log_t=6, transcripts byte-identical); (2) the seeded-matrix derivation
+fix (one prefix-consistent XOF squeeze per element + the rejection
+slack corrected for q's 25% candidate rejection — from_seed 21.8 ->
+4.6 us/element; the verify-side carrier factoring: verify 725 ms at
+log_t=12, sub-second, was ~9.4 s extrapolated); (3) the sparse-engine
+route for the shift constraint family (single-sparse-per-term
+discipline; byte-identical proofs, verifier unchanged; shift 8.2 s ->
+4.4 s, the claim list 3.4x smaller) — INCLUDING the engine-level
+correctness finding that multi-sparse terms cannot intersection-filter
+(pinned by a new differential test with the union/zero-pad and
+single-sparse constructions); (4) the ctrl carry-gate completeness fix
+(the prover's l=0 in-carry leak — backward branches with limb-crossing
+targets failed ClaimMismatch). A phase-attributed semantics benchmark
+harness (lattice-bench --bin semantics-bench) now pins the per-family
+and per-phase profile at 2^6..2^12 cycles. Workspace 1,187 tests green.
+
+**The next highest-value items** (this session's honest ledger):
+* the 2D (cycle x shamt) convolution sumcheck for the shift MUX (kills
+  the 25k-term expansion — the term-count wall the sparse route cannot
+  fix; a verifier-visible restructure following the papers' one-hot
+  grid pattern);
+* the values-only claim compression for the semantics layer (the
+  compact mode's discipline — 9,066 claims x ~1.1 KB dominates the
+  proof size);
+* the multi-sparse union route for the selector-gated moderate
+  families (bool-cols/route/cmp/sel — same shape as shift, smaller
+  stakes).
+
 ## Session update (2026-10-03)
 
 Landed this session: SALSAA D3 (Pi-batch-star row-count-preserving

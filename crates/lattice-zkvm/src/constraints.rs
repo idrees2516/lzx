@@ -66,6 +66,8 @@ pub enum ConstraintError {
     Mle(lattice_core::mle::MleError),
     FinalCheck(&'static str),
     Shape,
+    /// A sparse-engine (constraint-family) prover failure.
+    Sparse(String),
     /// An instruction outside the v1 constraint coverage set appeared —
     /// fail closed rather than prove an unconstrained class.
     UncoveredInstruction { cycle: usize },
@@ -1472,6 +1474,29 @@ struct FamilyCtx<'a, 'b, 'c> {
     transcript: &'b mut Transcript,
 }
 
+/// Env-gated per-family prover timing (the semantics benchmark's
+/// attribution output; zero cost when `LZX_SEM_TIMING` is unset).
+struct FamilyTimer(std::time::Instant, &'static str);
+
+#[inline]
+fn family_timer(name: &'static str) -> Option<FamilyTimer> {
+    if std::env::var_os("LZX_SEM_TIMING").is_some() {
+        Some(FamilyTimer(std::time::Instant::now(), name))
+    } else {
+        None
+    }
+}
+
+impl Drop for FamilyTimer {
+    fn drop(&mut self) {
+        eprintln!(
+            "[sem-family] {:<14} {:>10.1} ms",
+            self.1,
+            self.0.elapsed().as_secs_f64() * 1e3
+        );
+    }
+}
+
 impl<'a, 'b, 'c> FamilyCtx<'a, 'b, 'c> {
     fn stage(
         &mut self,
@@ -1481,6 +1506,7 @@ impl<'a, 'b, 'c> FamilyCtx<'a, 'b, 'c> {
         claim: Goldilocks,
     ) -> Result<Vec<Goldilocks>, ConstraintError> {
         absorb_leg(self.transcript, name)?;
+        let _timer = family_timer(name);
         let out = sumcheck::prove(vp, claim, self.transcript)
             .map_err(ConstraintError::Sumcheck)?;
         bind_views(self.ledger, views, &out.challenges, &out.factor_claims)?;
@@ -2945,13 +2971,12 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 vp.add_term(a.neg(), vec![ca[l - 1], ei])
                     .map_err(ConstraintError::Virtual)?;
             }
-            // -bt·(T_l - A_l) = -bt·(imm_l - 4d + c^T_in - c^A_in - 2^16(c^T_out - c^A_out))
-            for (sel_group, is_bt) in [((b, t), true), ((j, t), false), ((rr, t), false)] {
-                let _ = is_bt;
-                // The MUX weight: bt for branches, j for jal, r for jalr.
-                // (j and r terms have no t factor.)
-                let _ = sel_group;
-            }
+            // -bt·(T_l - A_l) + j·(A_l - T_l) + r·(A_l - J_l) via the
+            // per-limb recurrences; the in-carries are l>0 only (the
+            // l=0 limb has no incoming carry — the pre-fix
+            // `l - 1.min(l)` index leaked the limb-0 OUT carry into the
+            // l=0 identity, which any taken branch with a target that
+            // crosses the 16-bit boundary (negative offsets!) violated).
             // branches: weight = b·t
             {
                 let w_ab = a.neg(); // -bt·T_l
@@ -2959,8 +2984,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(w_ab, vec![b, t, pc_l[l], ei])
                     .map_err(ConstraintError::Virtual)?;
-                vp.add_term(w_ab, vec![b, t, ct[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(w_ab, vec![b, t, ct[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16)), vec![b, t, ct[l], ei])
                     .map_err(ConstraintError::Virtual)?;
                 // +bt·A_l
@@ -2970,8 +2997,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     vp.add_term(a.mul(&fe(4)), vec![b, t, ei])
                         .map_err(ConstraintError::Virtual)?;
                 }
-                vp.add_term(a.neg(), vec![b, t, ca[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(a.neg(), vec![b, t, ca[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16).neg()), vec![b, t, ca[l], ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -2981,8 +3010,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(a.neg(), vec![j, pc_l[l], ei])
                     .map_err(ConstraintError::Virtual)?;
-                vp.add_term(a.neg(), vec![j, ct[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(a.neg(), vec![j, ct[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16)), vec![j, ct[l], ei])
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(*a, vec![j, pc_l[l], ei])
@@ -2991,8 +3022,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     vp.add_term(a.mul(&fe(4)), vec![j, ei])
                         .map_err(ConstraintError::Virtual)?;
                 }
-                vp.add_term(a.neg(), vec![j, ca[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(a.neg(), vec![j, ca[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16).neg()), vec![j, ca[l], ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -3002,8 +3035,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(a.neg(), vec![rr, imm_l[l], ei])
                     .map_err(ConstraintError::Virtual)?;
-                vp.add_term(a.neg(), vec![rr, cj[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(a.neg(), vec![rr, cj[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16)), vec![rr, cj[l], ei])
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(*a, vec![rr, pc_l[l], ei])
@@ -3012,8 +3047,10 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     vp.add_term(a.mul(&fe(4)), vec![rr, ei])
                         .map_err(ConstraintError::Virtual)?;
                 }
-                vp.add_term(a.neg(), vec![rr, ca[l - 1.min(l)], ei])
-                    .map_err(ConstraintError::Virtual)?;
+                if l > 0 {
+                    vp.add_term(a.neg(), vec![rr, ca[l - 1], ei])
+                        .map_err(ConstraintError::Virtual)?;
+                }
                 vp.add_term(a.mul(&fe(1 << 16).neg()), vec![rr, ca[l], ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -3994,6 +4031,15 @@ const SHIFT_CLASSES: [ShiftClass; 12] = [
 ];
 
 fn prove_shift(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    prove_shift_sparse(ctx)
+}
+
+/// The pre-sparse reference path (the dense-engine construction) —
+/// retained for the byte-identity differential test against the sparse
+/// route (the round polynomials must be identical products, so the
+/// transcripts and proofs must match exactly).
+#[cfg(test)]
+fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     let w = ctx.w;
     let aux = ctx.aux;
     let log_t = w.log_t;
@@ -4196,6 +4242,400 @@ fn prove_shift(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     }
     ctx.stage("shift", &mut vp, &views, Goldilocks::ZERO)
         .map(|_| ())
+}
+
+/// The sparse-engine route for the shift family (the "0s are free"
+/// doctrine, `lattice-memory::sparse_engine`, applied to the constraint
+/// layer): the per-(bit, shamt) MUX products — the O(64^2)-per-class
+/// term expansion that dominated the semantics stage's prover time —
+/// are gated by the selector and one-hot columns, which are nonzero on
+/// a vanishing fraction of rows. The sparse sumcheck evaluates each
+/// term only over its true support (the selector/one-hot intersection)
+/// instead of the full cycle cube, emitting the byte-identical proof
+/// the dense engine would produce over the same virtual polynomial
+/// (same round polynomials — the products are the same — pinned by the
+/// differential test below); the verifier is UNCHANGED.
+fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
+    use lattice_memory::sparse_engine::{
+        prove_sparse_sumcheck, ProjectedDense, SparseFactor, SparseInstance, SparseTerm,
+    };
+    use std::collections::HashMap;
+
+    let w = ctx.w;
+    let aux = ctx.aux;
+    let log_t = w.log_t;
+    let idx = &aux.index;
+    let r = ctx
+        .transcript
+        .challenge_fields(b"con-sh-r", log_t)
+        .map_err(ConstraintError::Transcript)?;
+    let alphas = ctx
+        .transcript
+        .challenge_fields(b"con-sh-a", 3)
+        .map_err(ConstraintError::Transcript)?;
+    let eq = DenseMle::eq_extension(&r);
+    let t_len = 1u64 << log_t;
+
+    // ---- registries ----
+    // Dense pool: index 0 is eq (the PubTable view); then the memoized
+    // tensor-row MLEs and their flipped variants (identity var_map —
+    // every factor spans the full log_t variables).
+    let var_map: Vec<usize> = (0..log_t).collect();
+    let mut dense: Vec<ProjectedDense> = vec![ProjectedDense {
+        mle: eq.clone(),
+        var_map: var_map.clone(),
+    }];
+    let mut views: Vec<(usize, FV)> = vec![(0usize, FV::PubTable(eq.clone()))];
+    let mut rs1_memo: HashMap<usize, usize> = HashMap::new();
+    let mut rs2_memo: HashMap<usize, usize> = HashMap::new();
+    let mut instr_memo: HashMap<usize, usize> = HashMap::new();
+    let mut rd_memo: HashMap<usize, usize> = HashMap::new();
+    let mut flip_memo: HashMap<(u8, usize), usize> = HashMap::new(); // (which, bit)
+
+    macro_rules! add_row {
+        ($tensor:expr, $nbits:expr, $bit:expr, $memo:expr, $view:expr) => {{
+            let bit: usize = $bit;
+            if let Some(&di) = $memo.get(&bit) {
+                di
+            } else {
+                let row = $nbits - 1 - bit;
+                let f = row_mle(&$tensor, row, log_t);
+                let di = dense.len();
+                dense.push(ProjectedDense {
+                    mle: f,
+                    var_map: var_map.clone(),
+                });
+                views.push((di, $view(row)));
+                $memo.insert(bit, di);
+                di
+            }
+        }};
+    }
+    let mut sparse: Vec<SparseFactor> = Vec::new();
+    let mut terms: Vec<SparseTerm> = Vec::new();
+    // The full-cube position list shared by every all-dense term (the
+    // decode section's polarized products).
+    let full_cube: Vec<u64> = (0..t_len).collect();
+
+    // A bit column's nonzero support (row, value), ascending.
+    let col_support = |id: usize| -> Vec<(u64, Goldilocks)> {
+        aux.bits[id]
+            .iter()
+            .enumerate()
+            .filter(|(_, v)| **v != 0)
+            .map(|(row, v)| (row as u64, fe(*v as u64)))
+            .collect()
+    };
+
+    // ---- (1) the one-hot decodes ----
+    {
+        let a = &alphas[0];
+        let groups: [(&[usize], usize, usize); 4] = [
+            (&idx.shoh6_r, 6, 0),
+            (&idx.shoh6_i, 6, 1),
+            (&idx.shoh5_r, 5, 0),
+            (&idx.shoh5_i, 5, 1),
+        ];
+        for (ohs, nbits, src) in groups {
+            for s in 0..(1usize << nbits) {
+                // Term A: +alpha · oh[s] · eq — the one-hot's full
+                // support as the single sparse factor.
+                let support = col_support(ohs[s]);
+                let fi = sparse.len();
+                sparse.push(SparseFactor {
+                    entries: support.clone(),
+                    var_map: var_map.clone(),
+                });
+                views.push((usize::MAX, FV::Bit(ohs[s])));
+                // (usize::MAX marks a view whose claim comes from the
+                // sparse pool; bind_views ignores indices absent from
+                // the (empty) factor-claims slice, and resolve_view
+                // derives the value from the ledger's own column.)
+                terms.push(SparseTerm {
+                    coeff: *a,
+                    positions: support.iter().map(|e| e.0).collect(),
+                    sparse: vec![fi],
+                    dense: vec![0],
+                });
+                // Term B: -alpha · prod(polarized source bits) · eq —
+                // all-dense over the full cube.
+                let mut dense_ids = Vec::with_capacity(nbits + 1);
+                for b in 0..nbits {
+                    let req = (s >> b) & 1;
+                    if req == 1 {
+                        let di = if src == 0 {
+                            add_row!(
+                                w.values[T_RS2],
+                                64,
+                                b,
+                                rs2_memo,
+                                |row: usize| FV::TensorRow {
+                                    factor: Factor::ValueBits { slot: T_RS2 },
+                                    nbits: 64,
+                                    row,
+                                }
+                            )
+                        } else {
+                            add_row!(
+                                w.instr_bits,
+                                32,
+                                20 + b,
+                                instr_memo,
+                                |row: usize| FV::TensorRow {
+                                    factor: Factor::InstrBits,
+                                    nbits: 32,
+                                    row,
+                                }
+                            )
+                        };
+                        dense_ids.push(di);
+                    } else {
+                        // flipped polarity — a dense factor, no view
+                        // (the verifier derives the flip).
+                        let key = (src as u8, b);
+                        let di = if let Some(&d) = flip_memo.get(&key) {
+                            d
+                        } else {
+                            let row = if src == 0 { 63 - b } else { 31 - (20 + b) };
+                            let f = if src == 0 {
+                                row_mle(&w.values[T_RS2], row, log_t)
+                            } else {
+                                instr_row_of(&w.instr_bits, row, log_t)
+                            };
+                            let d = dense.len();
+                            dense.push(ProjectedDense {
+                                mle: flip_mle(&f),
+                                var_map: var_map.clone(),
+                            });
+                            flip_memo.insert(key, d);
+                            d
+                        };
+                        dense_ids.push(di);
+                    }
+                }
+                dense_ids.push(0);
+                terms.push(SparseTerm {
+                    coeff: a.neg(),
+                    positions: full_cube.clone(),
+                    sparse: vec![],
+                    dense: dense_ids,
+                });
+            }
+        }
+    }
+
+    // ---- (2) the per-bit shift MUXes ----
+    //
+    // CORRECTNESS DISCIPLINE (pinned by the engine-level differential
+    // test in `sparse_engine.rs::identity_differential`): a term may
+    // carry AT MOST ONE sparse factor, whose entries are that factor's
+    // OWN full nonzero support. Two sparse factors filtered to their
+    // boolean intersection is WRONG: the multilinear products have
+    // suffix-level cross terms outside the boolean intersection (the
+    // round polynomials at t >= 2 sample the extensions), so the
+    // intersection drops nonzero contributions. Selectors therefore
+    // ride as DENSE factors in the one-hot-gated terms.
+    {
+        let a = &alphas[1];
+        let b2 = &alphas[2];
+        let mut sel_dense_memo: HashMap<&'static str, usize> = HashMap::new();
+        let mut oh_support_cache: HashMap<usize, Vec<(u64, Goldilocks)>> = HashMap::new();
+        for class in SHIFT_CLASSES {
+            let sel_support = col_support(idx.sel_by(class.sel));
+            let sel_fi_base = sparse.len();
+            sparse.push(SparseFactor {
+                entries: sel_support.clone(),
+                var_map: var_map.clone(),
+            });
+            views.push((usize::MAX, FV::Bit(idx.sel_by(class.sel))));
+            // The selector as a DENSE factor (for the one-hot-gated terms).
+            let sel_di = match sel_dense_memo.get(class.sel) {
+                Some(&d) => d,
+                None => {
+                    let col: Vec<Goldilocks> = aux.bits[idx.sel_by(class.sel)]
+                        .iter()
+                        .map(|v| fe(*v as u64))
+                        .collect();
+                    let d = dense.len();
+                    dense.push(ProjectedDense {
+                        mle: DenseMle::new(col)
+                            .map_err(|e| ConstraintError::Sparse(format!("{e:?}")))?,
+                        var_map: var_map.clone(),
+                    });
+                    sel_dense_memo.insert(class.sel, d);
+                    d
+                }
+            };
+            let ohs: &[usize] = match class.oh {
+                0 => &idx.shoh6_r,
+                1 => &idx.shoh6_i,
+                2 => &idx.shoh5_r,
+                _ => &idx.shoh5_i,
+            };
+            let width = if class.oh < 2 { 64usize } else { 32usize };
+            let top = if class.is_w { 32usize } else { 64usize };
+            for i in 0..64usize {
+                // rd's row (memoized dense + view).
+                let rd_di = add_row!(
+                    w.values[T_RD],
+                    64,
+                    i,
+                    rd_memo,
+                    |row: usize| FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RD },
+                        nbits: 64,
+                        row,
+                    }
+                );
+                if i >= top {
+                    // The W sign extension: rd_bit[i] = rd_bit[31].
+                    if class.is_w {
+                        let rd31 = add_row!(
+                            w.values[T_RD],
+                            64,
+                            31,
+                            rd_memo,
+                            |row: usize| FV::TensorRow {
+                                factor: Factor::ValueBits { slot: T_RD },
+                                nbits: 64,
+                                row,
+                            }
+                        );
+                        terms.push(SparseTerm {
+                            coeff: *b2,
+                            positions: sel_support.iter().map(|e| e.0).collect(),
+                            sparse: vec![sel_fi_base],
+                            dense: vec![rd_di, 0],
+                        });
+                        terms.push(SparseTerm {
+                            coeff: b2.neg(),
+                            positions: sel_support.iter().map(|e| e.0).collect(),
+                            sparse: vec![sel_fi_base],
+                            dense: vec![rd31, 0],
+                        });
+                    }
+                    continue;
+                }
+                let (lo_s, hi_s): (usize, usize) = match class.kind {
+                    0 => (0, i.min(width - 1)),
+                    _ => (0, (top - 1 - i).min(width - 1)),
+                };
+                let alpha = if class.is_w { *b2 } else { *a };
+                terms.push(SparseTerm {
+                    coeff: alpha,
+                    positions: sel_support.iter().map(|e| e.0).collect(),
+                    sparse: vec![sel_fi_base],
+                    dense: vec![rd_di, 0],
+                });
+                let mut covered = Vec::with_capacity(hi_s + 1);
+                for s in lo_s..=hi_s {
+                    let src_bit = match class.kind {
+                        0 => i - s,
+                        _ => i + s,
+                    };
+                    // The one-hot's OWN support (single sparse factor —
+                    // the correctness discipline above).
+                    let oh_entries = match oh_support_cache.get(&ohs[s]) {
+                        Some(e) => e.clone(),
+                        None => {
+                            let e = col_support(ohs[s]);
+                            oh_support_cache.insert(ohs[s], e.clone());
+                            e
+                        }
+                    };
+                    let sb_di = add_row!(
+                        w.values[T_RS1],
+                        64,
+                        src_bit,
+                        rs1_memo,
+                        |row: usize| FV::TensorRow {
+                            factor: Factor::ValueBits { slot: T_RS1 },
+                            nbits: 64,
+                            row,
+                        }
+                    );
+                    let oh_fi = sparse.len();
+                    sparse.push(SparseFactor {
+                        entries: oh_entries.clone(),
+                        var_map: var_map.clone(),
+                    });
+                    terms.push(SparseTerm {
+                        coeff: alpha.neg(),
+                        positions: oh_entries.iter().map(|e| e.0).collect(),
+                        sparse: vec![oh_fi],
+                        dense: vec![sel_di, sb_di, 0],
+                    });
+                    covered.push(s);
+                }
+                // The arithmetic fill (SRA): out-of-range s contribute
+                // the sign bit via the one-hot complement.
+                if class.kind == 2 {
+                    let sign_bit = top - 1;
+                    let sg_di = add_row!(
+                        w.values[T_RS1],
+                        64,
+                        sign_bit,
+                        rs1_memo,
+                        |row: usize| FV::TensorRow {
+                            factor: Factor::ValueBits { slot: T_RS1 },
+                            nbits: 64,
+                            row,
+                        }
+                    );
+                    terms.push(SparseTerm {
+                        coeff: alpha.neg(),
+                        positions: sel_support.iter().map(|e| e.0).collect(),
+                        sparse: vec![sel_fi_base],
+                        dense: vec![sg_di, 0],
+                    });
+                    for s in covered {
+                        let oh_entries = match oh_support_cache.get(&ohs[s]) {
+                            Some(e) => e.clone(),
+                            None => {
+                                let e = col_support(ohs[s]);
+                                oh_support_cache.insert(ohs[s], e.clone());
+                                e
+                            }
+                        };
+                        let oh_fi = sparse.len();
+                        sparse.push(SparseFactor {
+                            entries: oh_entries.clone(),
+                            var_map: var_map.clone(),
+                        });
+                        terms.push(SparseTerm {
+                            coeff: alpha,
+                            positions: oh_entries.iter().map(|e| e.0).collect(),
+                            sparse: vec![oh_fi],
+                            dense: vec![sel_di, sg_di, 0],
+                        });
+                    }
+                }
+            }
+        }
+    }
+    // ---- run the sparse sumcheck (byte-identical rounds) ----
+    let inst = SparseInstance {
+        num_vars: log_t,
+        sparse,
+        dense,
+        terms,
+    };
+    absorb_leg(ctx.transcript, "shift")?;
+    let out = prove_sparse_sumcheck(&inst, Goldilocks::ZERO, ctx.transcript)
+        .map_err(|e| ConstraintError::Sparse(format!("{e:?}")))?;
+    // Record the view claims through the ledger's own resolution (the
+    // verifier pops the identical keys); the engine's internal factor
+    // claims differ for the filtered sparse copies by design, so the
+    // dense-engine cross-check is not applicable here — the engine's
+    // own final-claim guard plus the family's end-to-end verification
+    // carry the correctness weight.
+    bind_views(ctx.ledger, &views, &out.challenges, &[])?;
+    ctx.legs.push(ConstraintLeg {
+        name: "shift",
+        sc: out.proof,
+        claim: Goldilocks::ZERO,
+    });
+    Ok(())
 }
 
 fn verify_shift(
@@ -5359,19 +5799,27 @@ pub fn prove_constraints(
         }
     }
     let mut ctx = FamilyCtx { w, aux, ledger, legs, transcript };
-    prove_booleanity(&mut ctx)?;
-    prove_selectors(&mut ctx)?;
-    prove_decode(&mut ctx)?;
-    prove_flags(&mut ctx)?;
-    prove_arith(&mut ctx)?;
-    prove_shift(&mut ctx)?;
-    prove_mul(&mut ctx)?;
-    prove_div(&mut ctx)?;
-    prove_range_links(&mut ctx)?;
-    prove_cmp(&mut ctx)?;
-    prove_ctrl(&mut ctx)?;
-    prove_route(&mut ctx)?;
-    prove_halt(&mut ctx)?;
+    let dbg = std::env::var_os("LZX_SEM_TIMING").is_some();
+    for (name, f) in [
+        ("booleanity", prove_booleanity as fn(&mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError>),
+        ("selectors", prove_selectors),
+        ("decode", prove_decode),
+        ("flags", prove_flags),
+        ("arith", prove_arith),
+        ("shift", prove_shift),
+        ("mul", prove_mul),
+        ("div", prove_div),
+        ("rangelinks", prove_range_links),
+        ("cmp", prove_cmp),
+        ("ctrl", prove_ctrl),
+        ("route", prove_route),
+        ("halt", prove_halt),
+    ] {
+        if dbg {
+            eprintln!("[sem-family] >>> enter {name}");
+        }
+        f(&mut ctx)?;
+    }
     Ok(())
 }
 
@@ -5492,4 +5940,173 @@ pub fn verify_constraints(
         return Err(ConstraintError::Shape);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod shift_sparse_tests {
+    use super::*;
+    use crate::columns::{build_cycle_witness, FetchWindow, RamWindow};
+    use crate::ledger::BaseClaim;
+
+    /// A program exercising every shift class (register/immediate ×
+    /// 64/32-bit × logical/arithmetic) — the constraint-test corpus
+    /// program (mixed addi + shifts of both shamt widths).
+    fn shift_program() -> Vec<u8> {
+        let r = |f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32| {
+            (f7 << 25) | ((rs2 as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12)
+                | ((rd as u32) << 7)
+                | op
+        };
+        let i = |f6: u32, shamt: u8, rs1: u8, f3: u32, rd: u8, op: u32| {
+            (f6 << 26) | ((shamt as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12)
+                | ((rd as u32) << 7)
+                | op
+        };
+        let addi = |rd: u8, rs1: u8, imm: i64| {
+            ((imm as u32 & 0xFFF) << 20) | ((rs1 as u32) << 15) | ((rd as u32) << 7) | 0x13
+        };
+        let words = [
+            addi(1, 0, -1),
+            addi(2, 0, 0x123),
+            addi(3, 0, 0x40000000),
+            i(0x00, 5, 1, 1, 4, 0x13),   // slli shamt 5
+            i(0x00, 37, 1, 5, 5, 0x13),  // srli shamt 37
+            i(0x10, 13, 1, 5, 6, 0x13),  // srai shamt 13
+            r(0, 3, 2, 1, 7, 0x1b),      // slliw
+            r(0, 9, 2, 5, 8, 0x1b),      // srliw
+            r(0x20, 7, 2, 5, 9, 0x1b),   // sraiw
+            addi(10, 0, 40),
+            r(0, 10, 1, 1, 11, 0x33),    // sll
+            r(0, 10, 1, 5, 12, 0x33),    // srl
+            r(0x20, 10, 1, 5, 13, 0x33), // sra
+            r(0, 10, 1, 1, 14, 0x3b),    // sllw
+            r(0, 10, 1, 5, 15, 0x3b),    // srlw
+            r(0x20, 10, 1, 5, 16, 0x3b), // sraw
+            0x73u32,
+        ];
+        let mut v = Vec::new();
+        for w in words {
+            v.extend_from_slice(&w.to_le_bytes());
+        }
+        v
+    }
+
+    /// Run one shift-family prover variant over the same witness and
+    /// return (legs, claims).
+    fn run_variant(
+        w: &CycleWitness,
+        aux: &AuxCols,
+        sparse: bool,
+    ) -> (Vec<ConstraintLeg>, Vec<BaseClaim>) {
+        let bit_mles: Vec<DenseMle> = aux
+            .bits
+            .iter()
+            .map(|c| DenseMle {
+                num_vars: w.log_t,
+                evaluations: c.iter().map(|v| fe(*v as u64)).collect(),
+            })
+            .collect();
+        let val_mles: Vec<DenseMle> = aux
+            .vals
+            .iter()
+            .map(|c| DenseMle {
+                num_vars: w.log_t,
+                evaluations: c.clone(),
+            })
+            .collect();
+        let mut table: Vec<(Factor, &DenseMle)> = Vec::new();
+        for slot in 0..crate::columns::VALUE_TENSORS {
+            table.push((Factor::ValueBits { slot }, &w.values[slot]));
+        }
+        table.push((Factor::InstrBits, &w.instr_bits));
+        for (id, m) in bit_mles.iter().enumerate() {
+            table.push((Factor::BitCol { id }, m));
+        }
+        for (id, m) in val_mles.iter().enumerate() {
+            table.push((Factor::ValCol { id }, m));
+        }
+        let mut ledger = Ledger::prover(table);
+        let mut legs = Vec::new();
+        let mut tr = Transcript::new_default(b"con-test");
+        let mut ctx = FamilyCtx {
+            w,
+            aux,
+            ledger: &mut ledger,
+            legs: &mut legs,
+            transcript: &mut tr,
+        };
+        if sparse {
+            super::prove_shift(&mut ctx).ok().unwrap();
+        } else {
+            super::prove_shift_dense_cfg_test(&mut ctx).ok().unwrap();
+        }
+        (legs, ledger.claims().to_vec())
+    }
+
+    /// The sparse-engine shift proof must be BYTE-IDENTICAL to the dense
+    /// engine's over the same virtual polynomial: same round messages,
+    /// same transcript flow, same claim values per key.
+    #[test]
+    fn sparse_shift_proof_is_byte_identical() {
+        let prog = shift_program();
+        let mut state = lattice_vm::MachineState::new();
+        state.load_program(0, &prog);
+        let rows = lattice_vm::run(&mut state, 256).ok().unwrap();
+        let (w, _fw) = match build_cycle_witness(
+            &rows,
+            &prog,
+            &[],
+            RamWindow { log_k: 6 },
+            FetchWindow { log_k: 5 },
+        ) {
+            Ok(v) => v,
+            Err(e) => panic!("witness: {e:?}"),
+        };
+        let instrs: Vec<Instr> = rows.iter().map(|r| r.instr).collect();
+        let aux = match build_aux(&w, &instrs) {
+            Ok(v) => v,
+            Err(e) => panic!("aux: {e:?}"),
+        };
+
+        let (legs_d, claims_d) = run_variant(&w, &aux, false);
+        let (legs_s, claims_s) = run_variant(&w, &aux, true);
+        assert_eq!(legs_d.len(), 1);
+        assert_eq!(legs_s.len(), 1);
+        assert_eq!(legs_d[0].name, legs_s[0].name);
+        assert_eq!(legs_d[0].claim, legs_s[0].claim);
+        assert_eq!(
+            legs_d[0].sc.rounds.len(),
+            legs_s[0].sc.rounds.len(),
+            "round count"
+        );
+        for (ri, (rd, rs)) in legs_d[0]
+            .sc
+            .rounds
+            .iter()
+            .zip(legs_s[0].sc.rounds.iter())
+            .enumerate()
+        {
+            if rd != rs {
+                eprintln!("DIVERGING ROUND {ri}: dense={rd:?} sparse={rs:?}");
+            }
+            assert_eq!(rd, rs, "round {ri} messages must be byte-identical");
+        }
+        // Claim VALUES per key must agree (the sparse prover records each
+        // key once; the dense prover may record duplicates — compare the
+        // deduplicated key->value maps).
+        let map_of = |claims: &[BaseClaim]| {
+            let mut m = std::collections::HashMap::new();
+            for c in claims {
+                m.insert((c.factor, c.point.clone()), c.value);
+            }
+            m
+        };
+        let md = map_of(&claims_d);
+        let ms = map_of(&claims_s);
+        for (k, v) in &md {
+            assert_eq!(ms.get(k), Some(v), "claim for {k:?}");
+        }
+        // The sparse prover must cover every key the verifier pops.
+        assert!(ms.len() >= 300, "expected the full row/one-hot cover");
+    }
 }

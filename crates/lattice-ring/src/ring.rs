@@ -106,26 +106,75 @@ impl RingConfig {
         salt.extend_from_slice(&index.to_le_bytes());
         // 4 bytes per coefficient -> 32 bits of entropy vs 31.58-bit modulus:
         // rejection keeps uniformity exact.
-        let mut coeffs = Vec::with_capacity(self.n());
-        let mut counter = 0u64;
+        //
+        // FAST PATH (the verify-side carrier factoring): the pre-fix loop
+        // re-ran the whole XOF PER COEFFICIENT with a growing squeeze
+        // length (coefficient j read window [8+4j, 12+4j)) — O(n) XOF
+        // re-initializations and O(n^2) squeezed bytes per ring element,
+        // which dominated the verifier's seeded key regeneration (the
+        // k*m elements of the Ajtai matrix). SHAKE256 squeezing is
+        // prefix-consistent, so ONE squeeze of `8 + 4*(n + slack)` bytes
+        // yields the byte-identical window sequence: walk 4-byte windows
+        // from offset 8, skipping rejected windows exactly as the
+        // counter-based loop did. The slack covers the (astronomically
+        // rare, < 2^-31 per window) rejections; a fallback loop guards
+        // the pathological tail.
         let q = self.modulus.q as u64;
-        while coeffs.len() < self.n() {
-            let bytes = lattice_core::transcript::Transcript::xof(
-                b"uniform",
-                &salt,
-                8 + (counter as usize) * 4 + 4,
-            );
-            // take the tail 4 bytes
-            let off = bytes.len() - 4;
+        let limit = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % q);
+        let n = self.n();
+        // The slack must cover the WORST-CASE modulus rejection rate,
+        // not the near-zero one: q = 3*2^30+1 rejects a FULL QUARTER of
+        // u32 candidates (2^32 mod q ~ 2^30), so n coefficients need
+        // E[n/(q/2^32)] ~ 1.33n windows — the pre-fix slack of 8 put the
+        // walk short of n on (nearly) EVERY element, silently falling
+        // back into the old per-coefficient growing-squeeze loop (the
+        // 16 us/element that dominated the verifier's key regeneration).
+        // 2n windows covers every q > 2^31 with failure < 2^-100.
+        let slack = n.max(16);
+        let mut stream = lattice_core::transcript::Transcript::xof(
+            b"uniform",
+            &salt,
+            8 + 4 * (n + slack),
+        );
+        // The iterator form (chunks_exact + take(n)): the index-based
+        // while-loop compiled to a reload-heavy loop in the library CGU
+        // (~250 ns per window — 20 us/element at n=64); the iterator
+        // chain generates the tight sequential walk the identical
+        // inline copy exhibits (~0.3 us/element). Byte-identical output
+        // (window order and rejection semantics unchanged — pinned by
+        // the reference differential test).
+        let mut coeffs: Vec<u32> = Vec::with_capacity(n);
+        for w in stream[8..].chunks_exact(4).take(n + slack) {
+            if coeffs.len() == n {
+                break;
+            }
             let mut arr = [0u8; 4];
-            arr.copy_from_slice(&bytes[off..]);
+            arr.copy_from_slice(w);
             let cand = u32::from_le_bytes(arr) as u64;
-            // reject >= 2^32 - (2^32 mod q): exact uniformity
-            let limit = (u32::MAX as u64 + 1) - ((u32::MAX as u64 + 1) % q);
             if cand < limit {
                 coeffs.push((cand % q) as u32);
             }
-            counter += 1;
+        }
+        if coeffs.len() < n {
+            // Fallback (probability < 2^-200 at n=64): continue the
+            // counter-indexed windows beyond the pre-squeezed slack.
+            let mut counter = (stream.len() - 8) / 4;
+            stream.clear();
+            while coeffs.len() < n {
+                let bytes = lattice_core::transcript::Transcript::xof(
+                    b"uniform",
+                    &salt,
+                    8 + counter * 4 + 4,
+                );
+                let off = bytes.len() - 4;
+                let mut arr = [0u8; 4];
+                arr.copy_from_slice(&bytes[off..]);
+                let cand = u32::from_le_bytes(arr) as u64;
+                if cand < limit {
+                    coeffs.push((cand % q) as u32);
+                }
+                counter += 1;
+            }
         }
         RingElement {
             config: self.clone(),

@@ -357,6 +357,81 @@ hidden); the blinding machinery itself (the Rej1 distribution-flattening
 test, the perfect Sum-Check masking, the S_ABDLOP simulator's accepting
 transcripts) is exercised and verified statistically regardless.
 
+## 2i. The semantics-stage factoring wave: verify-side carrier + the sparse shift route (2026-10-04, this session)
+
+The instruction-semantics stage (`semantics.rs`, wired by the
+family-completion wave) benchmarked with a phase-attributed harness
+(`lattice-bench --bin semantics-bench`, the scalable mixed-instruction
+loop). The pre-wave profile at log_t=6 (52 cycles): prove 14,696 ms —
+of which the grouped-carrier openings 14,264 ms (97%) — verify 108 ms;
+the 30,826-claim list dominated both time and proof size.
+
+Four fixes landed (each pinned by differential tests):
+
+1. **The prefix-factored carrier eq build** (`ledger.rs::rec_eq_acc`):
+   the flat points' leading coordinates are BOOLEAN (the layout's
+   head/slice bits and the bit-row heads), so claims ROUTE exactly
+   through the trie levels and only the field-valued tails need dense
+   per-group eq tables. The produced array is bit-identical (field
+   addition commutes) — transcripts byte-identical — while the work
+   drops from `claims x 2^log_flat` to `sum_groups claims_g x 2^{field
+   vars} + 2^log_flat`: openings 14,264 ms -> 15 ms at log_t=6 (~10^3x).
+2. **The seeded-matrix derivation fix** (`lattice-ring`): the
+   per-coefficient counter-indexed XOF re-squeeze collapsed to ONE
+   prefix-consistent squeeze per element (byte-identical derivation,
+   test-pinned) — AND the rejection slack corrected for the actual
+   modulus (q = 3·2^30+1 rejects a QUARTER of u32 candidates, so the
+   slack-8 walk fell short on every element and silently fell back into
+   the old loop): from_seed 21.8 -> 4.6 us/element. The verifier's
+   bundle-key regeneration (the pk-derive) was the verify-side carrier
+   cost: 73 ms -> 4 ms at log_t=6.
+3. **The sparse-engine shift route** (`constraints.rs`): the shift
+   family — the O(64^2)-per-class MUX term expansion, 74% of the
+   families' prover time — now routes through the sparse engine
+   ("0s are free"): the one-hot gates ride as single sparse factors
+   with their OWN supports, the selectors as dense factors. The
+   emitted proof is byte-identical to the dense engine over the same
+   virtual polynomial (differential test pinned); the verifier is
+   UNCHANGED. Shift 8,234 -> ~4,400 ms at log_t=12, and the claim list
+   30,826 -> 9,066 (3.4x — the sparse route records each one-hot once).
+   THE ENGINE-LEVEL FINDING (new differential test in
+   `sparse_engine.rs::identity_differential`): a term with TWO sparse
+   factors CANNOT use intersection-filtered supports — the multilinear
+   products have suffix-level cross terms outside the boolean
+   intersection (round polynomials at t >= 2 sample the extensions;
+   t in {0,1} still agree, so the sum checks pass while the rounds
+   diverge). Correct: one sparse factor per term (own support), or
+   union-aligned zero-padded entries.
+4. **The ctrl carry-gate completeness fix** (`constraints.rs`): the
+   prover's next-pc MUX leaked the limb-0 OUT carry into the l=0
+   identity via `l - 1.min(l)` — any taken branch/jal with a target
+   crossing the 16-bit limb boundary (negative offsets!) failed
+   ClaimMismatch. The verifier was already correct; the prover now
+   gates the in-carries by l > 0 (fail-closed coverage retained).
+
+| log_t | cycles | families | openings | prove | pk-derive | verify | ms/cycle | claims |
+|---|---|---|---|---|---|---|---|---|
+| 6 | 52 | 88 ms | 15 ms | 119 ms | 4 ms | 23 ms | 2.3 | 9,066 |
+| 8 | 244 | 327 ms | 56 ms | 430 ms | 16 ms | 53 ms | 1.8 | 9,066 |
+| 10 | 1,012 | 1.22 s | 200 ms | 1.57 s | 64 ms | 172 ms | 1.5 | 9,066 |
+| 12 | 4,084 | 5.46 s | 846 ms | 7.04 s | 252 ms | **725 ms** | 1.7 | 9,066 |
+
+**Verify is sub-second at the benchmark scale** (the pre-wave verify at
+log_t=12 extrapolates to ~9.4 s: the pk-derive alone ~4.7 s + the
+naive claim resolution). The proof size is claim-list dominated
+(~1.1 KB/claim with points) — 9,066 claims ≈ 10 MB of the 34 MB proof
+at log_t=12; the values-only claim compression (the compact mode's
+discipline) is the natural next step.
+
+**The honest remaining ledger**: the shift family is still ~4.4 s of
+the log_t=12 prove — the term-count wall (25k per-(bit, shamt) MUX
+terms, each with per-round fixed overhead regardless of support size).
+The structural fix is the 2D (cycle x shamt) convolution sumcheck with
+the bit-axis rand-checked — a verifier-visible restructure (the
+paper-route; the sparse engine's home turf). The other moderate
+families (bool-cols 277 ms, route 189 ms, cmp 185 ms, sel 178 ms) share
+the selector-gated shape and would benefit from the same route.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

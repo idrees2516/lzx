@@ -31,3 +31,7 @@ path = "src/bin/bench.rs"
 [[bin]]
 name = "zkvm-membench"
 path = "src/bin/zkvm_membench.rs"
+
+[[bin]]
+name = "semantics-bench"
+path = "src/bin/semantics_bench.rs"
