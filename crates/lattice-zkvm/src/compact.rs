@@ -605,15 +605,28 @@ pub struct CompactBundleProver {
 }
 
 /// Commit a bundle in compact form (the columns + per-column Ajtai
-/// commitments under the column-uniform key F̄).
+/// commitments under the column-uniform key F̄) — the Clear profile's
+/// default parameters.
 pub fn compact_bundle_commit(
     entries: &[(u32, &DenseMle)],
     seed: [u8; 32],
     r: usize,
     k: usize,
 ) -> Result<CompactBundleProver, LedgerError> {
+    compact_bundle_commit_with_params(entries, seed, r, k, FoldParams::new(r, k))
+}
+
+/// Commit a bundle with an explicit fold-parameter profile (the Sound
+/// mode's `FoldParams::sound` — the amplitude the width fold's
+/// estimator ceiling allows).
+pub fn compact_bundle_commit_with_params(
+    entries: &[(u32, &DenseMle)],
+    seed: [u8; 32],
+    r: usize,
+    k: usize,
+    params: FoldParams,
+) -> Result<CompactBundleProver, LedgerError> {
     let ring = column_ring()?;
-    let params = FoldParams::new(r, k);
     let packed = pack_columns(entries, r)?;
     let stream = packed.shape.stream_len();
     let n = ring.n();
@@ -1038,6 +1051,454 @@ pub fn verify_compact_opening(
 }
 
 // ---------------------------------------------------------------------------
+// The Sound profile (DESIGN_50KB Stage 5.2 — the LaBRADOR decider wiring)
+// ---------------------------------------------------------------------------
+
+/// The compact mode's binding profile.
+///
+/// * `Clear` — the shipped single-level fold: the response `v` is
+///   transmitted and bound by the level-1 instance `[F̄ | −y]` — the
+///   Stage 5.1 estimator verdict's BROKEN regime at benchmark response
+///   lengths (~2^12 bits; the interim `k = 4` hardening ships at 33 KB
+///   with the honest caveat).
+/// * `Sound` — the LaBRADOR decider: the level-1 response is never
+///   transmitted; it is width-folded (the quadratic-garbage tail,
+///   [`crate::width_fold`]) into the narrow response `z` bound by the
+///   fresh `[A₂ | −T]` instance at the estimator's sound row. The
+///   binding of the WHOLE opening is the width fold's instance — the
+///   level-1 `[F̄ | −y]` never arises (the `y_j` enter only through
+///   the public target `t = Σ_j d_j·y_j`, which `(W0)` pins).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompactProfile {
+    Clear,
+    Sound,
+}
+
+impl FoldParams {
+    /// The Sound profile's level-1 parameters: amplitude `A₁ = 2^4`
+    /// (the estimator ceiling's regime — `β₁ = r·A₁·255 ≤ 2^20` at
+    /// `r ≤ 128` keeps the width fold's `[A₂ | −T]` at the sound row
+    /// `(w, r₂, κ, A₂) = (8, 2, 8, 2^2)`; the Clear mode's `2^6`
+    /// doubles `β₁` per step and exits the sound regime by `r = 64`).
+    pub fn sound(r: usize, k: usize) -> Self {
+        let amplitude = 1u32 << 4;
+        let gate = (r as u64) * (amplitude as u64) * 255;
+        FoldParams {
+            r,
+            k,
+            amplitude,
+            gate: gate.min((Modulus32::Q_32.q / 2 - 1) as u64) as u32,
+        }
+    }
+}
+
+/// The Sound-profile fold parameters from the packed size: the level-1
+/// column count `r₁` chosen so the response width lands in the width
+/// fold's cheap sound row (`n̄ ≤ 16`, i.e. `r₁ ≈ stream/1024`), with
+/// the amplitude the ceiling allows.
+///
+/// Fail-closed when the stream is too large for the single-stage sound
+/// regime at any admissible `r₁` (the honest ceiling: the follow-ups
+/// are the recursive width-fold staging and the Modulus-50 class —
+/// `docs/BENCHMARKS.md` §2j records the measured boundary).
+pub fn sound_fold_params_for(
+    total_values: usize,
+    max_value_bytes: usize,
+    min_factor_len: usize,
+) -> Result<(usize, usize), String> {
+    let stream = total_values.saturating_mul(max_value_bytes.max(1));
+    // The width fold's cheap sound row covers n̄ ≤ 16: r₁ ≥ stream/1024.
+    let mut r = 4usize;
+    while r < 128 && stream.div_ceil(r * 64) > 16 {
+        r *= 2;
+    }
+    // The packing constraint (r ≤ every factor length).
+    let cap = min_factor_len.next_power_of_two().min(128);
+    if r > cap {
+        return Err(format!(
+            "sound profile: the column count {r} exceeds the packing bound {cap} \
+             (the stream {stream} B needs the recursive width-fold staging — \
+             the documented follow-up)"
+        ));
+    }
+    let n_bar = stream.div_ceil(r * 64).max(1);
+    // β₁ must sit under the width fold's sound ceiling.
+    let beta1 = (r as u64) * 16 * 255;
+    if beta1 > (1 << 20) {
+        return Err(format!(
+            "sound profile: beta1 {beta1} exceeds the width-fold ceiling 2^20 at r={r}"
+        ));
+    }
+    let _ = n_bar;
+    Ok((r, 4usize))
+}
+
+/// The Sound-profile opening artifact: the level-1 fold's PUBLIC layer
+/// (the ũ values the carrier's interpolation consumes) plus the
+/// LaBRADOR width fold that replaces the transmitted response.
+#[derive(Clone, Debug)]
+pub struct SoundOpening {
+    /// The level-1 fold parameters (public shape).
+    pub params: FoldParams,
+    /// Per-factor byte widths (the packing shape).
+    pub widths: Vec<u8>,
+    /// Per-column Goldilocks values ũ_j (r₁ field elements — the
+    /// carrier's public layer, absorbed before the challenges).
+    pub u_tilde: Vec<Goldilocks>,
+    /// The LaBRADOR width fold over the (never-transmitted) response.
+    pub width_proof: crate::width_fold::WidthFoldProof,
+}
+
+impl CompactBundleProver {
+    /// The level-1 key's column blocks (the prover's view): block c =
+    /// (F̄[0][c], …, F̄[k−1][c]) — the width fold's key-group source.
+    fn key_blocks(&self) -> Vec<Vec<RingElement>> {
+        (0..self.n_bar)
+            .map(|c| {
+                (0..self.params.k)
+                    .map(|rr| self.key.entry(rr, c).cloned().unwrap_or_else(|| self.ring.zero()))
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Prove the Sound opening: the level-1 fold's public layer (ũ's,
+    /// interpolation self-check, the d challenges, the never-transmitted
+    /// response `v` with its target/functional self-checks), then the
+    /// LaBRADOR width fold over `v`.
+    pub fn prove_sound_opening(
+        &self,
+        r_sc: &[Goldilocks],
+        w: &Goldilocks,
+        transcript: &mut Transcript,
+    ) -> Result<SoundOpening, LedgerError> {
+        use crate::second_fold::{apply_key, functional_of};
+
+        let flat_log = self.packed.shape.flat_log;
+        let log_r = self.params.r.trailing_zeros() as usize;
+        if r_sc.len() != flat_log {
+            return Err(LedgerError::Layout("r_sc arity".into()));
+        }
+        let r_head = &r_sc[..flat_log - log_r];
+        let r_tail = &r_sc[flat_log - log_r..];
+
+        // 1. The per-column values ũ_j + the interpolation self-check
+        //    (identical to the Clear mode — the carrier's public layer).
+        let psi = psi_weights_goldilocks(&self.packed.shape, r_head);
+        let n = self.ring.n();
+        let n_bar = self.n_bar;
+        let mut u_tilde: Vec<Goldilocks> = Vec::with_capacity(self.params.r);
+        for j in 0..self.params.r {
+            let mut acc = Goldilocks::ZERO;
+            for m in 0..psi.len() {
+                if let Some(&b) = self.packed.columns[j].get(m) {
+                    acc = acc.add(&psi[m].mul(&Goldilocks::from_u64(b as u64)));
+                }
+            }
+            u_tilde.push(acc);
+        }
+        {
+            let mut table = vec![Goldilocks::ONE];
+            for rr in r_tail.iter().rev() {
+                let one_minus = Goldilocks::ONE.sub(rr);
+                let mut next = Vec::with_capacity(table.len() * 2);
+                for t in &table {
+                    next.push(t.mul(&one_minus));
+                }
+                for t in &table {
+                    next.push(t.mul(rr));
+                }
+                table = next;
+            }
+            let mut check = Goldilocks::ZERO;
+            for (j, uj) in u_tilde.iter().enumerate() {
+                check = check.add(&table[j].mul(uj));
+            }
+            if check != *w {
+                return Err(LedgerError::Layout(format!(
+                    "interpolation self-check failed: {check:?} vs {w:?}"
+                )));
+            }
+        }
+        // Absorb the ũ's BEFORE the challenges (the Clear mode's order).
+        let mut ubuf: Vec<u8> = Vec::with_capacity(8 * u_tilde.len());
+        for u in &u_tilde {
+            ubuf.extend_from_slice(&u.to_canonical_u64().to_le_bytes());
+        }
+        transcript
+            .append_bytes(b"fold-utilde", &ubuf)
+            .map_err(LedgerError::Transcript)?;
+
+        // 2. The scalar challenges d_j ∈ [−A₁, A₁].
+        let d: Vec<i64> = (0..self.params.r)
+            .map(|_| {
+                let b = transcript
+                    .challenge_bytes(b"fold-dchal", 2)
+                    .map_err(LedgerError::Transcript)?;
+                let raw = u16::from_le_bytes([b[0], b[1]]) as u64;
+                let m = 2 * self.params.amplitude as u64 + 1;
+                Ok((raw % m) as i64 - self.params.amplitude as i64)
+            })
+            .collect::<Result<_, _>>()?;
+
+        // 3. The never-transmitted response v = Σ_j d_j·w_j (the gate
+        //    keeps every coefficient < q/2 so the mod-q rep is exact).
+        let gate = self.params.gate as i64;
+        if gate >= (self.ring.modulus.q / 2) as i64 {
+            return Err(LedgerError::Layout("gate exceeds q/2".into()));
+        }
+        let mut v: Vec<RingElement> = vec![self.ring.zero(); n_bar];
+        for (j, &dj) in d.iter().enumerate() {
+            if dj == 0 {
+                continue;
+            }
+            for i in 0..n_bar {
+                let prod = self.columns[j][i].scale_i64(dj);
+                v[i] = v[i].add(&prod).map_err(|e| {
+                    LedgerError::Layout(format!("ring add: {e:?}"))
+                })?;
+            }
+        }
+        for elem in &v {
+            for &c in elem.coeffs() {
+                let balanced = if c > self.ring.modulus.q / 2 {
+                    c as i64 - self.ring.modulus.q as i64
+                } else {
+                    c as i64
+                };
+                if balanced.abs() > gate {
+                    return Err(LedgerError::Layout(format!(
+                        "norm gate: |{balanced}| > {gate}"
+                    )));
+                }
+            }
+        }
+        // 4. The public target/functional self-checks: t = F̄·v ≟ Σ d_j·y_j
+        //    and Φ(v) ≟ Σ d_j·ũ_j (the verifier computes both sides from
+        //    public data; the width fold's (W0)/(W0') pin them to the
+        //    folded response).
+        let q = u64::from(self.ring.modulus.q);
+        let blocks = self.key_blocks();
+        let t_target = apply_key(&self.ring, &blocks, &v, self.params.k);
+        {
+            let mut y_comb = vec![self.ring.zero(); self.params.k];
+            for (j, &dj) in d.iter().enumerate() {
+                if dj == 0 {
+                    continue;
+                }
+                for kk in 0..self.params.k {
+                    let prod = self.y[j][kk].scale_i64(dj);
+                    y_comb[kk] = y_comb[kk]
+                        .add(&prod)
+                        .map_err(|e| LedgerError::Layout(format!("ring add: {e:?}")))?;
+                }
+            }
+            for kk in 0..self.params.k {
+                if t_target[kk].coeffs() != y_comb[kk].coeffs() {
+                    return Err(LedgerError::Layout(
+                        "self-check: F̄·v ≠ Σ d_j·y_j (the level-1 fold)".into(),
+                    ));
+                }
+            }
+        }
+        let u_target = functional_of(&self.ring, &v, &psi, q);
+        {
+            let mut rhs = Goldilocks::ZERO;
+            for (j, &dj) in d.iter().enumerate() {
+                if dj != 0 {
+                    let term = u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
+                    rhs = if dj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                }
+            }
+            if u_target != rhs {
+                return Err(LedgerError::Layout(
+                    "self-check: Φ(v) ≠ Σ d_j·ũ_j (the level-1 functional)".into(),
+                ));
+            }
+        }
+
+        // 5. The LaBRADOR width fold over v (the estimator-gated sound
+        //    profile search; fail-closed below the security floor).
+        let beta1 = self.params.gate as u64;
+        let wf_params = crate::width_fold::WidthFoldParams::sound_profile_for(
+            n_bar,
+            beta1,
+            q,
+            n as u64,
+        )
+        .map_err(|e| LedgerError::Layout(format!("width-fold profile: {e}")))?;
+        let width_proof = crate::width_fold::prove_width_fold(
+            &self.ring,
+            &v,
+            &t_target,
+            &u_target,
+            &blocks,
+            self.params.k,
+            &psi,
+            wf_params,
+            beta1,
+            self.seed,
+            transcript,
+        )
+        .map_err(|e| LedgerError::Layout(format!("width fold: {e}")))?;
+
+        Ok(SoundOpening {
+            params: self.params.clone(),
+            widths: self.packed.shape.widths.clone(),
+            u_tilde,
+            width_proof,
+        })
+    }
+}
+
+/// Verify a Sound-profile opening given the carrier's terminal
+/// `(r_sc, w)`. Replays the level-1 public layer (the ũ interpolation,
+/// the d challenges), computes the PUBLIC target
+/// `t = Σ_j d_j·y_j` and functional `u = Σ_j d_j·ũ_j` from the
+/// bundle's commitments, regenerates the level-1 key blocks, and hands
+/// everything to the width fold's verifier (the `(W0)`–`(W4)` checks
+/// plus the estimator posture gate).
+#[allow(clippy::too_many_arguments)]
+pub fn verify_sound_opening(
+    seed: [u8; 32],
+    commitment_bytes: &[u8],
+    factor_lens: &[usize],
+    flat_log: usize,
+    r_sc: &[Goldilocks],
+    w: &Goldilocks,
+    opening: &SoundOpening,
+    transcript: &mut Transcript,
+) -> Result<(), LedgerError> {
+    use crate::second_fold::{apply_key, functional_of};
+
+    let ring = column_ring()?;
+    let params = &opening.params;
+    let shape = PackShape {
+        factor_lens: factor_lens.to_vec(),
+        widths: opening.widths.clone(),
+        r: params.r,
+        flat_log,
+    };
+    let log_r = params.r.trailing_zeros() as usize;
+    if flat_log < log_r || r_sc.len() != flat_log {
+        return Err(LedgerError::Layout("r_sc arity".into()));
+    }
+    let r_head = &r_sc[..flat_log - log_r];
+    let r_tail = &r_sc[flat_log - log_r..];
+
+    // 1. The ũ's + the interpolation check (the Clear mode's public
+    //    layer — identical).
+    if opening.u_tilde.len() != params.r {
+        return Err(LedgerError::Layout("u count".into()));
+    }
+    let mut ubuf: Vec<u8> = Vec::with_capacity(8 * params.r);
+    for u in &opening.u_tilde {
+        ubuf.extend_from_slice(&u.to_canonical_u64().to_le_bytes());
+    }
+    transcript
+        .append_bytes(b"fold-utilde", &ubuf)
+        .map_err(LedgerError::Transcript)?;
+    {
+        let mut table = vec![Goldilocks::ONE];
+        for rr in r_tail.iter().rev() {
+            let one_minus = Goldilocks::ONE.sub(rr);
+            let mut next = Vec::with_capacity(table.len() * 2);
+            for t in &table {
+                next.push(t.mul(&one_minus));
+            }
+            for t in &table {
+                next.push(t.mul(rr));
+            }
+            table = next;
+        }
+        let mut check = Goldilocks::ZERO;
+        for (j, uj) in opening.u_tilde.iter().enumerate() {
+            check = check.add(&table[j].mul(uj));
+        }
+        if check != *w {
+            return Err(LedgerError::DerivedMismatch);
+        }
+    }
+
+    // 2. The challenge replay.
+    let d: Vec<i64> = (0..params.r)
+        .map(|_| {
+            let b = transcript
+                .challenge_bytes(b"fold-dchal", 2)
+                .map_err(LedgerError::Transcript)?;
+            let raw = u16::from_le_bytes([b[0], b[1]]) as u64;
+            let m = 2 * params.amplitude as u64 + 1;
+            Ok((raw % m) as i64 - params.amplitude as i64)
+        })
+        .collect::<Result<_, _>>()?;
+
+    // 3. The PUBLIC target and functional (the verifier's own
+    //    computation — never prover-supplied).
+    let psi = psi_weights_goldilocks(&shape, r_head);
+    let n = ring.n();
+    let stream = shape.stream_len();
+    let n_bar = stream.div_ceil(n).max(1);
+    let y_flat = deserialize_elements(&ring, commitment_bytes)
+        .map_err(|e| LedgerError::Layout(format!("y: {e}")))?;
+    if y_flat.len() != params.r * params.k {
+        return Err(LedgerError::Layout("y count".into()));
+    }
+    let mut t_target = vec![ring.zero(); params.k];
+    for (j, &dj) in d.iter().enumerate() {
+        if dj == 0 {
+            continue;
+        }
+        for kk in 0..params.k {
+            let prod = y_flat[j * params.k + kk].scale_i64(dj);
+            t_target[kk] = t_target[kk]
+                .add(&prod)
+                .map_err(|e| LedgerError::Layout(format!("ring add: {e:?}")))?;
+        }
+    }
+    let mut u_target = Goldilocks::ZERO;
+    for (j, &dj) in d.iter().enumerate() {
+        if dj != 0 {
+            let term = opening.u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
+            u_target = if dj < 0 { u_target.sub(&term) } else { u_target.add(&term) };
+        }
+    }
+    let _ = functional_of; // (the functional enters through (W0') only)
+
+    // 4. The level-1 key regeneration (the verifier's blocks).
+    let ajtai = AjtaiParams {
+        ring: ring.clone(),
+        k: params.k,
+        m: n_bar,
+        norm_bound: params.gate,
+    };
+    let key = AjtaiPublicKey::from_seed(ajtai, seed).map_err(LedgerError::Ajtai)?;
+    let blocks: Vec<Vec<RingElement>> = (0..n_bar)
+        .map(|c| {
+            (0..params.k)
+                .map(|rr| key.entry(rr, c).cloned().unwrap_or_else(|| ring.zero()))
+                .collect()
+        })
+        .collect();
+    let _ = apply_key;
+
+    // 5. The width fold's verifier: (W0)–(W4) + the posture gate.
+    let beta1 = params.gate as u64;
+    crate::width_fold::verify_width_fold(
+        &ring,
+        &t_target,
+        &u_target,
+        &blocks,
+        params.k,
+        &psi,
+        beta1,
+        seed,
+        &opening.width_proof,
+        transcript,
+    )
+    .map_err(|e| LedgerError::Layout(format!("width fold: {e}")))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1206,6 +1667,172 @@ mod tests {
             *x += 1;
         }
         assert!(verify_with(&commitment, &r_sc, &w, &bad_w).is_err());
+    }
+
+    /// The Sound-profile opening end-to-end: the same bundle through
+    /// `FoldParams::sound` (the amplitude the width fold's estimator
+    /// ceiling allows) + the LaBRADOR width fold, with the tamper
+    /// suite. The binding is the width fold's `[A₂ | −T]` instance —
+    /// the level-1 response is never transmitted.
+    #[test]
+    fn test_sound_opening_e2e() {
+        let entries = synthetic_entries();
+        let refs: Vec<(u32, &DenseMle)> = entries.iter().map(|(d, m)| (*d, m)).collect();
+        let seed = [9u8; 32];
+        let r = 4usize;
+        let k = 4usize;
+        let prover = compact_bundle_commit_with_params(
+            &refs,
+            seed,
+            r,
+            k,
+            FoldParams::sound(r, k),
+        )
+        .unwrap();
+        let commitment = prover.commitment_bytes();
+        let factor_lens: Vec<usize> = entries.iter().map(|(_, m)| m.evaluations.len()).collect();
+        let flat_len: usize = factor_lens.iter().sum();
+        let flat_log = flat_len.next_power_of_two().trailing_zeros() as usize;
+
+        let r_sc = random_point(flat_log, 54321);
+        let w = prover.flat_mle().evaluate(&r_sc).unwrap();
+
+        let mut transcript = Transcript::new_default(b"sound-e2e");
+        transcript
+            .append_bytes(b"bundle-commitment", &commitment)
+            .unwrap();
+        let opening = prover
+            .prove_sound_opening(&r_sc, &w, &mut transcript)
+            .unwrap();
+
+        // Honest verify.
+        let mut vt = Transcript::new_default(b"sound-e2e");
+        vt.append_bytes(b"bundle-commitment", &commitment).unwrap();
+        verify_sound_opening(
+            seed,
+            &commitment,
+            &factor_lens,
+            flat_log,
+            &r_sc,
+            &w,
+            &opening,
+            &mut vt,
+        )
+        .unwrap();
+
+        // Size accounting: the commitment + ũ's + the width-fold
+        // artifact (garbage + images + inner + z + functional terms).
+        let wf = &opening.width_proof;
+        let bytes = commitment.len()
+            + opening.u_tilde.len() * 8
+            + wf.p_images.len()
+            + wf.garbage.len()
+            + wf.t_inner.len()
+            + wf.u_parts.len()
+            + wf.g_func.len()
+            + wf.response.hist.len()
+            + wf.response.payload.len()
+            + wf.response.raw.len()
+            + 64;
+        println!("sound opening size (synthetic, r={r}): {bytes} B");
+        // The honest multiple vs the Clear opening (~20 KB ceiling at
+        // this scale): the quadratic garbage's price. The BENCHMARKS
+        // §2j table records the measured ratio at the real bundles.
+        assert!(bytes < 120_000);
+
+        // ---- Tamper suite ----
+        let verify_with = |commitment: &[u8],
+                           r_sc: &[Goldilocks],
+                           w: &Goldilocks,
+                           opening: &SoundOpening|
+         -> Result<(), LedgerError> {
+            let mut vt = Transcript::new_default(b"sound-e2e");
+            vt.append_bytes(b"bundle-commitment", commitment).unwrap();
+            verify_sound_opening(
+                seed,
+                commitment,
+                &factor_lens,
+                flat_log,
+                r_sc,
+                w,
+                opening,
+                &mut vt,
+            )
+        };
+
+        // Wrong claim: the interpolation check rejects.
+        let w_bad = w.add(&fe(1));
+        assert!(verify_with(&commitment, &r_sc, &w_bad, &opening).is_err());
+
+        // Wrong point: the ψ weights change, the functional layer
+        // (W0'/W3) rejects.
+        let mut r_bad = r_sc.clone();
+        r_bad[0] = r_bad[0].add(&fe(1));
+        assert!(verify_with(&commitment, &r_bad, &w, &opening).is_err());
+
+        // Tampered ũ: the interpolation or the W0' chain rejects.
+        let mut bad_u = opening.clone();
+        bad_u.u_tilde[0] = bad_u.u_tilde[0].add(&fe(1));
+        assert!(verify_with(&commitment, &r_sc, &w, &bad_u).is_err());
+
+        // Tampered width-fold response (z): W2 (the MSIS binding) or
+        // W1 rejects.
+        let mut bad_z = opening.clone();
+        {
+            let mut coeffs = decode_response(&bad_z.width_proof.response).unwrap();
+            assert!(!coeffs.is_empty());
+            coeffs[0] = coeffs[0].wrapping_add(1);
+            bad_z.width_proof.response = encode_response(&coeffs).unwrap();
+        }
+        assert!(verify_with(&commitment, &r_sc, &w, &bad_z).is_err());
+
+        // Tampered quadratic garbage: W1 (the exact fold identity)
+        // rejects.
+        let mut bad_g = opening.clone();
+        assert!(!bad_g.width_proof.garbage.is_empty());
+        bad_g.width_proof.garbage[5] ^= 0x10;
+        assert!(verify_with(&commitment, &r_sc, &w, &bad_g).is_err());
+
+        // Tampered part images: W0/W1 rejects.
+        let mut bad_p = opening.clone();
+        assert!(!bad_p.width_proof.p_images.is_empty());
+        bad_p.width_proof.p_images[9] ^= 0x20;
+        assert!(verify_with(&commitment, &r_sc, &w, &bad_p).is_err());
+
+        // Tampered commitment: the W0 target chain rejects.
+        let mut bad_commit = commitment.clone();
+        bad_commit[12] ^= 0xFF;
+        assert!(verify_with(&bad_commit, &r_sc, &w, &opening).is_err());
+
+        // Wrong seed: the regenerated key blocks differ, W1 rejects.
+        let mut vt = Transcript::new_default(b"sound-e2e");
+        vt.append_bytes(b"bundle-commitment", &commitment).unwrap();
+        assert!(verify_sound_opening(
+            [44u8; 32],
+            &commitment,
+            &factor_lens,
+            flat_log,
+            &r_sc,
+            &w,
+            &opening,
+            &mut vt
+        )
+        .is_err());
+    }
+
+    /// The Sound fold-parameter chooser: the honest ceilings (the
+    /// packing bound and the β₁ ceiling) fail closed.
+    #[test]
+    fn test_sound_fold_params_chooser() {
+        // Small stream: the cheap sound row (n̄ ≤ 16).
+        let (r, k) = sound_fold_params_for(4096, 1, 256).unwrap();
+        assert_eq!(k, 4);
+        assert!(r >= 4);
+        // The β₁ ceiling: at r = 128 the gate 128·16·255 = 522,240 ≤ 2^20.
+        assert!((r as u64) * 16 * 255 <= (1 << 20));
+        // The packing bound fail-closes when the stream needs more
+        // columns than the factors allow.
+        assert!(sound_fold_params_for(1 << 20, 1, 64).is_err());
     }
 
     /// Response codec roundtrip + tamper rejection.

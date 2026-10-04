@@ -21,6 +21,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod cyclo;
+pub mod cyclo_r1cs;
 pub mod neo;
 pub mod cyclo_protocols;
 pub mod fq2_sumcheck;

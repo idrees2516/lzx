@@ -17,6 +17,53 @@ Companion documents: `PERFORMANCE.md` (the labinius-parity performance audit),
 
 ---
 
+## Session update (2026-10-04, the LaBRADOR decider + Cyclo §7 wave)
+
+Landed this session (BENCHMARKS §2j + SECURITY.md's sound-posture update):
+(1) **the width fold** (`lattice-zkvm/src/width_fold.rs`, 11 tests) — the
+Stage-5.2 LaBRADOR tail: the quadratic-garbage width-reducing fold (the
+symmetrized `G_ij = F̄_{(i)}·s_j` cross terms + the `g_ij = ψ^{(i)}(s_j)`
+functional garbage committed pre-challenge, the exact degree-2 fold identity
+`(W1)`, the short `[A₂ | −T]` binding `(W2)`, the per-slice functional
+superposition `(W3)`, the estimator-gated profile fail-closed at prove AND
+verify); (2) **the Sound compact profile** (`compact.rs`:
+`CompactProfile::Sound`, `FoldParams::sound` at A₁ = 2^4,
+`sound_fold_params_for`, `SoundOpening` + `prove/verify_sound_opening` — the
+level-1 response NEVER transmitted, the binding entirely the width fold's
+instance); (3) **the Sound memory argument** (`memproof.rs::
+prove/verify_memory_argument_sound` — the live path, 129.7 KB at the test
+scale vs the compact's ~60 KB, the honest 2.2× garbage price, the full tamper
+suite); (4) **the estimator evidence** (`lattice-sis-estimator/examples/
+width_fold_table.rs` — the sound rows (8, 2, 8, 2^2–2^4) at 206–1,855 bits
+over the real level-1 gates, the honest β₁ ≤ 2^20 ceiling, the re-packed
+regime's coverage); (5) **Cyclo §7 — the R1CS-over-F_q bridge**
+(`lattice-folding/src/cyclo_r1cs.rs`, 7 tests — the paper's raison d'être):
+the θ_k digit map (module morphism + the small-norm right-inverse, the
+balanced→unsigned digit fix with the ⌈log_k q⌉ budget), the bridge-local
+F_{q²} = F_q[u]/(u²−5) extension over the commitment ring's own modulus + the
+field-swapped sumcheck engine (differential-tested), the HyperNova-style
+linearized sumcheck proving the R1CS satisfaction at a random eq point, the
+terminal `(d₀·d₁ − d₂)·eq(u;r) = c` check with the eq value VERIFIER-recomputed,
+the ring lifts d'_i (the componentwise rank-doubling discipline) with the
+θ-consistency checks, the prefix elimination `(v, e)`, and the skip-Π^ext
+wiring (k ≤ b ⇒ the output feeds `CycloAccumulator::new` directly — test-
+pinned); (6) **Cyclo P3 fixed** (`cyclo.rs::partial_range_check` — the 2×
+soundness slack in the partial branch eliminated via the exact signed
+high-part computation `|high(v)| ≤ β − low_worst`; the previously-untested
+regime now covered by an adversarial boundary test). Workspace state at the
+wave's close: the full suite green (see the worklog).
+
+**The next highest-value items** (this session's honest ledger):
+* the recursive width-fold staging (log-stages of the cheap (8, 2, 8, 2^2)
+  row) — takes the Sound profile's coverage from n̄ ≤ 16 to the benchmark
+  streams (the single-stage β₁ ceiling is the honest boundary);
+* SALSA D4 — the Akita/zkVM response-layer swap to the SALSAA chain (D1–D3,
+  D6 all landed; the Θ(N)→polylog + disclosure-removal item — the single
+  highest-leverage entry in §3.9);
+* the Cyclo (4)-claims' terminal decider — the ride-the-fold linear claims
+  need the folding-layer check (the principal linear relation's decider) to
+  close the bridge end-to-end.
+
 ## Session update (2026-10-04)
 
 Landed this session (the semantics-stage factoring wave — see

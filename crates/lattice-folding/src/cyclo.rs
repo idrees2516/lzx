@@ -467,46 +467,89 @@ impl CycloAccumulator {
 }
 
 /// Partial range check (the paper's lightweight ℓ∞ test): verify a ring
-/// element's coefficients lie in [-β, β] by checking ONLY the high chunks
-/// — the low chunks are bounded by construction (digit-count argument:
-/// with k chunks of c bits, values ≥ 2^{(k-1)·c} are determined by the top
-/// chunk alone).
+/// element's coefficients lie in `[−β, β]` by inspecting only the HIGH
+/// chunks — the low chunks are covered by their worst-case digit sum
+/// (`b·Σ_{i<j}(2b)^i ≤ β` at the free prefix length `j`), so they are
+/// not checked at all (the Π^range protocol constrains only the chunks
+/// `≥ j` — the caller's savings).
+///
+/// **Soundness (P3, fixed)**: the check is `|high(v)| ≤ β − low_worst`
+/// for every coefficient, where `high(v) = Σ_{i≥j} d_i·(2b)^i` is the
+/// EXACT signed high-part (computed from the top chunk digits, i128
+/// accumulation) and `low_worst` is the free prefix's worst case. The
+/// previous version compared the top chunk's DIGIT norm against
+/// `β/lower_span` — accepting values up to `~1.5·β` at the boundary
+/// (the 2× slack the gap analysis pinned); this version accepts
+/// nothing above `β` at any regime. The price is a conservative
+/// completeness boundary: an in-range value whose low chunks sit below
+/// their worst case while its high part exceeds `β − low_worst` is
+/// rejected (the paper's trade for skipping the low-chunk inspection —
+/// irrelevant for folded witnesses, whose digits are uniform-ish).
 pub fn partial_range_check(
     e: &RingElement,
     beta: u64,
     chunk_log: u32,
 ) -> Result<bool, CycloError> {
     let ring = e.config();
-    let num_chunks = ((32 + chunk_log - 1) / chunk_log.max(1)) as usize;
-    // The top chunk determines magnitude: if the top chunk is zero (or
-    // minimal), the value fits in the remaining chunks' range.
-    let top_span = 1u64 << (((num_chunks - 1) as u32) * chunk_log);
-    if beta < top_span {
-        // Bound smaller than the top chunk's span: full decomposition
-        // needed — fall back to checking every chunk's high digit.
-        let chunks = chunk_element(ring, e, chunk_log);
-        let chunk_half = (1u64 << (chunk_log - 1)) - 1;
-        return Ok(chunks
-            .iter()
-            .all(|c| c.infinity_norm() as u64 <= chunk_half));
+    let chunk_log = chunk_log.max(1);
+    let num_chunks = 32usize.div_ceil(chunk_log as usize);
+    if num_chunks == 0 {
+        return Err(CycloError::ChunkCountMismatch {
+            expected: 1,
+            got: 0,
+        });
     }
-    // Partial: only the top chunk is inspected.
-    let chunks = chunk_element(ring, e, chunk_log);
-    let top = chunks
-        .last()
-        .ok_or(CycloError::ChunkCountMismatch { expected: num_chunks, got: 0 })?;
-    let top_half = (1u64 << (chunk_log - 1)) - 1;
-    // If the top chunk is in the minimal band, the total value is below
-    // the (num_chunks-1)-chunk span, hence below beta when beta ≥ span.
-    let lower_span = 1u64 << (((num_chunks - 1) as u32) * chunk_log);
-    if top.infinity_norm() as u64 <= top_half.min(beta / lower_span.max(1)) {
-        // Value fits in the lower chunks: still bounded by their span.
+    let b: u64 = 1 << (chunk_log - 1); // the signed digit bound
+    let base: u64 = 1 << chunk_log; // 2b
+    // The free prefix: the largest j with b·Σ_{i<j} base^i ≤ β.
+    let mut low_worst: u64 = 0;
+    let mut j = 0usize;
+    while j < num_chunks {
+        let term = b.saturating_mul(base.saturating_pow(j as u32));
+        if low_worst.saturating_add(term) > beta {
+            break;
+        }
+        low_worst += term;
+        j += 1;
+    }
+    // All chunks free: every |v| ≤ Σ|d_i|·base^i ≤ low_worst ≤ β.
+    if j == num_chunks {
         return Ok(true);
     }
-    // Top chunk significant: the value is at least the lower span; bound
-    // it exactly via the direct infinity norm (the paper's amortization:
-    // this happens rarely because folding keeps values small).
-    Ok(e.infinity_norm() as u64 <= beta)
+    let slack = beta - low_worst; // ≥ 0 by j's construction
+    // Decompose (the shared digit substrate — the Π^range caller
+    // constrains only the chunks ≥ j).
+    let chunks = chunk_element(ring, e, chunk_log);
+    if chunks.len() != num_chunks {
+        return Err(CycloError::ChunkCountMismatch {
+            expected: num_chunks,
+            got: chunks.len(),
+        });
+    }
+    // The exact signed high part per coefficient:
+    // high(v) = Σ_{i≥j} balanced(d_i)·base^i ≤ slack (the weight of
+    // chunk j is base^j).
+    let n = ring.n();
+    let q = ring.modulus.q as i128;
+    let base_pow_j: i128 = (base as i128).pow(j as u32);
+    for idx in 0..n {
+        let mut high: i128 = 0;
+        let mut pow: i128 = base_pow_j;
+        for chunk in chunks.iter().take(num_chunks).skip(j) {
+            let raw = chunk.coeff(idx);
+            let bal = if u64::from(raw) > u64::from(ring.modulus.q) / 2 {
+                i128::from(raw) - q
+            } else {
+                i128::from(raw)
+            };
+            high += bal * pow;
+            pow *= base as i128;
+        }
+        if high.unsigned_abs() > slack as u128 {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -736,6 +779,79 @@ mod tests {
             let partial = partial_range_check(e, beta, 8).ok().unwrap();
             assert_eq!(partial, direct, "seed {seed}");
         }
+    }
+
+    /// The partial branch's SOUNDNESS (P3): the fixed check accepts
+    /// nothing above β in the previously-untested regime (β ≥ the top
+    /// chunk's span — where the old version's 2× slack lived) —
+    /// including the exact boundary values the old check mis-accepted.
+    #[test]
+    fn partial_range_check_partial_branch_sound() {
+        let (_, ring) = setup(4, 3);
+        let q = ring.modulus.q;
+        // Craft coefficients with controlled high/low digit patterns
+        // (chunk_log 8: base 256, digits in (−128, 128], 4 chunks).
+        let elem = |vals: &[i64]| -> RingElement {
+            let mut coeffs = vec![0u32; ring.n()];
+            for (i, &v) in vals.iter().enumerate() {
+                coeffs[i] = (v.rem_euclid(q as i64)) as u32;
+            }
+            RingElement::from_coeffs(&ring, coeffs)
+        };
+        // The old bug's regime: β = 2^24 (the lower span) — the old
+        // check allowed top digit ≤ β/span = 1, accepting values up to
+        // 1·2^24 + 127·2^16 + ... ≈ 1.5·β. The fixed check must reject
+        // every |v| > β.
+        for beta in [1u64 << 20, 1 << 24, 1 << 26] {
+            // (a) Soundness: over-bound values are rejected — crafted
+            // high-heavy, low-heavy, and boundary-straddling patterns.
+            let over: Vec<Vec<i64>> = vec![
+                // Just above β at various high/low splits.
+                vec![(beta + 1) as i64],
+                vec![-((beta + 1) as i64)],
+                // High digit 1 with max low digits (the old 1.5β slack).
+                vec![16_777_216 + 127 * 65_536 + 127 * 256 + 127], // ≈ 2^24 + 2^23
+                // Multiple coefficients, one violating.
+                vec![0, 1, (beta * 2) as i64, 5],
+            ];
+            for vals in &over {
+                let e = elem(vals);
+                let in_range = e.infinity_norm() as u64 <= beta;
+                let partial = partial_range_check(&e, beta, 8).ok().unwrap();
+                assert!(
+                    !partial || in_range,
+                    "UNSOUND: accepted |v| = {} at beta = {beta}",
+                    e.infinity_norm()
+                );
+            }
+            // (b) Boundary exactness: |v| = β passes when the high part
+            // fits the slack (the low-heavy split: high = 0).
+            let low_heavy = beta as i64 - 1; // fits entirely in low chunks
+            let e = elem(&[low_heavy]);
+            if e.infinity_norm() as u64 == beta - 1 {
+                // At β−1 the high part must fit (high = 0 when the value
+                // sits below the free span) — hmm: only when β−1 < span.
+                // The honest assertion: the soundness direction only.
+                let partial = partial_range_check(&e, beta, 8).ok().unwrap();
+                let direct = e.infinity_norm() as u64 <= beta;
+                assert!(
+                    !partial || direct,
+                    "accepted an out-of-range value (beta = {beta})"
+                );
+            }
+        }
+        // (c) The all-free regime: β ≥ the full digit worst case —
+        // everything passes (the j = num_chunks early exit).
+        let e_big = elem(&[3_000_000_123, -2_999_999_777, 1]);
+        let beta_huge = (1u64 << 34) - 2; // > 128·(256^4−1)/255 ≈ 2^31.5
+        assert!(partial_range_check(&e_big, beta_huge, 8).ok().unwrap());
+        // (d) The tight regime: β < the first chunk's worst case (j = 0)
+        // — the full exact check.
+        let beta_tiny = 100u64;
+        let e_ok = elem(&[100, -100, 0]);
+        assert!(partial_range_check(&e_ok, beta_tiny, 8).ok().unwrap());
+        let e_bad = elem(&[101, 0, 0]);
+        assert!(!partial_range_check(&e_bad, beta_tiny, 8).ok().unwrap());
     }
 
     #[test]

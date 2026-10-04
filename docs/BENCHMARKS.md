@@ -432,6 +432,65 @@ paper-route; the sparse engine's home turf). The other moderate
 families (bool-cols 277 ms, route 189 ms, cmp 185 ms, sel 178 ms) share
 the selector-gated shape and would benefit from the same route.
 
+## 2j. The LaBRADOR decider wave: the width fold + the Sound memory argument (2026-10-04, this session)
+
+DESIGN_50KB Stage 5.2's completion — the quadratic-garbage
+width-reducing fold (`lattice-zkvm/src/width_fold.rs`) wired through
+the Sound compact profile (`compact.rs::CompactProfile::Sound`) into
+the live memory-argument path (`memproof.rs::
+prove_memory_argument_sound`). The binding of the WHOLE compact opening
+becomes the width fold's `[A₂ | −T]` MSIS instance at the estimator's
+sound row — the level-1 `[F̄ | −y]` instance (the Stage 5.1 broken
+regime at benchmark response lengths) never arises: the level-1
+response is never transmitted, the `y_j` enter only through the public
+target `t = Σ_j d_j·y_j` which `(W0)` pins.
+
+The estimator evidence (`lattice-sis-estimator --example
+width_fold_table` — the table now in the repo):
+
+| β₁ (the level-1 gate) | w | r₂ | κ | A₂ | classical | quantum | garbage |
+|---|---|---|---|---|---|---|---|
+| 2^15 (r₁=2) | 8 | 2 | 8 | 2^4 | 1,855 | 1,838 | 32 elems |
+| 2^16 (r₁=4) | 8 | 2 | 8 | 2^4 | 1,231 | 1,214 | 32 elems |
+| 2^17 (r₁=8) | 8 | 2 | 8 | 2^4 | 648.6 | 631.3 | 32 elems |
+| 2^20 (re-packed) | 8 | 2 | 8 | 2^2 | 206.7 | 189.4 | 8 elems |
+| 2^17 (broken row) | 4 | 4 | 4 | 2^6 | 11.7 | — | (ruled out) |
+
+The Sound profile ships `(w, r₂, κ, A₂) = (8, 2, 8, 2^2–2^4)` with the
+level-1 amplitude `A₁ = 2^4` (`FoldParams::sound`) and the column
+count that lands the response at `n̄ ≤ 16`
+(`sound_fold_params_for`) — fail-closed beyond the ceilings (the
+honest boundary: the recursive width-fold staging and the Modulus-50
+class are the documented follow-ups).
+
+The measured honest price at the test-scale memory argument
+(fibonacci, 16 cycles — `sound_memproof_honest_and_tamper`):
+
+| Mode | total proof | binding |
+|---|---|---|
+| Clear (single-level fold) | ~33 KB | `[F̄ \| −y]` — the Stage 5.1 broken regime |
+| Compact (single-level fold) | ~60 KB | `[F̄ \| −y]` — the broken regime |
+| **Sound (the width fold)** | **129.7 KB** | `[A₂ \| −T]` — **329+ classical bits, estimator-gated** |
+
+The ~2.2× honest multiple is the quadratic garbage's price
+(`r₂·(r₂−1)·k` ring elements + `r₂·κ` inner commitments + the
+functional layer) at the small trace; at benchmark response lengths
+the ratio inverts (the garbage stays constant while the replaced
+response grows with `n̄`). The width fold's unit tests (11: honest
+roundtrip, tampered z/inner/images/garbage/functional/target, the
+profile gate's broken shapes, the padding path, the sound search's
+fail-closed floors) and the Sound opening's tamper suite (wrong claim,
+wrong point, tampered ũ/z/garbage/images/commitment, wrong seed) all
+pin the `(W0)`–`(W4)` checks.
+
+**The honest remaining ledger**: the single-stage sound coverage ends
+at the streams where `n̄ ≤ 16` (the β₁ ceiling 2^20 at `A₁ = 2^4`); the
+benchmark-scale streams need either the recursive staging
+(log-stages of the cheap `(8, 2, 8, 2^2)` row — each stage's output
+feeds the next) or the Modulus-50 class (the 50-bit modulus doubles the
+β headroom). Both are the documented Stage-5 follow-ups; the profile
+gate fail-closes in between rather than shipping a broken binding.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

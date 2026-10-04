@@ -1274,6 +1274,490 @@ pub fn verify_memory_argument_compact(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// The Sound memory argument (DESIGN_50KB Stage 5.2 — the LaBRADOR decider
+// wired into the live memory-argument path): the same legs + carrier +
+// compact-bundle structure, with the openings replaced by the Sound
+// profile (the never-transmitted response + the width fold's [A₂ | −T]
+// binding).
+// ---------------------------------------------------------------------------
+
+use crate::compact::{
+    compact_bundle_commit_with_params, verify_sound_opening, FoldParams, SoundOpening,
+};
+
+/// The Sound memory-argument proof.
+#[derive(Clone, Debug)]
+pub struct SoundMemoryProof {
+    pub statement: MemoryStatement,
+    /// Values-only claims in ledger recording order (the points are
+    /// verifier-derived from the leg replay).
+    pub claims: Vec<ValueClaim>,
+    /// The Stage-4 batched legs (identical to the Clear/compact modes).
+    pub legs: crate::legbatch::BatchedLegs,
+    /// The per-bundle column commitments (r × k ring elements each).
+    pub bits_commitment: Vec<u8>,
+    pub values_commitment: Vec<u8>,
+    /// The Goldilocks grouped carriers (identical protocol).
+    pub bits_carrier: sumcheck::SumcheckProof,
+    pub values_carrier: sumcheck::SumcheckProof,
+    /// f(r_sc) per bundle (the carrier terminal bound by the fold).
+    pub bits_w: Goldilocks,
+    pub values_w: Goldilocks,
+    /// The Sound openings (the width fold replacing the response).
+    pub bits_opening: SoundOpening,
+    pub values_opening: SoundOpening,
+    /// Factor lengths per bundle (for the verifier's layout rebuild).
+    pub bits_factor_lens: Vec<usize>,
+    pub values_factor_lens: Vec<usize>,
+}
+
+/// Prove the memory argument in the Sound profile: the binding is the
+/// width fold's `[A₂ | −T]` instance (the estimator's sound row), not
+/// the level-1 `[F̄ | −y]` (the Stage 5.1 broken regime at the compact
+/// mode's response lengths).
+///
+/// Fail-closed when the bundle streams exceed the single-stage sound
+/// regime's ceilings (the packing bound or the β₁ ceiling — the honest
+/// boundary recorded in BENCHMARKS.md §2j; the follow-ups are the
+/// recursive width-fold staging and the Modulus-50 class).
+#[allow(clippy::too_many_arguments)]
+pub fn prove_memory_argument_sound(
+    program: &[u8],
+    public_input: &[u8],
+    max_steps: u64,
+    ram_log_k: usize,
+    fetch_log_k: usize,
+) -> Result<(SoundMemoryProof, [u64; 32]), MemProofError> {
+    // 1–5. Execute, witness, instances, statement (the compact mode's
+    //      construction, verbatim).
+    let mut state = MachineState::new();
+    state.load_program(0x1000, public_input);
+    state.load_program(0, program);
+    let rows = vm_run(&mut state, max_steps).map_err(MemProofError::Execution)?;
+    let final_regs = state.regs;
+    let (w, final_words) = build_cycle_witness(
+        &rows,
+        program,
+        public_input,
+        RamWindow { log_k: ram_log_k },
+        FetchWindow { log_k: fetch_log_k },
+    )
+    .map_err(MemProofError::Witness)?;
+    let init_image = |word_key: u64| -> u64 {
+        let base = word_key * 8;
+        let mut word = 0u64;
+        for i in 0..8usize {
+            let addr = base + i as u64;
+            let byte = if (addr as usize) < program.len() {
+                program[addr as usize]
+            } else if addr >= 0x1000
+                && (addr as usize - 0x1000) < public_input.len()
+            {
+                public_input[addr as usize - 0x1000]
+            } else {
+                0
+            };
+            word |= (byte as u64) << (8 * i);
+        }
+        word
+    };
+    let final_memory: Vec<u64> = (0..(1usize << ram_log_k))
+        .map(|k| {
+            final_words
+                .get(&(k as u64))
+                .copied()
+                .unwrap_or_else(|| init_image(k as u64))
+        })
+        .collect();
+    let instances = build_instances(
+        &w,
+        &final_regs,
+        &final_words,
+        ram_log_k,
+        fetch_log_k,
+        program,
+        public_input,
+    );
+    let program_digest = Transcript::hash_domain(b"zkvm-program", program);
+    let input_digest = Transcript::hash_domain(b"zkvm-public-input", public_input);
+    let statement = MemoryStatement {
+        program_digest,
+        input_digest,
+        log_t: w.log_t,
+        ram_log_k,
+        fetch_log_k,
+        final_regs,
+        final_memory: final_memory.clone(),
+    };
+    let seed = derive_seed(&statement);
+    let k_ram = 1usize << ram_log_k;
+    let _ = k_ram;
+
+    // 6. The compact bundle commitments under the SOUND profile's
+    //    parameters (the amplitude the width fold's estimator ceiling
+    //    allows; the column count that lands the response in the cheap
+    //    sound row).
+    let mut bits_factors_owned: Vec<(Factor, DenseMle)> = Vec::new();
+    let mut values_factors_owned: Vec<(Factor, DenseMle)> = Vec::new();
+    // The compact mode's GROUPED order (digits, then activities — the
+    // digit tensors are `rows·t_s` while the activity cols are `t_s`, so
+    // any interleaving breaks the flat-offset alignment the carrier's
+    // point mapping relies on).
+    for (i, m) in instances.iter().enumerate() {
+        bits_factors_owned.push((Factor::DigitBits { inst: i }, m.digit_tensor()));
+    }
+    for (i, m) in instances.iter().enumerate() {
+        bits_factors_owned.push((activity_factor(i, false), m.activity_col(false)));
+        bits_factors_owned.push((activity_factor(i, true), m.activity_col(true)));
+        values_factors_owned.push((addr_factor(i), m.addr_col()));
+        values_factors_owned.push((rv_factor(i), m.rv_col()));
+        if !m.read_only() {
+            values_factors_owned.push((wv_factor(i), m.wv_col()));
+            values_factors_owned.push((inc_factor(i), m.inc_col()));
+        }
+    }
+    let bits_factors: Vec<(Factor, &DenseMle)> = bits_factors_owned
+        .iter()
+        .map(|(f, m)| (*f, m))
+        .collect();
+    let values_factors: Vec<(Factor, &DenseMle)> = values_factors_owned
+        .iter()
+        .map(|(f, m)| (*f, m))
+        .collect();
+    let bits_entries: Vec<(u32, &DenseMle)> = bits_factors
+        .iter()
+        .map(|(f, m)| (f.discriminant() as u32, *m))
+        .collect();
+    let values_entries: Vec<(u32, &DenseMle)> = values_factors
+        .iter()
+        .map(|(f, m)| (f.discriminant() as u32, *m))
+        .collect();
+    let bits_factor_lens: Vec<usize> = bits_factors
+        .iter()
+        .map(|(_, m)| m.evaluations.len())
+        .collect();
+    let values_factor_lens: Vec<usize> = values_factors
+        .iter()
+        .map(|(_, m)| m.evaluations.len())
+        .collect();
+    let bits_min_len = bits_factor_lens.iter().copied().min().unwrap_or(1);
+    let values_min_len = values_factor_lens.iter().copied().min().unwrap_or(1);
+    let bits_total: usize = bits_factor_lens.iter().sum();
+    let values_total: usize = values_factor_lens.iter().sum();
+    let (r_bits, k_bits) =
+        crate::compact::sound_fold_params_for(bits_total, 1, bits_min_len)
+            .map_err(|e| MemProofError::Ledger(LedgerError::Layout(format!("bits: {e}"))))?;
+    let (r_vals, k_vals) =
+        crate::compact::sound_fold_params_for(values_total, 3, values_min_len)
+            .map_err(|e| MemProofError::Ledger(LedgerError::Layout(format!("values: {e}"))))?;
+    let bits_prover = compact_bundle_commit_with_params(
+        &bits_entries,
+        seed,
+        r_bits,
+        k_bits,
+        FoldParams::sound(r_bits, k_bits),
+    )
+    .map_err(MemProofError::Ledger)?;
+    let values_prover = compact_bundle_commit_with_params(
+        &values_entries,
+        seed,
+        r_vals,
+        k_vals,
+        FoldParams::sound(r_vals, k_vals),
+    )
+    .map_err(MemProofError::Ledger)?;
+    let bits_commitment = bits_prover.commitment_bytes();
+    let values_commitment = values_prover.commitment_bytes();
+
+    let mut transcript = Transcript::new_default(b"lzx-zkvm-memarg-sound");
+    absorb_statement(&statement, &mut transcript).map_err(|e| {
+        MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e))
+    })?;
+    transcript
+        .append_bytes(b"bits-commitment", &bits_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+    transcript
+        .append_bytes(b"values-commitment", &values_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+
+    // 7. The legs (identical to the compact mode).
+    let mut table: Vec<(Factor, &DenseMle)> = Vec::new();
+    table.extend(bits_factors.iter().copied());
+    table.extend(values_factors.iter().copied());
+    let mut ledger = Ledger::prover(table);
+    let all_legs = crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
+        .map_err(MemProofError::Memory)?;
+    let full_claims: Vec<BaseClaim> = ledger.claims().to_vec();
+    let claims: Vec<ValueClaim> = full_claims
+        .iter()
+        .map(|c| ValueClaim {
+            factor: c.factor,
+            value: c.value,
+        })
+        .collect();
+    let bits_claims: Vec<BaseClaim> = full_claims
+        .iter()
+        .filter(|c| c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let values_claims: Vec<BaseClaim> = full_claims
+        .iter()
+        .filter(|c| !c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+
+    // 8. The carriers + the SOUND openings.
+    let bits_flat = bits_prover.flat_mle();
+    let values_flat = values_prover.flat_mle();
+    let bits_refs: Vec<(Factor, &DenseMle)> = bits_factors.clone();
+    let values_refs: Vec<(Factor, &DenseMle)> = values_factors.clone();
+    let bits_pts = flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat.num_vars)?;
+    let values_pts = flat_points_for_claims_full(&values_refs, &values_claims, values_flat.num_vars)?;
+
+    let (bits_carrier, bits_rsc, bits_w) =
+        prove_carrier_goldilocks(bits_flat, &bits_claims, &bits_pts, &mut transcript)
+            .map_err(MemProofError::Ledger)?;
+    let (values_carrier, values_rsc, values_w) =
+        prove_carrier_goldilocks(values_flat, &values_claims, &values_pts, &mut transcript)
+            .map_err(MemProofError::Ledger)?;
+
+    let bits_opening = bits_prover
+        .prove_sound_opening(&bits_rsc, &bits_w, &mut transcript)
+        .map_err(MemProofError::Ledger)?;
+    let values_opening = values_prover
+        .prove_sound_opening(&values_rsc, &values_w, &mut transcript)
+        .map_err(MemProofError::Ledger)?;
+
+    Ok((
+        SoundMemoryProof {
+            statement,
+            claims,
+            legs: all_legs,
+            bits_commitment,
+            values_commitment,
+            bits_carrier,
+            values_carrier,
+            bits_w,
+            values_w,
+            bits_opening,
+            values_opening,
+            bits_factor_lens: bits_entries.iter().map(|(_, m)| m.evaluations.len()).collect(),
+            values_factor_lens: values_entries
+                .iter()
+                .map(|(_, m)| m.evaluations.len())
+                .collect(),
+        },
+        final_regs,
+    ))
+}
+
+/// Verify the Sound memory argument: the same leg/carrier replay as the
+/// compact mode, with the openings verified through the Sound profile
+/// (the public-target computation + the width fold's `(W0)`–`(W4)` and
+/// the estimator posture gate).
+pub fn verify_memory_argument_sound(
+    proof: &SoundMemoryProof,
+    program: &[u8],
+    public_input: &[u8],
+) -> Result<(), MemProofError> {
+    // The statement replay + instance reconstruction (the compact
+    // verifier's construction, shared verbatim).
+    let program_digest = Transcript::hash_domain(b"zkvm-program", program);
+    let input_digest = Transcript::hash_domain(b"zkvm-public-input", public_input);
+    let s = &proof.statement;
+    if s.program_digest != program_digest || s.input_digest != input_digest {
+        return Err(MemProofError::VerificationFailed);
+    }
+    let k_ram = 1usize << s.ram_log_k;
+    let k_fetch = 1usize << s.fetch_log_k;
+    let t = 1usize << s.log_t;
+    let log_ts = 2 + s.log_t;
+    let t_s = 1usize << log_ts;
+    let init_image = |word_key: u64| -> u64 {
+        let base = word_key * 8;
+        let mut word = 0u64;
+        for i in 0..8usize {
+            let addr = base + i as u64;
+            let byte = if (addr as usize) < program.len() {
+                program[addr as usize]
+            } else if addr >= 0x1000
+                && (addr as usize - 0x1000) < public_input.len()
+            {
+                public_input[addr as usize - 0x1000]
+            } else {
+                0
+            };
+            word |= (byte as u64) << (8 * i);
+        }
+        word
+    };
+    let limb = |v: u64, l: usize| fe((v >> (16 * l)) & 0xFFFF);
+    let mut instances: Vec<MemoryInstance> = Vec::with_capacity(9);
+    for l in 0..4usize {
+        instances.push(MemoryInstance {
+            log_k: 5,
+            log_ts,
+            addr: vec![0; t_s],
+            ractive: vec![0; t_s],
+            wactive: vec![0; t_s],
+            rv: vec![Goldilocks::ZERO; t_s],
+            wv: vec![Goldilocks::ZERO; t_s],
+            inc_off: vec![fe(INC_OFFSET); t_s],
+            init: vec![Goldilocks::ZERO; 32],
+            final_state: s.final_regs.iter().map(|r| limb(*r, l)).collect(),
+            table: None,
+        });
+    }
+    for l in 0..4usize {
+        instances.push(MemoryInstance {
+            log_k: s.ram_log_k,
+            log_ts,
+            addr: vec![0; t_s],
+            ractive: vec![0; t_s],
+            wactive: vec![0; t_s],
+            rv: vec![Goldilocks::ZERO; t_s],
+            wv: vec![Goldilocks::ZERO; t_s],
+            inc_off: vec![fe(INC_OFFSET); t_s],
+            init: (0..k_ram as u64).map(|k| limb(init_image(k), l)).collect(),
+            final_state: (0..k_ram)
+                .map(|k| limb(s.final_memory.get(k).copied().unwrap_or(0), l))
+                .collect(),
+            table: None,
+        });
+    }
+    {
+        let table: Vec<Goldilocks> = (0..k_fetch)
+            .map(|k| {
+                let base = k * 4;
+                let mut word = 0u32;
+                for i in 0..4usize {
+                    if base + i < program.len() {
+                        word |= (program[base + i] as u32) << (8 * i);
+                    }
+                }
+                fe(word as u64)
+            })
+            .collect();
+        instances.push(MemoryInstance {
+            log_k: s.fetch_log_k,
+            log_ts: s.log_t,
+            addr: vec![0; t],
+            ractive: vec![1; t],
+            wactive: vec![0; t],
+            rv: vec![Goldilocks::ZERO; t],
+            wv: vec![Goldilocks::ZERO; t],
+            inc_off: vec![fe(INC_OFFSET); t],
+            init: table.clone(),
+            final_state: table.clone(),
+            table: Some(table),
+        });
+    }
+
+    // The transcript replay (the SOUND domain).
+    let mut transcript = Transcript::new_default(b"lzx-zkvm-memarg-sound");
+    absorb_statement(s, &mut transcript).map_err(|e| {
+        MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e))
+    })?;
+    transcript
+        .append_bytes(b"bits-commitment", &proof.bits_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+    transcript
+        .append_bytes(b"values-commitment", &proof.values_commitment)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
+
+    // The ledger + leg replay (the compact verifier's flow).
+    let mut ledger = Ledger::verifier_values(proof.claims.clone());
+    crate::legbatch::verify_legs_batched(&instances, &proof.legs, &mut ledger, &mut transcript)
+        .map_err(MemProofError::Memory)?;
+    if ledger.queue_len() != 0 {
+        return Err(MemProofError::Shape);
+    }
+    let derived: Vec<BaseClaim> = ledger.claims().to_vec();
+    let bits_claims: Vec<BaseClaim> = derived
+        .iter()
+        .filter(|c| c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let values_claims: Vec<BaseClaim> = derived
+        .iter()
+        .filter(|c| !c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let bits_entries = bundle_entries(&instances, true);
+    let values_entries = bundle_entries(&instances, false);
+    let bits_factor_lens: Vec<usize> =
+        bits_entries.iter().map(|(_, m)| m.evaluations.len()).collect();
+    let values_factor_lens: Vec<usize> =
+        values_entries.iter().map(|(_, m)| m.evaluations.len()).collect();
+    if bits_factor_lens != proof.bits_factor_lens || values_factor_lens != proof.values_factor_lens
+    {
+        return Err(MemProofError::Shape);
+    }
+    let bits_flat_log = {
+        let total: usize = bits_factor_lens.iter().sum();
+        total.next_power_of_two().max(1).trailing_zeros() as usize
+    };
+    let values_flat_log = {
+        let total: usize = values_factor_lens.iter().sum();
+        total.next_power_of_two().max(1).trailing_zeros() as usize
+    };
+
+    // The carriers.
+    let bits_refs: Vec<(Factor, &DenseMle)> =
+        bits_entries.iter().map(|(f, m)| (*f, m)).collect();
+    let values_refs: Vec<(Factor, &DenseMle)> =
+        values_entries.iter().map(|(f, m)| (*f, m)).collect();
+    let bits_pts =
+        flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat_log)?;
+    let values_pts =
+        flat_points_for_claims_full(&values_refs, &values_claims, values_flat_log)?;
+    let (bits_rsc, _) = verify_carrier_goldilocks(
+        bits_flat_log,
+        &bits_claims,
+        &bits_pts,
+        &proof.bits_carrier,
+        &proof.bits_w,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    let (values_rsc, _) = verify_carrier_goldilocks(
+        values_flat_log,
+        &values_claims,
+        &values_pts,
+        &proof.values_carrier,
+        &proof.values_w,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+
+    // The SOUND openings.
+    let seed = derive_seed(s);
+    verify_sound_opening(
+        seed,
+        &proof.bits_commitment,
+        &bits_factor_lens,
+        bits_flat_log,
+        &bits_rsc,
+        &proof.bits_w,
+        &proof.bits_opening,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    verify_sound_opening(
+        seed,
+        &proof.values_commitment,
+        &values_factor_lens,
+        values_flat_log,
+        &values_rsc,
+        &proof.values_w,
+        &proof.values_opening,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    Ok(())
+}
+
 /// The bundle entries (Factor, DenseMle) rebuilt on the verifier side —
 /// the SAME order as the prover's (digit tensors, then activity columns;
 /// stream columns for the values bundle). The MLE contents are
@@ -1480,5 +1964,126 @@ mod compact_tests {
 
     fn clone_proof(p: &CompactMemoryProof) -> CompactMemoryProof {
         p.clone()
+    }
+
+    /// The Sound memory argument end-to-end: the LaBRADOR decider wired
+    /// into the live path — the binding is the width fold's `[A₂ | −T]`
+    /// instance, the level-1 response never transmitted.
+    #[test]
+    fn sound_memproof_honest_and_tamper() {
+        let program = fib_program();
+        let input: Vec<u8> = vec![];
+        // Prove (fail-closed on the estimator floor at every bundle).
+        let (proof, final_regs) =
+            prove_memory_argument_sound(&program, &input, 64, 4, 5).unwrap();
+        // Verify (honest).
+        verify_memory_argument_sound(&proof, &program, &input).unwrap();
+
+        // Size accounting: the Sound profile's honest price — the same
+        // legs/carriers/commitments as the compact mode, with the
+        // openings' response replaced by the width-fold artifact.
+        let mut bytes = 0usize;
+        for _c in &proof.claims {
+            bytes += 1 + 1 + 8;
+        }
+        for sc in proof.legs.sumchecks() {
+            bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
+        }
+        bytes += proof.bits_commitment.len();
+        bytes += proof.values_commitment.len();
+        for carrier in [&proof.bits_carrier, &proof.values_carrier] {
+            bytes += carrier
+                .rounds
+                .iter()
+                .map(|r| r.len() * 8)
+                .sum::<usize>()
+                + 16;
+            bytes += 8;
+        }
+        for op in [&proof.bits_opening, &proof.values_opening] {
+            bytes += op.u_tilde.len() * 8;
+            let wf = &op.width_proof;
+            bytes += wf.p_images.len()
+                + wf.garbage.len()
+                + wf.t_inner.len()
+                + wf.u_parts.len()
+                + wf.g_func.len();
+            bytes += wf.response.hist.len()
+                + wf.response.payload.len()
+                + wf.response.raw.len();
+            bytes += 64;
+        }
+        println!(
+            "SOUND PROOF SIZE: {} B = {:.1} KB",
+            bytes,
+            bytes as f64 / 1024.0
+        );
+        // The honest multiple of the compact mode's ~60 KB at this
+        // scale (the quadratic garbage's price at small traces).
+        assert!(bytes < 400_000);
+
+        // ---- Tamper suite ----
+        // Wrong final register: rejected.
+        let mut bad = proof.clone();
+        bad.statement.final_regs[1] = bad.statement.final_regs[1].wrapping_add(1);
+        assert!(verify_memory_argument_sound(&bad, &program, &input).is_err());
+
+        // Wrong program digest: rejected.
+        let mut bad2 = proof.clone();
+        bad2.statement.program_digest[0] ^= 0xFF;
+        assert!(verify_memory_argument_sound(&bad2, &program, &input).is_err());
+
+        // Tampered claim value: rejected.
+        let mut bad3 = proof.clone();
+        if let Some(c) = bad3.claims.first_mut() {
+            c.value = c.value.add(&Goldilocks::from_u64(1));
+        }
+        assert!(verify_memory_argument_sound(&bad3, &program, &input).is_err());
+
+        // Tampered carrier terminal w: rejected.
+        let mut bad4 = proof.clone();
+        bad4.bits_w = bad4.bits_w.add(&Goldilocks::from_u64(1));
+        assert!(verify_memory_argument_sound(&bad4, &program, &input).is_err());
+
+        // Tampered u_tilde (the level-1 public layer): rejected.
+        let mut bad5 = proof.clone();
+        if let Some(u) = bad5.bits_opening.u_tilde.first_mut() {
+            *u = u.add(&Goldilocks::from_u64(1));
+        }
+        assert!(verify_memory_argument_sound(&bad5, &program, &input).is_err());
+
+        // Tampered width-fold response (z): W1/W2 reject.
+        let mut bad6 = proof.clone();
+        {
+            use crate::compact::{decode_response, encode_response};
+            let mut coeffs =
+                decode_response(&bad6.values_opening.width_proof.response).unwrap();
+            assert!(!coeffs.is_empty());
+            coeffs[0] = coeffs[0].wrapping_add(1);
+            bad6.values_opening.width_proof.response =
+                encode_response(&coeffs).unwrap();
+        }
+        assert!(verify_memory_argument_sound(&bad6, &program, &input).is_err());
+
+        // Tampered quadratic garbage: the exact fold identity rejects.
+        let mut bad_g = proof.clone();
+        assert!(!bad_g.bits_opening.width_proof.garbage.is_empty());
+        bad_g.bits_opening.width_proof.garbage[3] ^= 0x20;
+        assert!(verify_memory_argument_sound(&bad_g, &program, &input).is_err());
+
+        // Tampered inner commitments: the MSIS binding rejects.
+        let mut bad_t = proof.clone();
+        assert!(!bad_t.values_opening.width_proof.t_inner.is_empty());
+        bad_t.values_opening.width_proof.t_inner[7] ^= 0x08;
+        assert!(verify_memory_argument_sound(&bad_t, &program, &input).is_err());
+
+        // Tampered commitment: the W0 target chain rejects.
+        let mut bad7 = proof.clone();
+        if bad7.bits_commitment.len() > 12 {
+            bad7.bits_commitment[12] ^= 0xFF;
+        }
+        assert!(verify_memory_argument_sound(&bad7, &program, &input).is_err());
+
+        let _ = final_regs;
     }
 }

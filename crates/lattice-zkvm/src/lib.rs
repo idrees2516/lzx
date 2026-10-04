@@ -40,6 +40,7 @@ pub mod lookup_memory;
 pub mod pipeline3;
 pub mod semantics;
 pub mod second_fold;
+pub mod width_fold;
 
 #[cfg(test)]
 mod fuzz;

@@ -530,7 +530,8 @@ fn derive_a2_seed(seed: [u8; 32]) -> [u8; 32] {
 }
 
 /// Apply a column-block key to a response vector: rows = Σ_c block_c·v_c.
-fn apply_key(
+/// (Shared with the width fold — the level-1 key-group application.)
+pub(crate) fn apply_key(
     ring: &RingConfig,
     blocks: &[Vec<RingElement>],
     v: &[RingElement],
@@ -553,7 +554,8 @@ fn apply_key(
 }
 
 /// The Goldilocks functional of a response: Φ(v) = Σ ψ_m · balanced(v_m).
-fn functional_of(
+/// (Shared with the width fold — the ψ-slice functional.)
+pub(crate) fn functional_of(
     ring: &RingConfig,
     v: &[RingElement],
     psi_weights: &[Goldilocks],

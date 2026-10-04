@@ -220,19 +220,28 @@ compatibility break — the proof format is versioned by the envelope).
    second-level fold's `n̄ ∈ {2, 4}` at `k = 4, A ≤ 2^8` (329+ bits).
    **Shipped as the interim**: `k = 4`, `A = 2^6` (the gate tightened
    64×, the commitments doubled — 33 KB total, still under budget).
-2. The LaBRADOR decider — **the second-level fold has landed**
-   (`lattice-zkvm/src/second_fold.rs`): the public-target amortization
-   (r level-1 responses sharing the column key fold into one short
-   response; the exact linear checks L1-L4; the fresh short Ajtai key
-   at the estimator's sound row) with the **estimator-gated profile**
-   (fail-closed below 128 classical bits — the "estimator-gated
-   SecurityProfiles" discipline). The width-reduction finding: the
-   benchmark-scale width fold requires the LaBRADOR quadratic garbage
-   (the `F̄_i·s_j` cross terms) — there is no garbage-free width-
-   reducing fold; that completion (the LaBRADOR tail) remains the
-   follow-up. **The Stage 5.1 verdict stands**: the single-level fold's
-   binding does not reach 128 bits at the benchmark response lengths
-   without the width reduction.
+2. The LaBRADOR decider — **LANDED IN FULL (2026-10-04)**
+   (`lattice-zkvm/src/{second_fold,width_fold}.rs` + the Sound profile):
+   the public-target amortization (`second_fold.rs` — the exact linear
+   checks L1-L4 at the estimator's sound row) AND the completion the
+   honest finding mandated — **the width fold** (`width_fold.rs`): the
+   LaBRADOR quadratic garbage (`G_ij = F̄_{(i)}·s_j` + the functional
+   `g_ij = ψ^{(i)}(s_j)`) committed pre-challenge, the exact degree-2
+   fold identity, the short `[A₂ | −T]` binding at `(w, r₂, κ, A₂) =
+   (8, 2, 8, 2^2–2^4)` (206–1,855 classical bits — the
+   `width_fold_table` example's verdict). The **Sound compact profile**
+   consumes it live (`CompactProfile::Sound` +
+   `prove_memory_argument_sound`): the level-1 response is never
+   transmitted, so the whole opening's binding is the width fold's
+   instance — the level-1 `[F̄ | −y]` never arises. The measured honest
+   price at the test scale: 129.7 KB (vs the compact's ~60 KB — the
+   garbage's cost; BENCHMARKS §2j). The single-stage coverage ends at
+   `n̄ ≤ 16` (the β₁ ≤ 2^20 ceiling at `A₁ = 2^4`); the benchmark-scale
+   completion is the recursive staging (log-stages of the cheap row)
+   or the Modulus-50 class — the profile fail-closes in between.
+   **The Stage 5.1 verdict's resolution**: the sound binding at the
+   benchmark response lengths now EXISTS as a wired, tested,
+   estimator-gated path — at the documented size price.
 3. The verifier's O(K) public-table work → MLE-structured tables
    (O(log K)) at RAM scale.
 

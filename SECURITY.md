@@ -173,18 +173,33 @@ r = 4, A = 2^8` → 329+ classical bits, re-verified FAIL-CLOSED at
 construction by the estimator-gated profile). Every check is exact and
 linear — the public-target fold `F̄·z = Σ γ_i·t_i`, the short-key
 binding `A₂·z = Σ γ_i·T_i`, the commuting functional `Φ(z) = Σ γ_i·u_i`
-— with no garbage terms. **The honest width-reduction finding**: the
-DESIGN doc's benchmark-scale "~5 KB" needs the response WIDTH reduced
-(hundreds → {2,4}), and that reduction — splitting one response into
-parts whose link images are PROVER data — necessarily produces the
-`F̄_i·s_j` cross terms the LaBRADOR level commits as quadratic garbage;
-there is no garbage-free width-reducing fold. The landed construction
-amortizes over public targets instead (sound at every shape) and the
-profile rejects the below-floor shapes fail-closed; the width reduction
-at benchmark scale remains the LaBRADOR-tail follow-up. Until the
-compact mode consumes it, its opening must still be read as a **size
-prototype with an under-sized module** (the interim `k = 4` + `A = 2^6`
-at 60 bits for `n̄ = 4`).
+— with no garbage terms.
+
+**The LaBRADOR tail — LANDED (2026-10-04, the width fold)**: the
+width-reducing fold (`lattice-zkvm/src/width_fold.rs`) implements the
+quadratic-garbage construction the honest finding mandates: the wide
+level-1 response splits into `r₂` parts whose link images `p_i` and
+cross terms `G_ij = F̄_{(i)}·s_j` are committed BEFORE the challenges
+(the symmetrized quadratic form `Σ_{i,j} γ_i γ_j G_ij` with
+`G_ii = p_i`), the folded `z ∈ R^w` binds through the short instance
+`[A₂ | −T]` at `(w, r₂, κ, A₂) = (8, 2, 8, 2^2–2^4)` (206–1,855
+classical bits over the real level-1 gates — the `width_fold_table`
+example's verdict), and the functional layer rides the same pre-
+challenge discipline (the `g_ij = ψ^{(i)}(s_j)` superposition fix —
+the per-slice `(W3)` identities). The **Sound compact profile**
+(`compact.rs::CompactProfile::Sound` + `memproof.rs::
+prove_memory_argument_sound`) consumes it live: the level-1 response is
+never transmitted, so the level-1 `[F̄ | −y]` instance never arises —
+the binding of the whole opening is `[A₂ | −T]`, fail-closed by the
+estimator-gated profile at prove AND verify (the posture marker
+re-derivation). The single-stage coverage ends at `n̄ ≤ 16`
+(β₁ ≤ 2^20 at `A₁ = 2^4`); beyond it the profile refuses rather than
+shipping a broken binding (the recursive staging and the Modulus-50
+class are the documented follow-ups). The measured honest price at the
+test scale: 129.7 KB vs the compact mode's ~60 KB (BENCHMARKS §2j) —
+the quadratic garbage's cost, the estimator-mandated trade.
 
 The table itself regenerates with:
-`cargo run --release -p lattice-sis-estimator --example fold_security_table`.
+`cargo run --release -p lattice-sis-estimator --example fold_security_table`
+(and the width fold's own regime:
+`cargo run --release -p lattice-sis-estimator --example width_fold_table`).
