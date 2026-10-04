@@ -525,7 +525,12 @@ unsafe fn r3<const BAR: bool>(
 // ---------------------------------------------------------------------------------------------
 
 /// Levels 0 and 1 fused into one radix-4 pass over the 648 vectors.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_a<const Q: u16>(p: *mut __m512i, c: &C) {
     let z6p = bc(TwQ::<Q>::Z6.as_ptr());
     let z6 = bc(TwQ::<Q>::Z6.as_ptr().add(1));
@@ -559,7 +564,12 @@ unsafe fn pass_a<const Q: u16>(p: *mut __m512i, c: &C) {
 }
 
 /// Levels 2 and 3 for one 162-block: 18 groups of 9 vectors, 3 radix-3 butterflies each level.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_b<const Q: u16>(p: *mut __m512i, c: &C, blk: usize) {
     let t2 = TwQ::<Q>::L2.as_ptr().add(4 * blk);
     let base = 162 * blk;
@@ -567,16 +577,30 @@ unsafe fn pass_b<const Q: u16>(p: *mut __m512i, c: &C, blk: usize) {
         let mut y = [_mm512_setzero_si512(); 9];
         for a in 0..3 {
             let b = base + i0 + 18 * a;
-            let (u0, u1, u2) =
-                bar_switch!(r3, TwQ::<Q>::BAR_L[0], c, ld(p, b), ld(p, b + 54), ld(p, b + 108), t2);
+            let (u0, u1, u2) = bar_switch!(
+                r3,
+                TwQ::<Q>::BAR_L[0],
+                c,
+                ld(p, b),
+                ld(p, b + 54),
+                ld(p, b + 108),
+                t2
+            );
             y[a] = u0;
             y[3 + a] = u1;
             y[6 + a] = u2;
         }
         for s in 0..3 {
             let tw = TwQ::<Q>::L3.as_ptr().add(4 * (3 * blk + s));
-            let (v0, v1, v2) =
-                bar_switch!(r3, TwQ::<Q>::BAR_L[1], c, y[3 * s], y[3 * s + 1], y[3 * s + 2], tw);
+            let (v0, v1, v2) = bar_switch!(
+                r3,
+                TwQ::<Q>::BAR_L[1],
+                c,
+                y[3 * s],
+                y[3 * s + 1],
+                y[3 * s + 2],
+                tw
+            );
             let b = base + 54 * s + i0;
             st(p, b, v0);
             st(p, b + 18, v1);
@@ -586,14 +610,26 @@ unsafe fn pass_b<const Q: u16>(p: *mut __m512i, c: &C, blk: usize) {
 }
 
 /// Levels 4 and 5 for one 18-block, register-resident.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_l4<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
     let t4 = TwQ::<Q>::L4.as_ptr().add(4 * k4);
     let base = 18 * k4;
     for i in 0..6 {
         let b = base + i;
-        let (y0, y1, y2) =
-            bar_switch!(r3, TwQ::<Q>::BAR_L[2], c, ld(p, b), ld(p, b + 6), ld(p, b + 12), t4);
+        let (y0, y1, y2) = bar_switch!(
+            r3,
+            TwQ::<Q>::BAR_L[2],
+            c,
+            ld(p, b),
+            ld(p, b + 6),
+            ld(p, b + 12),
+            t4
+        );
         st(p, b, y0);
         st(p, b + 6, y1);
         st(p, b + 12, y2);
@@ -601,15 +637,27 @@ unsafe fn pass_l4<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
 }
 
 /// Level 5 alone for one 18-block (unfused variant).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_l5<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
     let base = 18 * k4;
     for g in 0..3 {
         let t5 = TwQ::<Q>::L5.as_ptr().add(4 * (3 * k4 + g));
         for i in 0..2 {
             let b = base + 6 * g + i;
-            let (y0, y1, y2) =
-                bar_switch!(r3, TwQ::<Q>::BAR_L[3], c, ld(p, b), ld(p, b + 2), ld(p, b + 4), t5);
+            let (y0, y1, y2) = bar_switch!(
+                r3,
+                TwQ::<Q>::BAR_L[3],
+                c,
+                ld(p, b),
+                ld(p, b + 2),
+                ld(p, b + 4),
+                t5
+            );
             st(p, b, y0);
             st(p, b + 2, y1);
             st(p, b + 4, y2);
@@ -629,7 +677,12 @@ unsafe fn pass_l5<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI (checked by `simd::available`); `b` must be 64-byte
 /// aligned (`Batch32` is).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 pub unsafe fn ntt_quad_gen_batch32<const Q: u16>(b: &mut Batch32) {
     let p = b.v.as_mut_ptr() as *mut __m512i;
     let c = C::new::<Q>();
@@ -1014,7 +1067,12 @@ unsafe fn centre(x: __m512i, q: __m512i, half: __m512i, nhalf: __m512i) -> __m51
 }
 
 /// Level 5 (the first inverse level) for one 18-block: 3 groups of 6 vectors, 2 butterflies each.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_l5<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
     let base = 18 * k4;
     for g in 0..3 {
@@ -1036,7 +1094,12 @@ unsafe fn ipass_l5<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
 }
 
 /// Level 4 for one 18-block: 6 butterflies, one per position class of the 6-block.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_l4<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
     let t4 = TwQI::<Q>::IL4.as_ptr().add(4 * k4);
     let base = 18 * k4;
@@ -1056,7 +1119,12 @@ unsafe fn ipass_l4<const Q: u16>(p: *mut __m512i, c: &C, k4: usize) {
 
 /// Levels 3 and 2 for one 162-block, the mirror of [`pass_b`]: 18 groups of 9 vectors, 3 inverse
 /// radix-3 butterflies (level 3) followed by 3 more (level 2).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_b<const Q: u16>(p: *mut __m512i, c: &C, blk: usize) {
     let t2 = TwQI::<Q>::IL2.as_ptr().add(4 * blk);
     let base = 162 * blk;
@@ -1091,7 +1159,12 @@ unsafe fn ipass_b<const Q: u16>(p: *mut __m512i, c: &C, blk: usize) {
 /// Levels 1 and 0 fused into one radix-4 pass over the 648 vectors, the mirror of [`pass_a`]:
 /// the two inverse radix-2 butterflies of level 1, then the two Phi_6 recombinations, which
 /// carry the whole normalisation (`TwQI::KA`) and center their four outputs.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_a<const Q: u16>(p: *mut __m512i, c: &C) {
     let half = bc(&TwQI::<Q>::HALF);
     let nhalf = bc(&TwQI::<Q>::NHALF);
@@ -1139,7 +1212,12 @@ unsafe fn ipass_a<const Q: u16>(p: *mut __m512i, c: &C) {
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI (checked by `simd::available`); `b` must be 64-byte
 /// aligned (`Batch32` is).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 pub unsafe fn intt_quad_gen_batch32<const Q: u16>(b: &mut Batch32) {
     let p = b.v.as_mut_ptr() as *mut __m512i;
     let c = C::new::<Q>();

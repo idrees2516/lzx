@@ -35,7 +35,10 @@ impl VectorSpec {
         Self { n, digit: None }
     }
     pub fn z_part(n: usize, digit: usize) -> Self {
-        Self { n, digit: Some(digit) }
+        Self {
+            n,
+            digit: Some(digit),
+        }
     }
 }
 
@@ -62,11 +65,21 @@ pub struct DotCnst {
 
 impl DotCnst {
     pub fn homogeneous(terms: Vec<Term>) -> Self {
-        Self { terms, a: Vec::new(), b: None, ct_only: false }
+        Self {
+            terms,
+            a: Vec::new(),
+            b: None,
+            ct_only: false,
+        }
     }
 
     pub fn with_b(terms: Vec<Term>, b: Poly) -> Self {
-        Self { terms, a: Vec::new(), b: Some(b), ct_only: false }
+        Self {
+            terms,
+            a: Vec::new(),
+            b: Some(b),
+            ct_only: false,
+        }
     }
 
     /// Evaluate at a witness (returns the full ring element; callers check = 0
@@ -79,7 +92,11 @@ impl DotCnst {
         }
         for &(i, j, ref coeff) in &self.a {
             let prod = sprod(&s[i], &s[j]);
-            let scaled = if i == j { coeff.mul(&prod) } else { coeff.mul(&prod).scale(2) };
+            let scaled = if i == j {
+                coeff.mul(&prod)
+            } else {
+                coeff.mul(&prod).scale(2)
+            };
             acc.add_assign(&scaled);
         }
         if let Some(b) = &self.b {
@@ -120,7 +137,13 @@ impl PrincipalStatement {
         ct_cnst: Vec<DotCnst>,
         betasq: u64,
     ) -> Self {
-        let mut st = Self { vectors, cnst, ct_cnst, betasq, digest: [0; 32] };
+        let mut st = Self {
+            vectors,
+            cnst,
+            ct_cnst,
+            betasq,
+            digest: [0; 32],
+        };
         st.digest = st.content_digest();
         st
     }
@@ -166,9 +189,15 @@ impl PrincipalStatement {
                 return Err(format!("witness vector {i} rank mismatch"));
             }
         }
-        let normsq: u64 = s.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).sum();
+        let normsq: u64 = s
+            .iter()
+            .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+            .sum();
         if normsq > self.betasq {
-            return Err(format!("witness norm² {normsq} exceeds bound {}", self.betasq));
+            return Err(format!(
+                "witness norm² {normsq} exceeds bound {}",
+                self.betasq
+            ));
         }
         for (k, c) in self.cnst.iter().enumerate() {
             if !c.check(s) {
@@ -244,11 +273,17 @@ impl PrincipalWitness {
     }
 
     pub fn normsq(&self) -> u64 {
-        self.s.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).sum()
+        self.s
+            .iter()
+            .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+            .sum()
     }
 
     pub fn per_vector_normsq(&self) -> Vec<u64> {
-        self.s.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).collect()
+        self.s
+            .iter()
+            .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+            .collect()
     }
 }
 
@@ -277,7 +312,11 @@ mod tests {
         let a = Poly::constant(5);
         let honest = sprod(&phi, &s0).add(&a.mul(&sprod(&s1, &s1)));
         let c = DotCnst {
-            terms: vec![Term { idx: 0, off: 0, phi: phi.clone() }],
+            terms: vec![Term {
+                idx: 0,
+                off: 0,
+                phi: phi.clone(),
+            }],
             a: vec![(1, 1, a)],
             b: Some(honest),
             ct_only: false,
@@ -316,7 +355,11 @@ mod tests {
         let mut b = small_vec(2, 99).pop().unwrap();
         b.0[0] = val.constant_term();
         let c = DotCnst {
-            terms: vec![Term { idx: 0, off: 0, phi }],
+            terms: vec![Term {
+                idx: 0,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(b),
             ct_only: true,
@@ -340,7 +383,11 @@ mod tests {
         let st = PrincipalStatement::new(
             vec![VectorSpec::plain(2)],
             vec![DotCnst::with_b(
-                vec![Term { idx: 0, off: 0, phi: phi.clone() }],
+                vec![Term {
+                    idx: 0,
+                    off: 0,
+                    phi: phi.clone(),
+                }],
                 honest,
             )],
             vec![],
@@ -351,7 +398,11 @@ mod tests {
         // out-of-range term caught
         let bad = PrincipalStatement::new(
             vec![VectorSpec::plain(2)],
-            vec![DotCnst::homogeneous(vec![Term { idx: 0, off: 5, phi }])],
+            vec![DotCnst::homogeneous(vec![Term {
+                idx: 0,
+                off: 5,
+                phi,
+            }])],
             vec![],
             100,
         );

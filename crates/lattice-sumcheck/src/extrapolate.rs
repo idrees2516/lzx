@@ -124,7 +124,9 @@ mod tests {
         // coeffs_desc: highest degree first.
         let mut acc = Goldilocks::ZERO;
         for &c in coeffs_desc {
-            acc = acc.mul(&Goldilocks::from_u64(x)).add(&Goldilocks::from_u64(c));
+            acc = acc
+                .mul(&Goldilocks::from_u64(x))
+                .add(&Goldilocks::from_u64(c));
         }
         acc
     }

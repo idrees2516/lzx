@@ -102,7 +102,14 @@ pub struct AbdlopPp {
 }
 
 impl AbdlopPp {
-    pub fn setup(kappa: usize, ell: usize, m1: usize, m2: usize, d: usize, rng: &mut Rng) -> AbdlopPp {
+    pub fn setup(
+        kappa: usize,
+        ell: usize,
+        m1: usize,
+        m2: usize,
+        d: usize,
+        rng: &mut Rng,
+    ) -> AbdlopPp {
         let uniform_poly = |rng: &mut Rng| -> Poly {
             let c: Vec<Fq> = (0..d).map(|_| Fq(rng.next_u64() % crate::fp::Q)).collect();
             Poly(c)
@@ -217,11 +224,7 @@ impl AbdlopOpening {
         let t_b = pp.t_b(&s2, &slots);
         let layout = MsgLayout::mixed(rk_msgs.len(), rf_msgs.len());
         (
-            AbdlopCommitment {
-                t_a,
-                t_b,
-                layout,
-            },
+            AbdlopCommitment { t_a, t_b, layout },
             AbdlopOpening { s1, s2, slots },
         )
     }
@@ -289,7 +292,9 @@ mod tests {
         let mut rng = Rng::new(b"abdlop");
         let pp = AbdlopPp::setup(4, 8, 6, 10, 4, &mut rng);
         let mut ctr = 0u64;
-        let msgs: Vec<PolyK> = (0..4).map(|_| PolyK::uniform(4, b"msg", &mut ctr)).collect();
+        let msgs: Vec<PolyK> = (0..4)
+            .map(|_| PolyK::uniform(4, b"msg", &mut ctr))
+            .collect();
         let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
         assert!(op.verify(&pp, &com));
         // Tamper: flip a message slot.
@@ -307,8 +312,12 @@ mod tests {
         let mut rng = Rng::new(b"hom");
         let pp = AbdlopPp::setup(3, 6, 5, 8, 4, &mut rng);
         let mut ctr = 0u64;
-        let m1: Vec<PolyK> = (0..3).map(|_| PolyK::uniform(4, b"hm1", &mut ctr)).collect();
-        let m2: Vec<PolyK> = (0..3).map(|_| PolyK::uniform(4, b"hm2", &mut ctr)).collect();
+        let m1: Vec<PolyK> = (0..3)
+            .map(|_| PolyK::uniform(4, b"hm1", &mut ctr))
+            .collect();
+        let m2: Vec<PolyK> = (0..3)
+            .map(|_| PolyK::uniform(4, b"hm2", &mut ctr))
+            .collect();
         let (c1, o1) = AbdlopOpening::commit_rk(&pp, &m1, &[], &mut rng);
         let (c2, o2) = AbdlopOpening::commit_rk(&pp, &m2, &[], &mut rng);
         let rho = Poly::small_b(4, 2, b"hrho", &mut ctr);
@@ -361,5 +370,4 @@ mod tests {
         assert_eq!(top, ak.a.mul(&xu).add(&ak.b.mul(&xv).scale(&nu)));
         assert_eq!(bot, ak.b.mul(&xu).add(&ak.a.mul(&xv)));
     }
-
 }

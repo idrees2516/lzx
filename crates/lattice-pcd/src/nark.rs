@@ -15,7 +15,9 @@
 //! the paper's first contribution.
 
 use crate::pedersen::PedersenKey;
-use crate::sps::{check_predicate, commit_messages, derive_challenges, SpsInstance, SpsRelation, SpsWitness};
+use crate::sps::{
+    check_predicate, commit_messages, derive_challenges, SpsInstance, SpsRelation, SpsWitness,
+};
 use crate::Fp256;
 use lattice_core::transcript::Transcript;
 

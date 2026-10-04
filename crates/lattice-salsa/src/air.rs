@@ -45,7 +45,10 @@ pub enum AirError {
     TerminalFailed,
     /// Challenge replay mismatch (tampered proof).
     ChallengeMismatch,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<SalsaaError> for AirError {
@@ -145,10 +148,7 @@ pub fn air_gen_trace(
 }
 
 /// `V = [W, shift(W)]` as 2t column tables over the m-row hypercube.
-pub fn air_build_tables(
-    params: &AirParams,
-    w: &[Vec<RingElement>],
-) -> Vec<Vec<RingElement>> {
+pub fn air_build_tables(params: &AirParams, w: &[Vec<RingElement>]) -> Vec<Vec<RingElement>> {
     let m = params.m;
     let t = params.t;
     let mut cols = Vec::with_capacity(2 * t);
@@ -200,8 +200,7 @@ fn air_public_tables(
     for z in 0..m {
         trans_weight.push(eq_eta[z].sub(&eq_eta[z].mul(&last_row_sel[z])?)?);
     }
-    let neg_trans_weight: Vec<RingElement> =
-        trans_weight.iter().map(|x| x.neg()).collect();
+    let neg_trans_weight: Vec<RingElement> = trans_weight.iter().map(|x| x.neg()).collect();
     // theta powers and the cyclic correction table
     let mut theta_pow = Vec::with_capacity(m);
     let mut cur = ring.one();
@@ -253,9 +252,7 @@ pub fn air_prove(
     }
     // challenges
     let eta = (0..mu)
-        .map(|_| {
-            crate::ring_sc::challenge_zq(transcript, b"salsaa:eta", ring.modulus.q)
-        })
+        .map(|_| crate::ring_sc::challenge_zq(transcript, b"salsaa:eta", ring.modulus.q))
         .collect::<Result<Vec<_>, _>>()?;
     let alpha = (0..t)
         .map(|_| challenge_ring_elt(transcript, b"salsaa:alpha", ring))
@@ -296,7 +293,11 @@ pub fn air_prove(
     });
     combiners.push(ring.one());
     groups.push(ProductClaim {
-        tables: vec![pubt.neg_trans_weight.clone(), cols[0].clone(), cols[0].clone()],
+        tables: vec![
+            pubt.neg_trans_weight.clone(),
+            cols[0].clone(),
+            cols[0].clone(),
+        ],
         value: ring.zero(),
     });
     combiners.push(ring.one());
@@ -575,10 +576,12 @@ mod tests {
         let rows = vec![small_vec(&ring, m, b"fr0", 6)];
         let w1 = small_vec(&ring, m, b"fw1", 4);
         let w2 = small_vec(&ring, m, b"fw2", 4);
-        let (inst1, _pk1) =
-            SalsaInstance::create(&ring, &w1, &rows, 128, [11u8; 32]).ok().unwrap();
-        let (inst2, _pk2) =
-            SalsaInstance::create(&ring, &w2, &rows, 128, [12u8; 32]).ok().unwrap();
+        let (inst1, _pk1) = SalsaInstance::create(&ring, &w1, &rows, 128, [11u8; 32])
+            .ok()
+            .unwrap();
+        let (inst2, _pk2) = SalsaInstance::create(&ring, &w2, &rows, 128, [12u8; 32])
+            .ok()
+            .unwrap();
         let mut t = Transcript::new_default(b"lzx-salsaa-fold");
         let folded = salsa_fold(&ring, &inst1, &inst2, &mut t).ok().unwrap();
         assert!(salsa_fold_honest(&folded).ok().unwrap());

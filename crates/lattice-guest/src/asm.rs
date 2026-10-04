@@ -65,10 +65,7 @@ pub enum AsmError {
     /// Data placement changed after data bytes were emitted.
     PlacementAfterData,
     /// Text-assembler parse error, with 1-based line number.
-    Parse {
-        line: usize,
-        msg: String,
-    },
+    Parse { line: usize, msg: String },
 }
 
 impl fmt::Display for AsmError {
@@ -77,11 +74,22 @@ impl fmt::Display for AsmError {
             AsmError::RegisterOutOfRange(r) => {
                 write!(f, "register index {r} out of range 0..=31")
             }
-            AsmError::ImmOutOfRange { what, value, lo, hi } => {
-                write!(f, "immediate for {what} out of range: {value} not in [{lo}, {hi}]")
+            AsmError::ImmOutOfRange {
+                what,
+                value,
+                lo,
+                hi,
+            } => {
+                write!(
+                    f,
+                    "immediate for {what} out of range: {value} not in [{lo}, {hi}]"
+                )
             }
             AsmError::ShiftOutOfRange { what, value, hi } => {
-                write!(f, "shift amount for {what} out of range: {value} not in [0, {hi}]")
+                write!(
+                    f,
+                    "shift amount for {what} out of range: {value} not in [0, {hi}]"
+                )
             }
             AsmError::OddOffset(off) => {
                 write!(f, "branch/jump offset {off} is not a multiple of 2")
@@ -193,7 +201,12 @@ fn check_reg(r: u8) -> Result<(), AsmError> {
 #[inline]
 fn check_imm(what: &'static str, v: i64, lo: i64, hi: i64) -> Result<(), AsmError> {
     if !(lo..=hi).contains(&v) {
-        Err(AsmError::ImmOutOfRange { what, value: v, lo, hi })
+        Err(AsmError::ImmOutOfRange {
+            what,
+            value: v,
+            lo,
+            hi,
+        })
     } else {
         Ok(())
     }
@@ -202,7 +215,11 @@ fn check_imm(what: &'static str, v: i64, lo: i64, hi: i64) -> Result<(), AsmErro
 #[inline]
 fn check_shift(what: &'static str, v: u8, hi: u8) -> Result<(), AsmError> {
     if v > hi {
-        Err(AsmError::ShiftOutOfRange { what, value: v as i64, hi: hi as i64 })
+        Err(AsmError::ShiftOutOfRange {
+            what,
+            value: v as i64,
+            hi: hi as i64,
+        })
     } else {
         Ok(())
     }
@@ -220,11 +237,7 @@ fn enc_r(opcode: u32, rd: u8, f3: u32, rs1: u8, rs2: u8, f7: u32) -> u32 {
 
 #[inline]
 fn enc_i(opcode: u32, rd: u8, f3: u32, rs1: u8, imm: i64) -> u32 {
-    (((imm as u32) & 0xFFF) << 20)
-        | ((rs1 as u32) << 15)
-        | (f3 << 12)
-        | ((rd as u32) << 7)
-        | opcode
+    (((imm as u32) & 0xFFF) << 20) | ((rs1 as u32) << 15) | (f3 << 12) | ((rd as u32) << 7) | opcode
 }
 
 #[inline]
@@ -308,7 +321,11 @@ enum Fixup {
     PcrelHi { at: usize, label: LabelId },
     /// `addi` I-immediate at `at`, low half of the delta from the `auipc`
     /// at instruction index `anchor`.
-    PcrelLo { at: usize, anchor: usize, label: LabelId },
+    PcrelLo {
+        at: usize,
+        anchor: usize,
+        label: LabelId,
+    },
 }
 
 /// The RV64IM assembler.
@@ -594,7 +611,11 @@ impl Assembler {
         let fix_at = self.code.len();
         self.code.push(enc_i(OPC_OPIMM, rd, 0, rd, 0));
         self.fixups.push(Fixup::PcrelHi { at, label });
-        self.fixups.push(Fixup::PcrelLo { at: fix_at, anchor: at, label });
+        self.fixups.push(Fixup::PcrelLo {
+            at: fix_at,
+            anchor: at,
+            label,
+        });
         Ok(self)
     }
 
@@ -623,13 +644,7 @@ impl Assembler {
 
     // -- branches / jumps ------------------------------------------------------
 
-    fn emit_branch(
-        &mut self,
-        f3: u32,
-        rs1: u8,
-        rs2: u8,
-        target: Target,
-    ) -> Result<(), AsmError> {
+    fn emit_branch(&mut self, f3: u32, rs1: u8, rs2: u8, target: Target) -> Result<(), AsmError> {
         check_reg(rs1)?;
         check_reg(rs2)?;
         self.require_text()?;
@@ -643,8 +658,7 @@ impl Assembler {
             }
             Target::Label(l) => {
                 let at = self.code.len();
-                self.code
-                    .push(enc_b(OPC_BRANCH, f3, rs1, rs2, 0));
+                self.code.push(enc_b(OPC_BRANCH, f3, rs1, rs2, 0));
                 self.fixups.push(Fixup::Branch { at, label: l });
             }
         }
@@ -742,13 +756,7 @@ impl Assembler {
 
     // -- register-immediate ------------------------------------------------------
 
-    fn emit_i(
-        &mut self,
-        f3: u32,
-        rd: u8,
-        rs1: u8,
-        imm: i64,
-    ) -> Result<(), AsmError> {
+    fn emit_i(&mut self, f3: u32, rd: u8, rs1: u8, imm: i64) -> Result<(), AsmError> {
         check_reg(rd)?;
         check_reg(rs1)?;
         check_imm("i-type imm", imm, -2048, 2047)?;
@@ -1354,14 +1362,12 @@ impl Assembler {
                     let target = self.label_addr(label, data_base)?;
                     let here = (at as u64) * 4;
                     let off = target as i64 - here as i64;
-                    check_imm("branch offset", off, -4096, 4094).map_err(|_| {
-                        AsmError::Parse {
-                            line: 0,
-                            msg: format!(
-                                "branch to '{}' out of range: offset {off}",
-                                self.label_name(label)
-                            ),
-                        }
+                    check_imm("branch offset", off, -4096, 4094).map_err(|_| AsmError::Parse {
+                        line: 0,
+                        msg: format!(
+                            "branch to '{}' out of range: offset {off}",
+                            self.label_name(label)
+                        ),
                     })?;
                     if off & 1 != 0 {
                         return Err(AsmError::OddOffset(off));
@@ -1526,29 +1532,44 @@ fn parse_num(s: &str, line: usize) -> Result<i64, AsmError> {
     };
     let v = if let Some(hex) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
         if hex.is_empty() || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(AsmError::Parse { line, msg: format!("bad hex literal '{t}'") });
+            return Err(AsmError::Parse {
+                line,
+                msg: format!("bad hex literal '{t}'"),
+            });
         }
-        u64::from_str_radix(hex, 16).map_err(|_| {
-            AsmError::Parse { line, msg: format!("hex literal '{t}' out of range") }
+        u64::from_str_radix(hex, 16).map_err(|_| AsmError::Parse {
+            line,
+            msg: format!("hex literal '{t}' out of range"),
         })?
     } else if let Some(bin) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
         if bin.is_empty() || !bin.chars().all(|c| c == '0' || c == '1') {
-            return Err(AsmError::Parse { line, msg: format!("bad binary literal '{t}'") });
+            return Err(AsmError::Parse {
+                line,
+                msg: format!("bad binary literal '{t}'"),
+            });
         }
-        u64::from_str_radix(bin, 2).map_err(|_| {
-            AsmError::Parse { line, msg: format!("binary literal '{t}' out of range") }
+        u64::from_str_radix(bin, 2).map_err(|_| AsmError::Parse {
+            line,
+            msg: format!("binary literal '{t}' out of range"),
         })?
     } else {
         if body.is_empty() || !body.chars().all(|c| c.is_ascii_digit()) {
-            return Err(AsmError::Parse { line, msg: format!("bad integer literal '{t}'") });
+            return Err(AsmError::Parse {
+                line,
+                msg: format!("bad integer literal '{t}'"),
+            });
         }
-        body.parse::<u64>().map_err(|_| {
-            AsmError::Parse { line, msg: format!("integer literal '{t}' out of range") }
+        body.parse::<u64>().map_err(|_| AsmError::Parse {
+            line,
+            msg: format!("integer literal '{t}' out of range"),
         })?
     };
     if neg {
         if v > (1u64 << 63) {
-            return Err(AsmError::Parse { line, msg: format!("literal '{t}' out of range") });
+            return Err(AsmError::Parse {
+                line,
+                msg: format!("literal '{t}' out of range"),
+            });
         }
         Ok((v as i64).wrapping_neg())
     } else if v <= i64::MAX as u64 {
@@ -1581,23 +1602,21 @@ fn parse_mem(s: &str, line: usize) -> Result<(i64, u8), AsmError> {
     } else {
         parse_num(imm_part, line)?
     };
-    let reg = parse_register(reg_part).ok_or_else(|| {
-        AsmError::Parse { line, msg: format!("unknown register '{reg_part}'") }
+    let reg = parse_register(reg_part).ok_or_else(|| AsmError::Parse {
+        line,
+        msg: format!("unknown register '{reg_part}'"),
     })?;
     Ok((imm, reg))
 }
 
 fn reg_operand(s: &str, line: usize) -> Result<u8, AsmError> {
-    parse_register(s).ok_or_else(|| {
-        AsmError::Parse { line, msg: format!("unknown register '{s}'") }
+    parse_register(s).ok_or_else(|| AsmError::Parse {
+        line,
+        msg: format!("unknown register '{s}'"),
     })
 }
 
-fn target_operand(
-    asm: &mut Assembler,
-    s: &str,
-    line: usize,
-) -> Result<Target, AsmError> {
+fn target_operand(asm: &mut Assembler, s: &str, line: usize) -> Result<Target, AsmError> {
     let t = s.trim();
     // Numeric offset?
     if t.starts_with('-')
@@ -1605,9 +1624,10 @@ fn target_operand(
         || t.as_bytes().first().is_some_and(|b| b.is_ascii_digit())
     {
         // hex/binary also start with digits
-        if t.chars().next().is_some_and(|c| {
-            c.is_ascii_digit() || c == '-' || c == '+'
-        }) && !t.contains('(')
+        if t.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_digit() || c == '-' || c == '+')
+            && !t.contains('(')
         {
             if let Ok(v) = parse_num(t, line) {
                 return Ok(Target::Rel(v));
@@ -1617,7 +1637,10 @@ fn target_operand(
     if is_ident(t) {
         return Ok(Target::Label(asm.label(t)));
     }
-    Err(AsmError::Parse { line, msg: format!("bad branch target '{t}'") })
+    Err(AsmError::Parse {
+        line,
+        msg: format!("bad branch target '{t}'"),
+    })
 }
 
 fn is_ident(s: &str) -> bool {
@@ -1669,7 +1692,10 @@ pub fn assemble_str(src: &str) -> Result<AssembledProgram, AsmError> {
             let (name, after) = rest.split_at(colon);
             let name = name.trim();
             if !is_ident(name) {
-                return Err(AsmError::Parse { line: line_no, msg: format!("bad label '{name}'") });
+                return Err(AsmError::Parse {
+                    line: line_no,
+                    msg: format!("bad label '{name}'"),
+                });
             }
             asm.bind_name(name).map_err(|e| relabel(e, line_no))?;
             rest = after[1..].trim_start();
@@ -1690,11 +1716,7 @@ fn relabel(e: AsmError, line: usize) -> AsmError {
     }
 }
 
-fn parse_statement(
-    asm: &mut Assembler,
-    stmt: &str,
-    line: usize,
-) -> Result<(), AsmError> {
+fn parse_statement(asm: &mut Assembler, stmt: &str, line: usize) -> Result<(), AsmError> {
     let stmt = stmt.trim();
     // Directive?
     if let Some(directive) = stmt.strip_prefix('.') {
@@ -1732,19 +1754,29 @@ fn parse_directive(
         "org" => {
             let addr = parse_num(args, line)?;
             if addr < 0 {
-                return Err(AsmError::Parse { line, msg: ".org address must be >= 0".to_string() });
+                return Err(AsmError::Parse {
+                    line,
+                    msg: ".org address must be >= 0".to_string(),
+                });
             }
-            asm.place_data_at(addr as u64).map_err(|e| relabel(e, line))?;
+            asm.place_data_at(addr as u64)
+                .map_err(|e| relabel(e, line))?;
             Ok(())
         }
         "word" | "dword" | "byte" => {
             if args.is_empty() {
-                return Err(AsmError::Parse { line, msg: format!(".{name} needs values") });
+                return Err(AsmError::Parse {
+                    line,
+                    msg: format!(".{name} needs values"),
+                });
             }
             for tok in args.split(',') {
                 let tok = tok.trim();
                 if tok.is_empty() {
-                    return Err(AsmError::Parse { line, msg: "empty directive value".into() });
+                    return Err(AsmError::Parse {
+                        line,
+                        msg: "empty directive value".into(),
+                    });
                 }
                 let v = parse_num(tok, line)?;
                 match name {
@@ -1756,7 +1788,11 @@ fn parse_directive(
                         asm.word64(v as u64).map_err(|e| relabel(e, line))?;
                     }
                     "byte" => {
-                        let u = if v < 0 { (v as i8) as u8 } else if v <= 255 { v as u8 } else {
+                        let u = if v < 0 {
+                            (v as i8) as u8
+                        } else if v <= 255 {
+                            v as u8
+                        } else {
                             return Err(AsmError::Parse {
                                 line,
                                 msg: format!("byte value {v} out of range"),
@@ -1769,7 +1805,10 @@ fn parse_directive(
             }
             Ok(())
         }
-        other => Err(AsmError::Parse { line, msg: format!("unknown directive '.{other}'") }),
+        other => Err(AsmError::Parse {
+            line,
+            msg: format!("unknown directive '.{other}'"),
+        }),
     }
 }
 
@@ -1998,7 +2037,8 @@ fn parse_instruction(
                 asm.jalr(r!(0), r!(1), 0).map_err(|e| relabel(e, line))?;
             } else {
                 arity(3)?;
-                asm.jalr(r!(0), r!(1), imm!(2)).map_err(|e| relabel(e, line))?;
+                asm.jalr(r!(0), r!(1), imm!(2))
+                    .map_err(|e| relabel(e, line))?;
             }
         }
         // ---- loads ----
@@ -2032,7 +2072,8 @@ fn parse_instruction(
             if imm != 0 {
                 return Err(bad("lr.w offset must be 0".into()));
             }
-            asm.lr_w(rd, rs1, false, false).map_err(|e| relabel(e, line))?;
+            asm.lr_w(rd, rs1, false, false)
+                .map_err(|e| relabel(e, line))?;
         }
         "sc.w" | "amoswap.w" | "amoadd.w" | "amoxor.w" | "amoand.w" | "amoor.w" | "amomin.w"
         | "amomax.w" | "amominu.w" | "amomaxu.w" => {
@@ -2095,7 +2136,10 @@ pub fn run_on_vm(
         state.load_program(crate::PUBLIC_INPUT_BASE, public_input);
     }
     let rows = exec::run(&mut state, max_steps)?;
-    Ok(VmRun { state, steps: rows.len() as u64 })
+    Ok(VmRun {
+        state,
+        steps: rows.len() as u64,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2126,217 +2170,386 @@ mod tests {
             Case {
                 name: "addi",
                 emit: |a| a.addi(5, 6, -2048).map(|_| ()),
-                want: Instr::Addi { rd: 5, rs1: 6, imm: -2048 },
+                want: Instr::Addi {
+                    rd: 5,
+                    rs1: 6,
+                    imm: -2048,
+                },
             },
             Case {
                 name: "slti",
                 emit: |a| a.slti(7, 8, 2047).map(|_| ()),
-                want: Instr::Slti { rd: 7, rs1: 8, imm: 2047 },
+                want: Instr::Slti {
+                    rd: 7,
+                    rs1: 8,
+                    imm: 2047,
+                },
             },
             Case {
                 name: "sltiu",
                 emit: |a| a.sltiu(9, 10, -1).map(|_| ()),
-                want: Instr::Sltiu { rd: 9, rs1: 10, imm: (-1i64) as u64 },
+                want: Instr::Sltiu {
+                    rd: 9,
+                    rs1: 10,
+                    imm: (-1i64) as u64,
+                },
             },
             Case {
                 name: "xori",
                 emit: |a| a.xori(1, 2, -5).map(|_| ()),
-                want: Instr::Xori { rd: 1, rs1: 2, imm: -5 },
+                want: Instr::Xori {
+                    rd: 1,
+                    rs1: 2,
+                    imm: -5,
+                },
             },
             Case {
                 name: "ori",
                 emit: |a| a.ori(3, 4, 0x7ff).map(|_| ()),
-                want: Instr::Ori { rd: 3, rs1: 4, imm: 0x7ff },
+                want: Instr::Ori {
+                    rd: 3,
+                    rs1: 4,
+                    imm: 0x7ff,
+                },
             },
             Case {
                 name: "andi",
                 emit: |a| a.andi(11, 12, -2048).map(|_| ()),
-                want: Instr::Andi { rd: 11, rs1: 12, imm: -2048 },
+                want: Instr::Andi {
+                    rd: 11,
+                    rs1: 12,
+                    imm: -2048,
+                },
             },
             Case {
                 name: "slli",
                 emit: |a| a.slli(13, 14, 63).map(|_| ()),
-                want: Instr::Slli { rd: 13, rs1: 14, shamt: 63 },
+                want: Instr::Slli {
+                    rd: 13,
+                    rs1: 14,
+                    shamt: 63,
+                },
             },
             Case {
                 name: "srli",
                 emit: |a| a.srli(15, 16, 32).map(|_| ()),
-                want: Instr::Srli { rd: 15, rs1: 16, shamt: 32 },
+                want: Instr::Srli {
+                    rd: 15,
+                    rs1: 16,
+                    shamt: 32,
+                },
             },
             Case {
                 name: "srai",
                 emit: |a| a.srai(17, 18, 31).map(|_| ()),
-                want: Instr::Srai { rd: 17, rs1: 18, shamt: 31 },
+                want: Instr::Srai {
+                    rd: 17,
+                    rs1: 18,
+                    shamt: 31,
+                },
             },
             Case {
                 name: "addiw",
                 emit: |a| a.addiw(19, 20, -3).map(|_| ()),
-                want: Instr::Addiw { rd: 19, rs1: 20, imm: -3 },
+                want: Instr::Addiw {
+                    rd: 19,
+                    rs1: 20,
+                    imm: -3,
+                },
             },
             Case {
                 name: "slliw",
                 emit: |a| a.slliw(21, 22, 31).map(|_| ()),
-                want: Instr::Slliw { rd: 21, rs1: 22, shamt: 31 },
+                want: Instr::Slliw {
+                    rd: 21,
+                    rs1: 22,
+                    shamt: 31,
+                },
             },
             Case {
                 name: "srliw",
                 emit: |a| a.srliw(23, 24, 0).map(|_| ()),
-                want: Instr::Srliw { rd: 23, rs1: 24, shamt: 0 },
+                want: Instr::Srliw {
+                    rd: 23,
+                    rs1: 24,
+                    shamt: 0,
+                },
             },
             Case {
                 name: "sraiw",
                 emit: |a| a.sraiw(25, 26, 15).map(|_| ()),
-                want: Instr::Sraiw { rd: 25, rs1: 26, shamt: 15 },
+                want: Instr::Sraiw {
+                    rd: 25,
+                    rs1: 26,
+                    shamt: 15,
+                },
             },
             Case {
                 name: "add",
                 emit: |a| a.add(1, 2, 3).map(|_| ()),
-                want: Instr::Add { rd: 1, rs1: 2, rs2: 3 },
+                want: Instr::Add {
+                    rd: 1,
+                    rs1: 2,
+                    rs2: 3,
+                },
             },
             Case {
                 name: "sub",
                 emit: |a| a.sub(4, 5, 6).map(|_| ()),
-                want: Instr::Sub { rd: 4, rs1: 5, rs2: 6 },
+                want: Instr::Sub {
+                    rd: 4,
+                    rs1: 5,
+                    rs2: 6,
+                },
             },
             Case {
                 name: "sll",
                 emit: |a| a.sll(7, 8, 9).map(|_| ()),
-                want: Instr::Sll { rd: 7, rs1: 8, rs2: 9 },
+                want: Instr::Sll {
+                    rd: 7,
+                    rs1: 8,
+                    rs2: 9,
+                },
             },
             Case {
                 name: "slt",
                 emit: |a| a.slt(10, 11, 12).map(|_| ()),
-                want: Instr::Slt { rd: 10, rs1: 11, rs2: 12 },
+                want: Instr::Slt {
+                    rd: 10,
+                    rs1: 11,
+                    rs2: 12,
+                },
             },
             Case {
                 name: "sltu",
                 emit: |a| a.sltu(13, 14, 15).map(|_| ()),
-                want: Instr::Sltu { rd: 13, rs1: 14, rs2: 15 },
+                want: Instr::Sltu {
+                    rd: 13,
+                    rs1: 14,
+                    rs2: 15,
+                },
             },
             Case {
                 name: "xor",
                 emit: |a| a.xor(16, 17, 18).map(|_| ()),
-                want: Instr::Xor { rd: 16, rs1: 17, rs2: 18 },
+                want: Instr::Xor {
+                    rd: 16,
+                    rs1: 17,
+                    rs2: 18,
+                },
             },
             Case {
                 name: "srl",
                 emit: |a| a.srl(19, 20, 21).map(|_| ()),
-                want: Instr::Srl { rd: 19, rs1: 20, rs2: 21 },
+                want: Instr::Srl {
+                    rd: 19,
+                    rs1: 20,
+                    rs2: 21,
+                },
             },
             Case {
                 name: "sra",
                 emit: |a| a.sra(22, 23, 24).map(|_| ()),
-                want: Instr::Sra { rd: 22, rs1: 23, rs2: 24 },
+                want: Instr::Sra {
+                    rd: 22,
+                    rs1: 23,
+                    rs2: 24,
+                },
             },
             Case {
                 name: "or",
                 emit: |a| a.or(25, 26, 27).map(|_| ()),
-                want: Instr::Or { rd: 25, rs1: 26, rs2: 27 },
+                want: Instr::Or {
+                    rd: 25,
+                    rs1: 26,
+                    rs2: 27,
+                },
             },
             Case {
                 name: "and",
                 emit: |a| a.and(28, 29, 30).map(|_| ()),
-                want: Instr::And { rd: 28, rs1: 29, rs2: 30 },
+                want: Instr::And {
+                    rd: 28,
+                    rs1: 29,
+                    rs2: 30,
+                },
             },
             Case {
                 name: "mul",
                 emit: |a| a.mul(1, 3, 5).map(|_| ()),
-                want: Instr::Mul { rd: 1, rs1: 3, rs2: 5 },
+                want: Instr::Mul {
+                    rd: 1,
+                    rs1: 3,
+                    rs2: 5,
+                },
             },
             Case {
                 name: "mulh",
                 emit: |a| a.mulh(2, 4, 6).map(|_| ()),
-                want: Instr::Mulh { rd: 2, rs1: 4, rs2: 6 },
+                want: Instr::Mulh {
+                    rd: 2,
+                    rs1: 4,
+                    rs2: 6,
+                },
             },
             Case {
                 name: "mulhu",
                 emit: |a| a.mulhu(3, 5, 7).map(|_| ()),
-                want: Instr::Mulhu { rd: 3, rs1: 5, rs2: 7 },
+                want: Instr::Mulhu {
+                    rd: 3,
+                    rs1: 5,
+                    rs2: 7,
+                },
             },
             Case {
                 name: "div",
                 emit: |a| a.div(4, 6, 8).map(|_| ()),
-                want: Instr::Div { rd: 4, rs1: 6, rs2: 8 },
+                want: Instr::Div {
+                    rd: 4,
+                    rs1: 6,
+                    rs2: 8,
+                },
             },
             Case {
                 name: "divu",
                 emit: |a| a.divu(5, 7, 9).map(|_| ()),
-                want: Instr::Divu { rd: 5, rs1: 7, rs2: 9 },
+                want: Instr::Divu {
+                    rd: 5,
+                    rs1: 7,
+                    rs2: 9,
+                },
             },
             Case {
                 name: "rem",
                 emit: |a| a.rem(6, 8, 10).map(|_| ()),
-                want: Instr::Rem { rd: 6, rs1: 8, rs2: 10 },
+                want: Instr::Rem {
+                    rd: 6,
+                    rs1: 8,
+                    rs2: 10,
+                },
             },
             Case {
                 name: "remu",
                 emit: |a| a.remu(7, 9, 11).map(|_| ()),
-                want: Instr::Remu { rd: 7, rs1: 9, rs2: 11 },
+                want: Instr::Remu {
+                    rd: 7,
+                    rs1: 9,
+                    rs2: 11,
+                },
             },
             Case {
                 name: "addw",
                 emit: |a| a.addw(8, 10, 12).map(|_| ()),
-                want: Instr::Addw { rd: 8, rs1: 10, rs2: 12 },
+                want: Instr::Addw {
+                    rd: 8,
+                    rs1: 10,
+                    rs2: 12,
+                },
             },
             Case {
                 name: "subw",
                 emit: |a| a.subw(9, 11, 13).map(|_| ()),
-                want: Instr::Subw { rd: 9, rs1: 11, rs2: 13 },
+                want: Instr::Subw {
+                    rd: 9,
+                    rs1: 11,
+                    rs2: 13,
+                },
             },
             Case {
                 name: "sllw",
                 emit: |a| a.sllw(12, 14, 16).map(|_| ()),
-                want: Instr::Sllw { rd: 12, rs1: 14, rs2: 16 },
+                want: Instr::Sllw {
+                    rd: 12,
+                    rs1: 14,
+                    rs2: 16,
+                },
             },
             Case {
                 name: "srlw",
                 emit: |a| a.srlw(13, 15, 17).map(|_| ()),
-                want: Instr::Srlw { rd: 13, rs1: 15, rs2: 17 },
+                want: Instr::Srlw {
+                    rd: 13,
+                    rs1: 15,
+                    rs2: 17,
+                },
             },
             Case {
                 name: "sraw",
                 emit: |a| a.sraw(14, 16, 18).map(|_| ()),
-                want: Instr::Sraw { rd: 14, rs1: 16, rs2: 18 },
+                want: Instr::Sraw {
+                    rd: 14,
+                    rs1: 16,
+                    rs2: 18,
+                },
             },
             Case {
                 name: "mulw",
                 emit: |a| a.mulw(15, 17, 19).map(|_| ()),
-                want: Instr::Mulw { rd: 15, rs1: 17, rs2: 19 },
+                want: Instr::Mulw {
+                    rd: 15,
+                    rs1: 17,
+                    rs2: 19,
+                },
             },
             Case {
                 name: "divw",
                 emit: |a| a.divw(16, 18, 20).map(|_| ()),
-                want: Instr::Divw { rd: 16, rs1: 18, rs2: 20 },
+                want: Instr::Divw {
+                    rd: 16,
+                    rs1: 18,
+                    rs2: 20,
+                },
             },
             Case {
                 name: "divuw",
                 emit: |a| a.divuw(17, 19, 21).map(|_| ()),
-                want: Instr::Divuw { rd: 17, rs1: 19, rs2: 21 },
+                want: Instr::Divuw {
+                    rd: 17,
+                    rs1: 19,
+                    rs2: 21,
+                },
             },
             Case {
                 name: "remw",
                 emit: |a| a.remw(18, 20, 22).map(|_| ()),
-                want: Instr::Remw { rd: 18, rs1: 20, rs2: 22 },
+                want: Instr::Remw {
+                    rd: 18,
+                    rs1: 20,
+                    rs2: 22,
+                },
             },
             Case {
                 name: "remuw",
                 emit: |a| a.remuw(19, 21, 23).map(|_| ()),
-                want: Instr::Remuw { rd: 19, rs1: 21, rs2: 23 },
+                want: Instr::Remuw {
+                    rd: 19,
+                    rs1: 21,
+                    rs2: 23,
+                },
             },
             Case {
                 name: "lui",
                 emit: |a| a.lui(6, -1).map(|_| ()),
-                want: Instr::Lui { rd: 6, imm: (-1i64 << 12) },
+                want: Instr::Lui {
+                    rd: 6,
+                    imm: (-1i64 << 12),
+                },
             },
             Case {
                 name: "lui_pos",
                 emit: |a| a.lui(7, 0x7f).map(|_| ()),
-                want: Instr::Lui { rd: 7, imm: 0x7f << 12 },
+                want: Instr::Lui {
+                    rd: 7,
+                    imm: 0x7f << 12,
+                },
             },
             Case {
                 name: "auipc",
                 emit: |a| a.auipc(8, -0x80000).map(|_| ()),
-                want: Instr::Auipc { rd: 8, imm: (-0x80000i64) << 12 },
+                want: Instr::Auipc {
+                    rd: 8,
+                    imm: (-0x80000i64) << 12,
+                },
             },
             Case {
                 name: "jal",
@@ -2351,62 +2564,110 @@ mod tests {
             Case {
                 name: "jalr",
                 emit: |a| a.jalr(2, 3, -2048).map(|_| ()),
-                want: Instr::Jalr { rd: 2, rs1: 3, imm: -2048 },
+                want: Instr::Jalr {
+                    rd: 2,
+                    rs1: 3,
+                    imm: -2048,
+                },
             },
             Case {
                 name: "beq",
                 emit: |a| a.beq(1, 2, Target::Rel(-4096)).map(|_| ()),
-                want: Instr::Beq { rs1: 1, rs2: 2, imm: -4096 },
+                want: Instr::Beq {
+                    rs1: 1,
+                    rs2: 2,
+                    imm: -4096,
+                },
             },
             Case {
                 name: "bne",
                 emit: |a| a.bne(3, 4, Target::Rel(4094)).map(|_| ()),
-                want: Instr::Bne { rs1: 3, rs2: 4, imm: 4094 },
+                want: Instr::Bne {
+                    rs1: 3,
+                    rs2: 4,
+                    imm: 4094,
+                },
             },
             Case {
                 name: "blt",
                 emit: |a| a.blt(5, 6, Target::Rel(2)).map(|_| ()),
-                want: Instr::Blt { rs1: 5, rs2: 6, imm: 2 },
+                want: Instr::Blt {
+                    rs1: 5,
+                    rs2: 6,
+                    imm: 2,
+                },
             },
             Case {
                 name: "bge",
                 emit: |a| a.bge(7, 8, Target::Rel(-6)).map(|_| ()),
-                want: Instr::Bge { rs1: 7, rs2: 8, imm: -6 },
+                want: Instr::Bge {
+                    rs1: 7,
+                    rs2: 8,
+                    imm: -6,
+                },
             },
             Case {
                 name: "bltu",
                 emit: |a| a.bltu(9, 10, Target::Rel(16)).map(|_| ()),
-                want: Instr::Bltu { rs1: 9, rs2: 10, imm: 16 },
+                want: Instr::Bltu {
+                    rs1: 9,
+                    rs2: 10,
+                    imm: 16,
+                },
             },
             Case {
                 name: "bgeu",
                 emit: |a| a.bgeu(11, 12, Target::Rel(-1024)).map(|_| ()),
-                want: Instr::Bgeu { rs1: 11, rs2: 12, imm: -1024 },
+                want: Instr::Bgeu {
+                    rs1: 11,
+                    rs2: 12,
+                    imm: -1024,
+                },
             },
             Case {
                 name: "lw",
                 emit: |a| a.lw(13, 14, -2048).map(|_| ()),
-                want: Instr::Lw { rd: 13, rs1: 14, imm: -2048 },
+                want: Instr::Lw {
+                    rd: 13,
+                    rs1: 14,
+                    imm: -2048,
+                },
             },
             Case {
                 name: "lwu",
                 emit: |a| a.lwu(15, 16, 2047).map(|_| ()),
-                want: Instr::Lwu { rd: 15, rs1: 16, imm: 2047 },
+                want: Instr::Lwu {
+                    rd: 15,
+                    rs1: 16,
+                    imm: 2047,
+                },
             },
             Case {
                 name: "ld",
                 emit: |a| a.ld(17, 18, 8).map(|_| ()),
-                want: Instr::Ld { rd: 17, rs1: 18, imm: 8 },
+                want: Instr::Ld {
+                    rd: 17,
+                    rs1: 18,
+                    imm: 8,
+                },
             },
             Case {
                 name: "sw",
                 emit: |a| a.sw(19, 20, -4).map(|_| ()),
-                want: Instr::Sw { rs1: 19, rs2: 20, imm: -4 },
+                want: Instr::Sw {
+                    rs1: 19,
+                    rs2: 20,
+                    imm: -4,
+                },
             },
             Case {
                 name: "sd",
                 emit: |a| a.sd(21, 22, 16).map(|_| ()),
-                want: Instr::Sd { rs1: 21, rs2: 22, imm: 16 },
+                want: Instr::Sd {
+                    rs1: 21,
+                    rs2: 22,
+                    imm: 16,
+                },
             },
             Case {
                 name: "ecall",
@@ -2421,57 +2682,122 @@ mod tests {
             Case {
                 name: "lr_w",
                 emit: |a| a.lr_w(2, 3, true, false).map(|_| ()),
-                want: Instr::LrW { rd: 2, rs1: 3, aq: true, rl: false },
+                want: Instr::LrW {
+                    rd: 2,
+                    rs1: 3,
+                    aq: true,
+                    rl: false,
+                },
             },
             Case {
                 name: "sc_w",
                 emit: |a| a.sc_w(4, 5, 6, false, true).map(|_| ()),
-                want: Instr::ScW { rd: 4, rs1: 5, rs2: 6, aq: false, rl: true },
+                want: Instr::ScW {
+                    rd: 4,
+                    rs1: 5,
+                    rs2: 6,
+                    aq: false,
+                    rl: true,
+                },
             },
             Case {
                 name: "amoswap_w",
                 emit: |a| a.amoswap_w(7, 8, 9, false, false).map(|_| ()),
-                want: Instr::AmoSwapW { rd: 7, rs1: 8, rs2: 9, aq: false, rl: false },
+                want: Instr::AmoSwapW {
+                    rd: 7,
+                    rs1: 8,
+                    rs2: 9,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amoadd_w",
                 emit: |a| a.amoadd_w(10, 11, 12, true, true).map(|_| ()),
-                want: Instr::AmoAddW { rd: 10, rs1: 11, rs2: 12, aq: true, rl: true },
+                want: Instr::AmoAddW {
+                    rd: 10,
+                    rs1: 11,
+                    rs2: 12,
+                    aq: true,
+                    rl: true,
+                },
             },
             Case {
                 name: "amoxor_w",
                 emit: |a| a.amoxor_w(13, 14, 15, false, false).map(|_| ()),
-                want: Instr::AmoXorW { rd: 13, rs1: 14, rs2: 15, aq: false, rl: false },
+                want: Instr::AmoXorW {
+                    rd: 13,
+                    rs1: 14,
+                    rs2: 15,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amoand_w",
                 emit: |a| a.amoand_w(16, 17, 18, false, false).map(|_| ()),
-                want: Instr::AmoAndW { rd: 16, rs1: 17, rs2: 18, aq: false, rl: false },
+                want: Instr::AmoAndW {
+                    rd: 16,
+                    rs1: 17,
+                    rs2: 18,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amoor_w",
                 emit: |a| a.amoor_w(19, 20, 21, false, false).map(|_| ()),
-                want: Instr::AmoOrW { rd: 19, rs1: 20, rs2: 21, aq: false, rl: false },
+                want: Instr::AmoOrW {
+                    rd: 19,
+                    rs1: 20,
+                    rs2: 21,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amomin_w",
                 emit: |a| a.amomin_w(22, 23, 24, false, false).map(|_| ()),
-                want: Instr::AmoMinW { rd: 22, rs1: 23, rs2: 24, aq: false, rl: false },
+                want: Instr::AmoMinW {
+                    rd: 22,
+                    rs1: 23,
+                    rs2: 24,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amomax_w",
                 emit: |a| a.amomax_w(25, 26, 27, false, false).map(|_| ()),
-                want: Instr::AmoMaxW { rd: 25, rs1: 26, rs2: 27, aq: false, rl: false },
+                want: Instr::AmoMaxW {
+                    rd: 25,
+                    rs1: 26,
+                    rs2: 27,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amominu_w",
                 emit: |a| a.amominu_w(28, 29, 30, false, false).map(|_| ()),
-                want: Instr::AmoMinuW { rd: 28, rs1: 29, rs2: 30, aq: false, rl: false },
+                want: Instr::AmoMinuW {
+                    rd: 28,
+                    rs1: 29,
+                    rs2: 30,
+                    aq: false,
+                    rl: false,
+                },
             },
             Case {
                 name: "amomaxu_w",
                 emit: |a| a.amomaxu_w(31, 1, 2, false, false).map(|_| ()),
-                want: Instr::AmoMaxuW { rd: 31, rs1: 1, rs2: 2, aq: false, rl: false },
+                want: Instr::AmoMaxuW {
+                    rd: 31,
+                    rs1: 1,
+                    rs2: 2,
+                    aq: false,
+                    rl: false,
+                },
             },
         ];
         for case in cases {
@@ -2487,11 +2813,17 @@ mod tests {
         let mut asm = Assembler::new();
         assert!(matches!(
             asm.addi(1, 0, 2048),
-            Err(AsmError::ImmOutOfRange { what: "i-type imm", .. })
+            Err(AsmError::ImmOutOfRange {
+                what: "i-type imm",
+                ..
+            })
         ));
         assert!(matches!(
             asm.lui(1, 1 << 19),
-            Err(AsmError::ImmOutOfRange { what: "lui imm20", .. })
+            Err(AsmError::ImmOutOfRange {
+                what: "lui imm20",
+                ..
+            })
         ));
         assert!(matches!(
             asm.slli(1, 2, 64),
@@ -2503,10 +2835,19 @@ mod tests {
         ));
         assert!(matches!(
             asm.beq(1, 2, Target::Rel(4096)),
-            Err(AsmError::ImmOutOfRange { what: "branch offset", .. })
+            Err(AsmError::ImmOutOfRange {
+                what: "branch offset",
+                ..
+            })
         ));
-        assert!(matches!(asm.beq(1, 2, Target::Rel(3)), Err(AsmError::OddOffset(3))));
-        assert!(matches!(asm.add(32, 1, 2), Err(AsmError::RegisterOutOfRange(32))));
+        assert!(matches!(
+            asm.beq(1, 2, Target::Rel(3)),
+            Err(AsmError::OddOffset(3))
+        ));
+        assert!(matches!(
+            asm.add(32, 1, 2),
+            Err(AsmError::RegisterOutOfRange(32))
+        ));
         assert!(matches!(
             asm.lw(1, 2, 3000),
             Err(AsmError::ImmOutOfRange { what: "lw imm", .. })
@@ -2759,14 +3100,34 @@ mod tests {
     fn text_assembler_errors() {
         type ErrCheck = fn(&AsmError) -> bool;
         let cases: Vec<(&str, ErrCheck)> = vec![
-            ("foo x1, x2\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown mnemonic"))),
-            ("add x1, y2, x3\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown register"))),
-            ("addi x1, x2, 5000\n", |e| matches!(e, AsmError::ImmOutOfRange { .. })),
+            (
+                "foo x1, x2\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown mnemonic")),
+            ),
+            (
+                "add x1, y2, x3\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown register")),
+            ),
+            ("addi x1, x2, 5000\n", |e| {
+                matches!(e, AsmError::ImmOutOfRange { .. })
+            }),
             ("j nowhere\n", |e| matches!(e, AsmError::UndefinedLabel(_))),
-            (".frobnicate 1\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown directive"))),
-            ("li x1, 12ab\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("bad"))),
-            ("add x1, x2\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("operand"))),
-            ("bad label:\n  nop\n", |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("bad label"))),
+            (
+                ".frobnicate 1\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("unknown directive")),
+            ),
+            (
+                "li x1, 12ab\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("bad")),
+            ),
+            (
+                "add x1, x2\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("operand")),
+            ),
+            (
+                "bad label:\n  nop\n",
+                |e| matches!(e, AsmError::Parse { msg, .. } if msg.contains("bad label")),
+            ),
         ];
         for (src, check) in cases {
             let err = assemble_str(src).expect_err("must fail");
@@ -2823,7 +3184,14 @@ mod tests {
         assert_eq!(run.state.reg(10), 11);
         // Decode directly.
         let word = u32::from_le_bytes(prog.code[0..4].try_into().expect("4"));
-        assert_eq!(decode(0, word).expect("dec"), Instr::Addi { rd: 10, rs1: 10, imm: 11 });
+        assert_eq!(
+            decode(0, word).expect("dec"),
+            Instr::Addi {
+                rd: 10,
+                rs1: 10,
+                imm: 11
+            }
+        );
     }
 
     /// The text front-end: every mnemonic (real + pseudo) round-trips
@@ -2910,83 +3278,383 @@ mod tests {
             bnez x6, -4
         ";
         let want: Vec<Instr> = vec![
-            Instr::Addi { rd: 1, rs1: 2, imm: -2048 },
-            Instr::Slti { rd: 3, rs1: 4, imm: 2047 },
-            Instr::Sltiu { rd: 5, rs1: 6, imm: (-1i64) as u64 },
-            Instr::Xori { rd: 7, rs1: 8, imm: -5 },
-            Instr::Ori { rd: 9, rs1: 10, imm: 0x7ff },
-            Instr::Andi { rd: 11, rs1: 12, imm: -2048 },
-            Instr::Slli { rd: 13, rs1: 14, shamt: 63 },
-            Instr::Srli { rd: 15, rs1: 16, shamt: 32 },
-            Instr::Srai { rd: 17, rs1: 18, shamt: 31 },
-            Instr::Addiw { rd: 19, rs1: 20, imm: -3 },
-            Instr::Slliw { rd: 21, rs1: 22, shamt: 31 },
-            Instr::Srliw { rd: 23, rs1: 24, shamt: 0 },
-            Instr::Sraiw { rd: 25, rs1: 26, shamt: 15 },
+            Instr::Addi {
+                rd: 1,
+                rs1: 2,
+                imm: -2048,
+            },
+            Instr::Slti {
+                rd: 3,
+                rs1: 4,
+                imm: 2047,
+            },
+            Instr::Sltiu {
+                rd: 5,
+                rs1: 6,
+                imm: (-1i64) as u64,
+            },
+            Instr::Xori {
+                rd: 7,
+                rs1: 8,
+                imm: -5,
+            },
+            Instr::Ori {
+                rd: 9,
+                rs1: 10,
+                imm: 0x7ff,
+            },
+            Instr::Andi {
+                rd: 11,
+                rs1: 12,
+                imm: -2048,
+            },
+            Instr::Slli {
+                rd: 13,
+                rs1: 14,
+                shamt: 63,
+            },
+            Instr::Srli {
+                rd: 15,
+                rs1: 16,
+                shamt: 32,
+            },
+            Instr::Srai {
+                rd: 17,
+                rs1: 18,
+                shamt: 31,
+            },
+            Instr::Addiw {
+                rd: 19,
+                rs1: 20,
+                imm: -3,
+            },
+            Instr::Slliw {
+                rd: 21,
+                rs1: 22,
+                shamt: 31,
+            },
+            Instr::Srliw {
+                rd: 23,
+                rs1: 24,
+                shamt: 0,
+            },
+            Instr::Sraiw {
+                rd: 25,
+                rs1: 26,
+                shamt: 15,
+            },
             Instr::Lui { rd: 27, imm: -4096 },
-            Instr::Auipc { rd: 28, imm: (-0x80000i64) << 12 },
-            Instr::Add { rd: 1, rs1: 2, rs2: 3 },
-            Instr::Sub { rd: 4, rs1: 5, rs2: 6 },
-            Instr::Sll { rd: 7, rs1: 8, rs2: 9 },
-            Instr::Slt { rd: 10, rs1: 11, rs2: 12 },
-            Instr::Sltu { rd: 13, rs1: 14, rs2: 15 },
-            Instr::Xor { rd: 16, rs1: 17, rs2: 18 },
-            Instr::Srl { rd: 19, rs1: 20, rs2: 21 },
-            Instr::Sra { rd: 22, rs1: 23, rs2: 24 },
-            Instr::Or { rd: 25, rs1: 26, rs2: 27 },
-            Instr::And { rd: 28, rs1: 29, rs2: 30 },
-            Instr::Mul { rd: 1, rs1: 3, rs2: 5 },
-            Instr::Mulh { rd: 2, rs1: 4, rs2: 6 },
-            Instr::Mulhu { rd: 3, rs1: 5, rs2: 7 },
-            Instr::Div { rd: 4, rs1: 6, rs2: 8 },
-            Instr::Divu { rd: 5, rs1: 7, rs2: 9 },
-            Instr::Rem { rd: 6, rs1: 8, rs2: 10 },
-            Instr::Remu { rd: 7, rs1: 9, rs2: 11 },
-            Instr::Addw { rd: 8, rs1: 10, rs2: 12 },
-            Instr::Subw { rd: 9, rs1: 11, rs2: 13 },
-            Instr::Sllw { rd: 12, rs1: 14, rs2: 16 },
-            Instr::Srlw { rd: 13, rs1: 15, rs2: 17 },
-            Instr::Sraw { rd: 14, rs1: 16, rs2: 18 },
-            Instr::Mulw { rd: 15, rs1: 17, rs2: 19 },
-            Instr::Divw { rd: 16, rs1: 18, rs2: 20 },
-            Instr::Divuw { rd: 17, rs1: 19, rs2: 21 },
-            Instr::Remw { rd: 18, rs1: 20, rs2: 22 },
-            Instr::Remuw { rd: 19, rs1: 21, rs2: 23 },
-            Instr::Lw { rd: 20, rs1: 21, imm: -2048 },
-            Instr::Lwu { rd: 22, rs1: 23, imm: 2047 },
-            Instr::Ld { rd: 24, rs1: 25, imm: 8 },
-            Instr::Sw { rs1: 27, rs2: 26, imm: -4 },
-            Instr::Sd { rs1: 29, rs2: 28, imm: 16 },
-            Instr::Beq { rs1: 1, rs2: 2, imm: 8 },
-            Instr::Bne { rs1: 3, rs2: 4, imm: -4096 },
-            Instr::Blt { rs1: 5, rs2: 6, imm: 2 },
-            Instr::Bge { rs1: 7, rs2: 8, imm: -6 },
-            Instr::Bltu { rs1: 9, rs2: 10, imm: 16 },
-            Instr::Bgeu { rs1: 11, rs2: 12, imm: -1024 },
+            Instr::Auipc {
+                rd: 28,
+                imm: (-0x80000i64) << 12,
+            },
+            Instr::Add {
+                rd: 1,
+                rs1: 2,
+                rs2: 3,
+            },
+            Instr::Sub {
+                rd: 4,
+                rs1: 5,
+                rs2: 6,
+            },
+            Instr::Sll {
+                rd: 7,
+                rs1: 8,
+                rs2: 9,
+            },
+            Instr::Slt {
+                rd: 10,
+                rs1: 11,
+                rs2: 12,
+            },
+            Instr::Sltu {
+                rd: 13,
+                rs1: 14,
+                rs2: 15,
+            },
+            Instr::Xor {
+                rd: 16,
+                rs1: 17,
+                rs2: 18,
+            },
+            Instr::Srl {
+                rd: 19,
+                rs1: 20,
+                rs2: 21,
+            },
+            Instr::Sra {
+                rd: 22,
+                rs1: 23,
+                rs2: 24,
+            },
+            Instr::Or {
+                rd: 25,
+                rs1: 26,
+                rs2: 27,
+            },
+            Instr::And {
+                rd: 28,
+                rs1: 29,
+                rs2: 30,
+            },
+            Instr::Mul {
+                rd: 1,
+                rs1: 3,
+                rs2: 5,
+            },
+            Instr::Mulh {
+                rd: 2,
+                rs1: 4,
+                rs2: 6,
+            },
+            Instr::Mulhu {
+                rd: 3,
+                rs1: 5,
+                rs2: 7,
+            },
+            Instr::Div {
+                rd: 4,
+                rs1: 6,
+                rs2: 8,
+            },
+            Instr::Divu {
+                rd: 5,
+                rs1: 7,
+                rs2: 9,
+            },
+            Instr::Rem {
+                rd: 6,
+                rs1: 8,
+                rs2: 10,
+            },
+            Instr::Remu {
+                rd: 7,
+                rs1: 9,
+                rs2: 11,
+            },
+            Instr::Addw {
+                rd: 8,
+                rs1: 10,
+                rs2: 12,
+            },
+            Instr::Subw {
+                rd: 9,
+                rs1: 11,
+                rs2: 13,
+            },
+            Instr::Sllw {
+                rd: 12,
+                rs1: 14,
+                rs2: 16,
+            },
+            Instr::Srlw {
+                rd: 13,
+                rs1: 15,
+                rs2: 17,
+            },
+            Instr::Sraw {
+                rd: 14,
+                rs1: 16,
+                rs2: 18,
+            },
+            Instr::Mulw {
+                rd: 15,
+                rs1: 17,
+                rs2: 19,
+            },
+            Instr::Divw {
+                rd: 16,
+                rs1: 18,
+                rs2: 20,
+            },
+            Instr::Divuw {
+                rd: 17,
+                rs1: 19,
+                rs2: 21,
+            },
+            Instr::Remw {
+                rd: 18,
+                rs1: 20,
+                rs2: 22,
+            },
+            Instr::Remuw {
+                rd: 19,
+                rs1: 21,
+                rs2: 23,
+            },
+            Instr::Lw {
+                rd: 20,
+                rs1: 21,
+                imm: -2048,
+            },
+            Instr::Lwu {
+                rd: 22,
+                rs1: 23,
+                imm: 2047,
+            },
+            Instr::Ld {
+                rd: 24,
+                rs1: 25,
+                imm: 8,
+            },
+            Instr::Sw {
+                rs1: 27,
+                rs2: 26,
+                imm: -4,
+            },
+            Instr::Sd {
+                rs1: 29,
+                rs2: 28,
+                imm: 16,
+            },
+            Instr::Beq {
+                rs1: 1,
+                rs2: 2,
+                imm: 8,
+            },
+            Instr::Bne {
+                rs1: 3,
+                rs2: 4,
+                imm: -4096,
+            },
+            Instr::Blt {
+                rs1: 5,
+                rs2: 6,
+                imm: 2,
+            },
+            Instr::Bge {
+                rs1: 7,
+                rs2: 8,
+                imm: -6,
+            },
+            Instr::Bltu {
+                rs1: 9,
+                rs2: 10,
+                imm: 16,
+            },
+            Instr::Bgeu {
+                rs1: 11,
+                rs2: 12,
+                imm: -1024,
+            },
             Instr::Jal { rd: 1, imm: 8 },
-            Instr::Jalr { rd: 2, rs1: 3, imm: -2048 },
+            Instr::Jalr {
+                rd: 2,
+                rs1: 3,
+                imm: -2048,
+            },
             Instr::Ecall,
             Instr::Ebreak,
-            Instr::LrW { rd: 2, rs1: 3, aq: false, rl: false },
-            Instr::ScW { rd: 4, rs1: 6, rs2: 5, aq: false, rl: false },
-            Instr::AmoSwapW { rd: 7, rs1: 9, rs2: 8, aq: false, rl: false },
-            Instr::AmoAddW { rd: 10, rs1: 12, rs2: 11, aq: false, rl: false },
-            Instr::AmoXorW { rd: 13, rs1: 15, rs2: 14, aq: false, rl: false },
-            Instr::AmoAndW { rd: 16, rs1: 18, rs2: 17, aq: false, rl: false },
-            Instr::AmoOrW { rd: 19, rs1: 21, rs2: 20, aq: false, rl: false },
-            Instr::AmoMinW { rd: 22, rs1: 24, rs2: 23, aq: false, rl: false },
-            Instr::AmoMaxW { rd: 25, rs1: 27, rs2: 26, aq: false, rl: false },
-            Instr::AmoMinuW { rd: 28, rs1: 30, rs2: 29, aq: false, rl: false },
-            Instr::AmoMaxuW { rd: 31, rs1: 2, rs2: 1, aq: false, rl: false },
+            Instr::LrW {
+                rd: 2,
+                rs1: 3,
+                aq: false,
+                rl: false,
+            },
+            Instr::ScW {
+                rd: 4,
+                rs1: 6,
+                rs2: 5,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoSwapW {
+                rd: 7,
+                rs1: 9,
+                rs2: 8,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoAddW {
+                rd: 10,
+                rs1: 12,
+                rs2: 11,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoXorW {
+                rd: 13,
+                rs1: 15,
+                rs2: 14,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoAndW {
+                rd: 16,
+                rs1: 18,
+                rs2: 17,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoOrW {
+                rd: 19,
+                rs1: 21,
+                rs2: 20,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoMinW {
+                rd: 22,
+                rs1: 24,
+                rs2: 23,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoMaxW {
+                rd: 25,
+                rs1: 27,
+                rs2: 26,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoMinuW {
+                rd: 28,
+                rs1: 30,
+                rs2: 29,
+                aq: false,
+                rl: false,
+            },
+            Instr::AmoMaxuW {
+                rd: 31,
+                rs1: 2,
+                rs2: 1,
+                aq: false,
+                rl: false,
+            },
             // Pseudo expansions.
-            Instr::Addi { rd: 1, rs1: 0, imm: 5 },   // li x1, 5
-            Instr::Addi { rd: 2, rs1: 3, imm: 0 },   // mv x2, x3
-            Instr::Addi { rd: 0, rs1: 0, imm: 0 },   // nop
-            Instr::Jal { rd: 0, imm: 8 },            // j 8
-            Instr::Jal { rd: 1, imm: 8 },            // jal 8 (link in ra)
-            Instr::Jalr { rd: 0, rs1: 1, imm: 0 },   // ret
-            Instr::Beq { rs1: 5, rs2: 0, imm: 8 },   // beqz x5, 8
-            Instr::Bne { rs1: 6, rs2: 0, imm: -4 },  // bnez x6, -4
+            Instr::Addi {
+                rd: 1,
+                rs1: 0,
+                imm: 5,
+            }, // li x1, 5
+            Instr::Addi {
+                rd: 2,
+                rs1: 3,
+                imm: 0,
+            }, // mv x2, x3
+            Instr::Addi {
+                rd: 0,
+                rs1: 0,
+                imm: 0,
+            }, // nop
+            Instr::Jal { rd: 0, imm: 8 }, // j 8
+            Instr::Jal { rd: 1, imm: 8 }, // jal 8 (link in ra)
+            Instr::Jalr {
+                rd: 0,
+                rs1: 1,
+                imm: 0,
+            }, // ret
+            Instr::Beq {
+                rs1: 5,
+                rs2: 0,
+                imm: 8,
+            }, // beqz x5, 8
+            Instr::Bne {
+                rs1: 6,
+                rs2: 0,
+                imm: -4,
+            }, // bnez x6, -4
         ];
         let prog = assemble_str(src).expect("assembles");
         assert_eq!(prog.code.len(), want.len() * 4, "one word per statement");

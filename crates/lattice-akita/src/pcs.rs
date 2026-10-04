@@ -52,8 +52,13 @@ pub enum AkitaPcsError {
     Packing(lattice_ring::PackingError),
     /// Verification failed.
     VerificationFailed,
-    Shape { expected: usize, got: usize },
-    NotInImage { coefficient: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
+    NotInImage {
+        coefficient: usize,
+    },
 }
 
 impl AkitaPcs {
@@ -61,10 +66,7 @@ impl AkitaPcs {
     pub fn commit(&self, mle: &DenseMle) -> Result<Commitment, AkitaPcsError> {
         let packed =
             lattice_ring::packing::pack_field_elements(&self.pk.params.ring, &mle.evaluations);
-        let s = self
-            .pk
-            .pad_to_m(&packed)
-            .map_err(AkitaPcsError::Ajtai)?;
+        let s = self.pk.pad_to_m(&packed).map_err(AkitaPcsError::Ajtai)?;
         let commitment = self.pk.commit(&s).map_err(AkitaPcsError::Ajtai)?;
         Ok(Commitment {
             commitment,
@@ -77,9 +79,7 @@ impl AkitaPcs {
     fn packed_witness(&self, mle: &DenseMle) -> Result<Vec<RingElement>, AkitaPcsError> {
         let packed =
             lattice_ring::packing::pack_field_elements(&self.pk.params.ring, &mle.evaluations);
-        self.pk
-            .pad_to_m(&packed)
-            .map_err(AkitaPcsError::Ajtai)
+        self.pk.pad_to_m(&packed).map_err(AkitaPcsError::Ajtai)
     }
 
     /// Prove `f(r) = value` for a committed MLE.
@@ -93,9 +93,7 @@ impl AkitaPcs {
         // The evaluation identity: Σ_x eq(r, x)·f(x) = f(r).
         let eq = DenseMle::eq_extension(point);
         let mut vp = lattice_sumcheck::VirtualPolynomial::new(mle.num_vars);
-        let fi = vp
-            .add_factor(mle.clone())
-            .map_err(AkitaPcsError::Virtual)?;
+        let fi = vp.add_factor(mle.clone()).map_err(AkitaPcsError::Virtual)?;
         let ei = vp.add_factor(eq).map_err(AkitaPcsError::Virtual)?;
         vp.add_term(Goldilocks::ONE, vec![fi, ei])
             .map_err(AkitaPcsError::Virtual)?;
@@ -104,8 +102,8 @@ impl AkitaPcs {
 
         // Opened witness + norm proof (the response layer).
         let opened = self.packed_witness(mle)?;
-        let norm_proof = NormProof::prove(&opened, self.pk.params.norm_bound)
-            .map_err(AkitaPcsError::Norm)?;
+        let norm_proof =
+            NormProof::prove(&opened, self.pk.params.norm_bound).map_err(AkitaPcsError::Norm)?;
 
         Ok(EvaluationProof {
             sumcheck: out.proof,
@@ -225,9 +223,7 @@ impl AkitaPcs {
         // Combined polynomial: Σ_i ρ^i · eq(r_i, x)·f(x) — a single
         // sumcheck whose claim is Σ_i ρ^i · f(r_i).
         let mut vp = lattice_sumcheck::VirtualPolynomial::new(mle.num_vars);
-        let fi = vp
-            .add_factor(mle.clone())
-            .map_err(AkitaPcsError::Virtual)?;
+        let fi = vp.add_factor(mle.clone()).map_err(AkitaPcsError::Virtual)?;
         let mut combined_claim = Goldilocks::ZERO;
         for (i, claim) in claims.iter().enumerate() {
             let eq = DenseMle::eq_extension(&claim.point);
@@ -239,8 +235,8 @@ impl AkitaPcs {
         let out = lattice_sumcheck::sumcheck::prove(&vp, combined_claim, transcript)
             .map_err(AkitaPcsError::Sumcheck)?;
         let opened = self.packed_witness(mle)?;
-        let norm_proof = NormProof::prove(&opened, self.pk.params.norm_bound)
-            .map_err(AkitaPcsError::Norm)?;
+        let norm_proof =
+            NormProof::prove(&opened, self.pk.params.norm_bound).map_err(AkitaPcsError::Norm)?;
         Ok(EvaluationProof {
             sumcheck: out.proof,
             // Grouped proofs carry the first claim's point for shape
@@ -305,9 +301,7 @@ impl AkitaPcs {
             num_vars: commitment.num_vars,
             evaluations: unpacked,
         };
-        let f_at_sc = f_mle
-            .evaluate(&verdict.point)
-            .map_err(AkitaPcsError::Mle)?;
+        let f_at_sc = f_mle.evaluate(&verdict.point).map_err(AkitaPcsError::Mle)?;
         let mut expected_final = Goldilocks::ZERO;
         for (rho, c) in rhos.iter().zip(claims.iter()) {
             let eq_at = DenseMle::eq_extension(&c.point)
@@ -320,9 +314,7 @@ impl AkitaPcs {
         }
         // Each claimed value must match the opened witness.
         for c in claims {
-            let v = f_mle
-                .evaluate(&c.point)
-                .map_err(AkitaPcsError::Mle)?;
+            let v = f_mle.evaluate(&c.point).map_err(AkitaPcsError::Mle)?;
             if v != c.value {
                 return Err(AkitaPcsError::VerificationFailed);
             }
@@ -348,7 +340,9 @@ mod tests {
         let values = 1usize << num_vars;
         let packed_estimate = (values * 3).div_ceil(1 << log_n).max(1);
         let m = packed_estimate.max(4);
-        let pcs = crate::akita_setup(log_n, m, 1 << 23, [71u8; 32]).ok().unwrap();
+        let pcs = crate::akita_setup(log_n, m, 1 << 23, [71u8; 32])
+            .ok()
+            .unwrap();
         let mle = DenseMle::random(num_vars, b"akita-mle");
         (pcs, mle)
     }
@@ -487,13 +481,17 @@ mod tests {
             .ok()
             .unwrap();
         for c in &claims {
-            vt.append_field_slice(b"claim-point", &c.point).ok().unwrap();
+            vt.append_field_slice(b"claim-point", &c.point)
+                .ok()
+                .unwrap();
             vt.append_field(b"claim-value", &c.value).ok().unwrap();
         }
         // The combined claim is checked inside verify_grouped (rhos are
         // sampled there exactly once); the proof's value equals the RLC.
         // Verify through the grouped path.
-        assert!(pcs.verify_grouped(&commitment, &claims, &proof, &mut vt).is_ok());
+        assert!(pcs
+            .verify_grouped(&commitment, &claims, &proof, &mut vt)
+            .is_ok());
         // A wrong claimed value must fail.
         let mut bad_claims = claims.clone();
         bad_claims[0].value = bad_claims[0].value.add(&Goldilocks::ONE);
@@ -502,9 +500,13 @@ mod tests {
             .ok()
             .unwrap();
         for c in &claims {
-            vt2.append_field_slice(b"claim-point", &c.point).ok().unwrap();
+            vt2.append_field_slice(b"claim-point", &c.point)
+                .ok()
+                .unwrap();
             vt2.append_field(b"claim-value", &c.value).ok().unwrap();
         }
-        assert!(pcs.verify_grouped(&commitment, &bad_claims, &proof, &mut vt2).is_err());
+        assert!(pcs
+            .verify_grouped(&commitment, &bad_claims, &proof, &mut vt2)
+            .is_err());
     }
 }

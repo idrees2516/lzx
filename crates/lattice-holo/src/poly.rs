@@ -64,7 +64,10 @@ fn root_of_unity_pow(i: usize, n: usize) -> Fp256 {
     // ζ^exp — square-and-multiply over the 28-bit exponent.
     // ROOT_OF_UNITY holds CANONICAL limbs; convert to Montgomery form for
     // the arithmetic.
-    let zeta = Fp256 { limbs: ROOT_OF_UNITY }.to_mont();
+    let zeta = Fp256 {
+        limbs: ROOT_OF_UNITY,
+    }
+    .to_mont();
     let mut acc = Fp256::from_canonical_u64(1);
     let mut base = zeta;
     let mut e = exp;
@@ -199,14 +202,23 @@ pub fn vec_poly_eval(domain: &Domain, z: &[Fp256], x: &[Fp256]) -> Result<Fp256,
 
 /// The matrix polynomial `M(X, Y) = λ(Y)ᵀ M λ(X)` evaluated at `(x, y)`
 /// (the paper's convention: `M(β, α) = λ(α)ᵀ M λ(β)` — X first).
-pub fn matrix_poly_eval(domain: &Domain, m: &[Vec<Fp256>], x: &[Fp256], y: &[Fp256]) -> Result<Fp256, PolyError> {
+pub fn matrix_poly_eval(
+    domain: &Domain,
+    m: &[Vec<Fp256>],
+    x: &[Fp256],
+    y: &[Fp256],
+) -> Result<Fp256, PolyError> {
     let n = domain.size();
     if m.len() != n || m.iter().any(|r| r.len() != n) {
         return Err(PolyError::Shape("matrix shape vs domain size"));
     }
     // λ(x) evaluations per column, λ(y) per row.
-    let lam_x: Vec<Fp256> = (0..n).map(|i| lambda_eval(domain, i, x)).collect::<Result<_, _>>()?;
-    let lam_y: Vec<Fp256> = (0..n).map(|j| lambda_eval(domain, j, y)).collect::<Result<_, _>>()?;
+    let lam_x: Vec<Fp256> = (0..n)
+        .map(|i| lambda_eval(domain, i, x))
+        .collect::<Result<_, _>>()?;
+    let lam_y: Vec<Fp256> = (0..n)
+        .map(|j| lambda_eval(domain, j, y))
+        .collect::<Result<_, _>>()?;
     let mut acc = Fp256::ZERO;
     for j in 0..n {
         if lam_y[j].is_zero() {
@@ -303,7 +315,7 @@ mod tests {
         for n in [4usize, 8, 16] {
             for i in 0..n {
                 let h = root_of_unity_pow(i, n); // g_n^i
-                // h^n = 1
+                                                 // h^n = 1
                 let mut acc = fr(1);
                 for _ in 0..n {
                     acc = acc.mul(&h);

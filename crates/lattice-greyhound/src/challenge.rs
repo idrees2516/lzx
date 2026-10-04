@@ -108,7 +108,10 @@ pub fn quarternary_vec(len: usize, seed: &[u8], nonce: u64) -> Vec<Poly> {
 pub fn uniform_rq_vec(len: usize, seed: &[u8], nonce: u64) -> Vec<Poly> {
     let mut out = Vec::with_capacity(len);
     for i in 0..len {
-        out.push(Poly::almost_uniform(seed, nonce.wrapping_add((i as u64) << 40)));
+        out.push(Poly::almost_uniform(
+            seed,
+            nonce.wrapping_add((i as u64) << 40),
+        ));
     }
     out
 }

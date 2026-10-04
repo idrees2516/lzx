@@ -59,14 +59,14 @@
 use crate::ledger::{idx_point, Factor, Ledger};
 use crate::memory::{
     absorb, activity_factor, addr_factor, booleanity_vp_at, digit_affine, inc_factor, matrix_claim,
-    matrix_vp, raf_vp, read_vp, rv_factor, tel_claim, val_vp, wv_factor, write_vp, MatrixKind,
+    matrix_vp, raf_vp, read_vp, rv_factor, tel_claim, val_vp, write_vp, wv_factor, MatrixKind,
     MemoryError, MemoryInstance, INC_OFFSET,
 };
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_sumcheck::batch::BatchClaim;
-use lattice_sumcheck::sumcheck::{self, SumcheckProof};
 use lattice_sumcheck::sumcheck::SumcheckOutput;
+use lattice_sumcheck::sumcheck::{self, SumcheckProof};
 use lattice_sumcheck::VirtualPolynomial;
 
 /// The batched legs' proof: 12 sumchecks total (3 stage-A + 3 stage-B +
@@ -133,7 +133,10 @@ fn cube_classes(instances: &[MemoryInstance]) -> Vec<Vec<usize>> {
     let mut classes: Vec<(usize, usize, Vec<usize>)> = Vec::new();
     for (i, m) in instances.iter().enumerate() {
         let key = (m.log_rows(), m.log_ts);
-        if let Some(c) = classes.iter_mut().find(|(r, t, _)| *r == key.0 && *t == key.1) {
+        if let Some(c) = classes
+            .iter_mut()
+            .find(|(r, t, _)| *r == key.0 && *t == key.1)
+        {
             c.2.push(i);
         } else {
             classes.push((key.0, key.1, vec![i]));
@@ -194,7 +197,10 @@ impl StageBatch {
         self.vps
             .iter()
             .zip(self.claims.iter())
-            .map(|(v, c)| BatchClaim { poly: v, claimed_sum: *c })
+            .map(|(v, c)| BatchClaim {
+                poly: v,
+                claimed_sum: *c,
+            })
             .collect()
     }
 }
@@ -359,7 +365,10 @@ pub fn prove_legs_batched(
             let rfc = &out.factor_claims[stage.leg_slice(2 * leg + 1)];
             let eq_at =
                 DenseMle::eq_eval(&r_prime[i], &r_br[log_rows..]).map_err(MemoryError::Mle)?;
-            let w_at = m.raf_weights().evaluate(&r_br[..log_rows]).map_err(MemoryError::Mle)?;
+            let w_at = m
+                .raf_weights()
+                .evaluate(&r_br[..log_rows])
+                .map_err(MemoryError::Mle)?;
             if rfc[2] != d_at || rfc[0] != eq_at || rfc[1] != w_at {
                 return Err(MemoryError::FinalCheck("batched raf binding"));
             }
@@ -493,9 +502,7 @@ pub fn prove_legs_batched(
         }
         // Ma's binds.
         let mfc = &read_out.factor_claims[read_out_local_slice(&rw, instances, vi, 0, 2 + m.log_k)];
-        bind_matrix_leg(
-            i, m, ledger, rho_k, rho_j, &r_read, mfc, MatrixKind::Ra,
-        )?;
+        bind_matrix_leg(i, m, ledger, rho_k, rho_j, &r_read, mfc, MatrixKind::Ra)?;
     }
 
     // ================= Stage 3: the global Mu0 group =================
@@ -506,7 +513,10 @@ pub fn prove_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let r_a = &point[..m.log_k];
-            stage.push(matrix_vp(m, r_a, &r_read, MatrixKind::Inc)?, Goldilocks::ZERO);
+            stage.push(
+                matrix_vp(m, r_a, &r_read, MatrixKind::Inc)?,
+                Goldilocks::ZERO,
+            );
         }
         // Replace the placeholder claims with the u-factor claims.
         stage.claims = u_read_claims.clone();
@@ -520,9 +530,7 @@ pub fn prove_legs_batched(
         let r_a = &point[..m.log_k];
         let nf = 3 + m.log_k;
         let mfc = &mu0_out.factor_claims[stage_slice(&rw, instances, vi, nf)];
-        bind_matrix_leg(
-            i, m, ledger, r_a, &r_read, &r_mu0, mfc, MatrixKind::Inc,
-        )?;
+        bind_matrix_leg(i, m, ledger, r_a, &r_read, &r_mu0, mfc, MatrixKind::Inc)?;
     }
 
     // ================= Stage 4: the global write group =================
@@ -621,7 +629,10 @@ pub fn prove_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let r_a = &point[..m.log_k];
-            stage.push(matrix_vp(m, r_a, &r_write, MatrixKind::Inc)?, Goldilocks::ZERO);
+            stage.push(
+                matrix_vp(m, r_a, &r_write, MatrixKind::Inc)?,
+                Goldilocks::ZERO,
+            );
         }
         stage.claims = u_write_claims.clone();
         let (out, _rhos) = prove_stage(&stage, transcript)?;
@@ -634,9 +645,7 @@ pub fn prove_legs_batched(
         let r_a = &point[..m.log_k];
         let nf = 3 + m.log_k;
         let mfc = &mu1_out.factor_claims[stage_slice(&rw, instances, vi, nf)];
-        bind_matrix_leg(
-            i, m, ledger, r_a, &r_write, &r_mu1, mfc, MatrixKind::Inc,
-        )?;
+        bind_matrix_leg(i, m, ledger, r_a, &r_write, &r_mu1, mfc, MatrixKind::Inc)?;
     }
 
     // ================= Stage 6: the global Md group =================
@@ -662,9 +671,7 @@ pub fn prove_legs_batched(
         let (rho_k, rho_j) = point.split_at(m.log_k);
         let nf = 3 + m.log_k;
         let mfc = &md_out.factor_claims[stage_slice(&rw, instances, vi, nf)];
-        bind_matrix_leg(
-            i, m, ledger, rho_k, rho_j, &r_md, mfc, MatrixKind::Inc,
-        )?;
+        bind_matrix_leg(i, m, ledger, rho_k, rho_j, &r_md, mfc, MatrixKind::Inc)?;
     }
 
     ra_claims.push(fetch_ra_at);
@@ -783,7 +790,10 @@ pub fn verify_legs_batched(
                 .mul(&d_at.square().sub(&d_at));
             let eq_v =
                 DenseMle::eq_eval(&r_prime[i], &r_br[log_rows..]).map_err(MemoryError::Mle)?;
-            let w_v = m.raf_weights().evaluate(&r_br[..log_rows]).map_err(MemoryError::Mle)?;
+            let w_v = m
+                .raf_weights()
+                .evaluate(&r_br[..log_rows])
+                .map_err(MemoryError::Mle)?;
             let e_r = eq_v.mul(&w_v).mul(&d_at);
             expect = expect
                 .add(&rhos[2 * leg].mul(&e_b))
@@ -894,7 +904,13 @@ pub fn verify_legs_batched(
             .verify(m.log_ts, deg, proof.ra_claims[rw.len()], transcript, None)
             .map_err(MemoryError::Sumcheck)?;
         let e = matrix_terminal_expect(
-            fetch_idx, m, ledger, rho_k, rho_j, &verdict.point, MatrixKind::Ra,
+            fetch_idx,
+            m,
+            ledger,
+            rho_k,
+            rho_j,
+            &verdict.point,
+            MatrixKind::Ra,
         )?;
         if e != verdict.final_claim {
             return Err(MemoryError::FinalCheck("batched fetch Ma"));
@@ -916,7 +932,9 @@ pub fn verify_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let init_mle = DenseMle::new(m.init.clone()).map_err(MemoryError::Mle)?;
-            let init_at = init_mle.evaluate(&point[..m.log_k]).map_err(MemoryError::Mle)?;
+            let init_at = init_mle
+                .evaluate(&point[..m.log_k])
+                .map_err(MemoryError::Mle)?;
             claimed.push(proof.ra_claims[vi]);
             claimed.push(proof.val_read_claims[vi].sub(&init_at));
         }
@@ -928,8 +946,7 @@ pub fn verify_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let (rho_k, rho_j) = point.split_at(m.log_k);
-            let e_ma =
-                matrix_terminal_expect(i, m, ledger, rho_k, rho_j, &r_read, MatrixKind::Ra)?;
+            let e_ma = matrix_terminal_expect(i, m, ledger, rho_k, rho_j, &r_read, MatrixKind::Ra)?;
             let lt_at = DenseMle::lt_extension(&r_read, rho_j).map_err(MemoryError::Mle)?;
             let e_v = proof.u_read_claims[vi].mul(&lt_at);
             expect = expect
@@ -983,7 +1000,9 @@ pub fn verify_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let init_mle = DenseMle::new(m.init.clone()).map_err(MemoryError::Mle)?;
-            let init_at = init_mle.evaluate(&point[..m.log_k]).map_err(MemoryError::Mle)?;
+            let init_at = init_mle
+                .evaluate(&point[..m.log_k])
+                .map_err(MemoryError::Mle)?;
             claimed.push(proof.wa_claims[vi]);
             claimed.push(proof.inc_w_claims[vi]);
             claimed.push(proof.val_write_claims[vi].sub(&init_at));
@@ -1031,8 +1050,7 @@ pub fn verify_legs_batched(
             let m = &instances[i];
             let point = &cwt_term[i];
             let r_a = &point[..m.log_k];
-            let e =
-                matrix_terminal_expect(i, m, ledger, r_a, &r_write, &r_mu1, MatrixKind::Inc)?;
+            let e = matrix_terminal_expect(i, m, ledger, r_a, &r_write, &r_mu1, MatrixKind::Inc)?;
             expect = expect.add(&rhos[vi].mul(&e));
         }
         if final_claim != expect {

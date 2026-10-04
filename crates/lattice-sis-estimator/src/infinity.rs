@@ -4,7 +4,10 @@
 
 use crate::math::{half_q, log2_erf_from_log2_arg, log2_positive, log2_u128};
 use crate::probability::log2_amplify;
-use crate::reduction::{beta as beta_from_delta, delta, log2_bkz_cost, short_vectors_for, ReductionCostModel, ShortVectors};
+use crate::reduction::{
+    beta as beta_from_delta, delta, log2_bkz_cost, short_vectors_for, ReductionCostModel,
+    ShortVectors,
+};
 use crate::simulator::{is_q_vector_length, lgsa_summary, LgsaSummary};
 
 /// Success probability target for amplification (lattice-estimator default).
@@ -149,11 +152,12 @@ fn cost_infinity_fixed(
     let zeta_stop = lattice_dimension
         .checked_sub(params.n)
         .filter(|stop| *stop > 0)
-        .ok_or_else(|| {
-            EstimatorError::bad("m", "infinity estimation requires m > n")
-        })?;
+        .ok_or_else(|| EstimatorError::bad("m", "infinity estimation requires m > n"))?;
     if zeta >= zeta_stop {
-        return Err(EstimatorError::bad("zeta", "zeta must leave an effective lattice dimension greater than n"));
+        return Err(EstimatorError::bad(
+            "zeta",
+            "zeta must leave an effective lattice dimension greater than n",
+        ));
     }
     let effective_dimension = lattice_dimension
         .checked_sub(zeta)
@@ -195,8 +199,8 @@ fn cost_infinity_fixed(
         let gaussian_coords = (idx_end - idx_start + 1)
             .max(u64::from(short.sieve_dim))
             .max(1) as f64;
-        let log2_sigma = summary.log2_vector_length_at_idx_start
-            - 0.5 * log2_positive(gaussian_coords);
+        let log2_sigma =
+            summary.log2_vector_length_at_idx_start - 0.5 * log2_positive(gaussian_coords);
         let log2_erf_arg = log2_positive(length_bound) - 0.5 - log2_sigma;
         let mut p = log2_erf_from_log2_arg(log2_erf_arg) * gaussian_coords;
         p += log2_positive((2.0 * length_bound + 1.0) / q_f) * idx_start as f64;
@@ -268,10 +272,7 @@ pub fn estimate_infinity(
         z = z.saturating_mul(2);
     }
     // Midpoints between consecutive ladder points.
-    let mids: Vec<u64> = zeta_grid
-        .windows(2)
-        .map(|w| (w[0] + w[1]) / 2)
-        .collect();
+    let mids: Vec<u64> = zeta_grid.windows(2).map(|w| (w[0] + w[1]) / 2).collect();
     zeta_grid.extend(mids);
     zeta_grid.push(zeta_stop - 1);
     zeta_grid.sort_unstable();
@@ -382,7 +383,10 @@ pub fn estimate_euclidean(
             prob_log2: None,
             repetitions_log2: None,
         };
-        if best.as_ref().map_or(true, |b| candidate.rop_log2 < b.rop_log2) {
+        if best
+            .as_ref()
+            .map_or(true, |b| candidate.rop_log2 < b.rop_log2)
+        {
             best = Some(candidate);
         }
     }

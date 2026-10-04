@@ -70,7 +70,11 @@ pub fn compare_before_clearing(
         .sum();
     let bound = 2 * norm_x * norm_delta;
     debug_assert!(is_kernel(&kernel));
-    CompareOutcome::Kernel { kernel, norm, bound }
+    CompareOutcome::Kernel {
+        kernel,
+        norm,
+        bound,
+    }
 }
 
 /// The ring inverse over `F_q[X]/(X^64 + 1)`: solve the 64×64 linear
@@ -151,7 +155,11 @@ pub fn ring_inverse(p: &Poly) -> Option<Poly> {
     }
     let mut arr = [0i64; 64];
     for (i, &c) in x.iter().enumerate() {
-        arr[i] = if c > q / 2 { c as i64 - q as i64 } else { c as i64 };
+        arr[i] = if c > q / 2 {
+            c as i64 - q as i64
+        } else {
+            c as i64
+        };
     }
     Some(Poly(arr))
 }
@@ -275,7 +283,13 @@ pub fn projection_error(sigma: f64, m: usize) -> f64 {
 
 /// The suffix loss `Λ_i = Σ_{h≥i} ε_h` and the node loss
 /// `κ_node = Λ_0 + δ_Γ + δ_root + δ_post + δ_c` (§6.5).
-pub fn node_loss(layer_losses: &[f64], delta_gamma: f64, delta_root: f64, delta_post: f64, delta_c: f64) -> f64 {
+pub fn node_loss(
+    layer_losses: &[f64],
+    delta_gamma: f64,
+    delta_root: f64,
+    delta_post: f64,
+    delta_c: f64,
+) -> f64 {
     let lambda0: f64 = layer_losses.iter().sum();
     lambda0 + delta_gamma + delta_root + delta_post + delta_c
 }
@@ -341,7 +355,11 @@ mod tests {
         // the kernel check on [X⁰Δ¹ − X¹Δ⁰] maps to Δ¹ − Δ⁰ ≠ 0.
         let out = compare_before_clearing(&x0, &d0, &x1, &d1, 100, 4, &|_| true);
         match out {
-            CompareOutcome::Kernel { kernel, norm, bound } => {
+            CompareOutcome::Kernel {
+                kernel,
+                norm,
+                bound,
+            } => {
                 assert!(norm <= bound, "‖K‖ ≤ 2·B_X·B_Δ");
                 assert!(!kernel[0].is_zero());
             }
@@ -374,7 +392,9 @@ mod tests {
             vec![poly_of(&[3, 1, 4, 1, 5, 9, 2, 6])],
             vec![poly_of(&[5, 3, 5, 8, 9, 7, 9, 3])],
         ];
-        let prover = HonestLayer { blocks: blocks.clone() };
+        let prover = HonestLayer {
+            blocks: blocks.clone(),
+        };
         let c = vec![poly_of(&[1, 1]), poly_of(&[0, 1])];
         let out = replay_coordinate(&prover, &c, 0, &poly_of(&[2, 0, 1]), &poly_of(&[1, 2]));
         assert!(out.kernels.is_empty(), "honest prover: no kernel");
@@ -382,7 +402,10 @@ mod tests {
         // The recovered block equals w_0 (mod q).
         for (a, b) in out.recovered[0].iter().zip(blocks[0].iter()) {
             let diff = a.sub(b);
-            assert!(diff.0.iter().all(|&x| x.rem_euclid(crate::field_k::Q48 as i64) < 4_000_000_000_000));
+            assert!(diff
+                .0
+                .iter()
+                .all(|&x| x.rem_euclid(crate::field_k::Q48 as i64) < 4_000_000_000_000));
         }
     }
 
@@ -438,5 +461,3 @@ mod tests {
         assert!(kappa > 0.0 && kappa < 1e-35);
     }
 }
-
-

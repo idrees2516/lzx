@@ -188,11 +188,7 @@ impl DenseMle {
         let evals = {
             let mut out = vec![Goldilocks::ZERO; self.evaluations.len()];
             // SIMD: packed pointwise add.
-            crate::field_simd::add_slices(
-                &self.evaluations,
-                &other.evaluations,
-                &mut out,
-            );
+            crate::field_simd::add_slices(&self.evaluations, &other.evaluations, &mut out);
             out
         };
         Ok(DenseMle {
@@ -212,11 +208,7 @@ impl DenseMle {
         let evals = {
             let mut out = vec![Goldilocks::ZERO; self.evaluations.len()];
             // SIMD: packed pointwise sub.
-            crate::field_simd::sub_slices(
-                &self.evaluations,
-                &other.evaluations,
-                &mut out,
-            );
+            crate::field_simd::sub_slices(&self.evaluations, &other.evaluations, &mut out);
             out
         };
         Ok(DenseMle {
@@ -312,7 +304,9 @@ impl DenseMle {
         }
         let mut acc = Goldilocks::ONE;
         for (x, y) in a.iter().zip(b.iter()) {
-            let same = x.mul(y).add(&Goldilocks::ONE.sub(x).mul(&Goldilocks::ONE.sub(y)));
+            let same = x
+                .mul(y)
+                .add(&Goldilocks::ONE.sub(x).mul(&Goldilocks::ONE.sub(y)));
             acc = acc.mul(&same);
         }
         Ok(acc)

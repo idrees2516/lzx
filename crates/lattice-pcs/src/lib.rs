@@ -22,7 +22,11 @@
 //! cannot batch degrade to an honest [`PcsFeatureError::BatchingUnsupported`].
 
 #![forbid(unsafe_code)]
-#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::type_complexity)]
+#![allow(
+    clippy::needless_range_loop,
+    clippy::manual_div_ceil,
+    clippy::type_complexity
+)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -54,7 +58,10 @@ impl std::fmt::Display for PcsFeatureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PcsFeatureError::BatchingUnsupported => {
-                write!(f, "multi-claim batched openings unsupported by this backend")
+                write!(
+                    f,
+                    "multi-claim batched openings unsupported by this backend"
+                )
             }
         }
     }
@@ -151,7 +158,10 @@ pub enum HyperWolfError {
     /// An optional PCS feature (H7 batching) is unsupported.
     Feature(PcsFeatureError),
     VerificationFailed,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<PcsFeatureError> for HyperWolfError {
@@ -184,7 +194,12 @@ pub struct HyperWolfOpening {
 }
 
 impl HyperWolf {
-    pub fn setup(log_n: u32, m: usize, norm_bound: u32, seed: [u8; 32]) -> Result<Self, HyperWolfError> {
+    pub fn setup(
+        log_n: u32,
+        m: usize,
+        norm_bound: u32,
+        seed: [u8; 32],
+    ) -> Result<Self, HyperWolfError> {
         let ring = lattice_ring::RingConfig::new(lattice_ring::Modulus32::Q_32, log_n)
             .map_err(HyperWolfError::Ring)?;
         let params = AjtaiParams {
@@ -221,11 +236,9 @@ impl HyperWolf {
             .verify(&proof.witness, self.pk.params.norm_bound)
             .map_err(HyperWolfError::Norm)?;
         // 3. Unpack the committed evaluations.
-        let mut unpacked = lattice_ring::packing::unpack_field_elements(
-            &self.pk.params.ring,
-            &proof.witness,
-        )
-        .map_err(HyperWolfError::Packing)?;
+        let mut unpacked =
+            lattice_ring::packing::unpack_field_elements(&self.pk.params.ring, &proof.witness)
+                .map_err(HyperWolfError::Packing)?;
         let expected_len = 1usize << commitment.num_vars;
         if unpacked.len() < expected_len {
             return Err(HyperWolfError::Shape {
@@ -263,15 +276,13 @@ impl PcsBackend for HyperWolf {
     ) -> Result<Self::OpeningProof, Self::Error> {
         // Standard-model route: the opening is witness-direct — no
         // transcript-dependent extraction (that is the point).
-        let value = mle
-            .evaluate(&claim.point)
-            .map_err(HyperWolfError::Mle)?;
+        let value = mle.evaluate(&claim.point).map_err(HyperWolfError::Mle)?;
         if value != claim.value {
             return Err(HyperWolfError::VerificationFailed);
         }
         let witness = self.packed(mle)?;
-        let norm_proof = NormProof::prove(&witness, self.pk.params.norm_bound)
-            .map_err(HyperWolfError::Norm)?;
+        let norm_proof =
+            NormProof::prove(&witness, self.pk.params.norm_bound).map_err(HyperWolfError::Norm)?;
         Ok(HyperWolfOpening {
             witness,
             norm_proof,
@@ -314,16 +325,14 @@ impl PcsBackend for HyperWolf {
         }
         // Honest prover: refuse any false claim in the batch.
         for claim in claims {
-            let value = mle
-                .evaluate(&claim.point)
-                .map_err(HyperWolfError::Mle)?;
+            let value = mle.evaluate(&claim.point).map_err(HyperWolfError::Mle)?;
             if value != claim.value {
                 return Err(HyperWolfError::VerificationFailed);
             }
         }
         let witness = self.packed(mle)?;
-        let norm_proof = NormProof::prove(&witness, self.pk.params.norm_bound)
-            .map_err(HyperWolfError::Norm)?;
+        let norm_proof =
+            NormProof::prove(&witness, self.pk.params.norm_bound).map_err(HyperWolfError::Norm)?;
         Ok(HyperWolfOpening {
             witness,
             norm_proof,
@@ -472,12 +481,16 @@ mod tests {
         let mut t = Transcript::new_default(b"lzx-hyperwolf-batch");
         let proof = pcs.prove_evaluations(&mle, &claims, &mut t).ok().unwrap();
         let mut vt = Transcript::new_default(b"lzx-hyperwolf-batch");
-        assert!(pcs.verify_evaluations(&commitment, &claims, &proof, &mut vt).is_ok());
+        assert!(pcs
+            .verify_evaluations(&commitment, &claims, &proof, &mut vt)
+            .is_ok());
         // One wrong value in the batch must sink the whole verification.
         let mut bad = claims.clone();
         bad[1].value = bad[1].value.add(&Goldilocks::ONE);
         let mut vt2 = Transcript::new_default(b"lzx-hyperwolf-batch");
-        assert!(pcs.verify_evaluations(&commitment, &bad, &proof, &mut vt2).is_err());
+        assert!(pcs
+            .verify_evaluations(&commitment, &bad, &proof, &mut vt2)
+            .is_err());
         // The honest prover refuses a batch containing a false claim.
         let mut t2 = Transcript::new_default(b"lzx-hyperwolf-batch");
         assert!(pcs.prove_evaluations(&mle, &bad, &mut t2).is_err());
@@ -485,10 +498,14 @@ mod tests {
         let mut t3 = Transcript::new_default(b"lzx-hyperwolf-batch");
         assert!(pcs.prove_evaluations(&mle, &[], &mut t3).is_err());
         let mut vt3 = Transcript::new_default(b"lzx-hyperwolf-batch");
-        assert!(pcs.verify_evaluations(&commitment, &[], &proof, &mut vt3).is_err());
+        assert!(pcs
+            .verify_evaluations(&commitment, &[], &proof, &mut vt3)
+            .is_err());
         // A claim verified in isolation against the batch proof still
         // passes (the proof opens the same witness).
         let mut vt4 = Transcript::new_default(b"lzx-hyperwolf-batch");
-        assert!(pcs.verify(&commitment, &claims[2], &proof, &mut vt4).is_ok());
+        assert!(pcs
+            .verify(&commitment, &claims[2], &proof, &mut vt4)
+            .is_ok());
     }
 }

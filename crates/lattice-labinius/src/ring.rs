@@ -291,18 +291,14 @@ pub fn decompose_components_quad<const Q: u16>(y: &Coeffs) -> [PowerOfThreeRing;
             let em = red(y[2 * jm + k]);
             // reduce the 2q-range sums first (Barrett's valid range is v < q^2 + q), then the
             // sub-q products
-            out[k].v[s] = ctr(
-                crate::params::barrett_mod_u64(
-                    crate::params::barrett_mod_u64(ep + em, Q) * inv2,
-                    Q,
-                ) as i64,
-            );
-            out[k + 2].v[s] = ctr(
-                crate::params::barrett_mod_u64(
-                    crate::params::barrett_mod_u64(ep + q - em, Q) * tws,
-                    Q,
-                ) as i64,
-            );
+            out[k].v[s] = ctr(crate::params::barrett_mod_u64(
+                crate::params::barrett_mod_u64(ep + em, Q) * inv2,
+                Q,
+            ) as i64);
+            out[k + 2].v[s] = ctr(crate::params::barrett_mod_u64(
+                crate::params::barrett_mod_u64(ep + q - em, Q) * tws,
+                Q,
+            ) as i64);
         }
     }
     out

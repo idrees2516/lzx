@@ -451,7 +451,11 @@ mod tests {
             assert_eq!(generic, fast, "forward_fast mismatch at log_n={log_n}");
             // inverse_fast inverts forward_fast exactly.
             tables.inverse_fast(&mut fast).ok().unwrap();
-            assert_eq!(fast, a.coeffs().to_vec(), "inverse_fast roundtrip at log_n={log_n}");
+            assert_eq!(
+                fast,
+                a.coeffs().to_vec(),
+                "inverse_fast roundtrip at log_n={log_n}"
+            );
             // inverse_fast == inverse on generic output.
             let mut g2 = a.coeffs().to_vec();
             tables.forward(&mut g2).ok().unwrap();

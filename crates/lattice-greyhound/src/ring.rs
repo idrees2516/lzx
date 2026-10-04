@@ -199,7 +199,10 @@ impl Poly {
             let mut re = 0.0f64;
             let mut im = 0.0f64;
             let (mut zr, mut zi) = (1.0f64, 0.0f64);
-            let (wr, wi) = (f64::cos(std::f64::consts::PI * i as f64 / 64.0), f64::sin(std::f64::consts::PI * i as f64 / 64.0));
+            let (wr, wi) = (
+                f64::cos(std::f64::consts::PI * i as f64 / 64.0),
+                f64::sin(std::f64::consts::PI * i as f64 / 64.0),
+            );
             for &c in self.0.iter() {
                 re += c as f64 * zr;
                 im += c as f64 * zi;
@@ -311,7 +314,11 @@ impl Poly {
                 v |= (buf[i * 5 + k] as u64) << (8 * k);
             }
             v %= Q as u64;
-            p[i] = if v > Q as u64 / 2 { v as i64 - Q } else { v as i64 };
+            p[i] = if v > Q as u64 / 2 {
+                v as i64 - Q
+            } else {
+                v as i64
+            };
         }
         Self(p)
     }
@@ -502,7 +509,11 @@ mod tests {
             let a = rng_poly(s + 100);
             let b = rng_poly(s + 200);
             assert_eq!(a.sigma_m1().sigma_m1(), a);
-            let lhs: i128 = a.0.iter().zip(b.0.iter()).map(|(x, y)| *x as i128 * *y as i128).sum();
+            let lhs: i128 =
+                a.0.iter()
+                    .zip(b.0.iter())
+                    .map(|(x, y)| *x as i128 * *y as i128)
+                    .sum();
             let rhs = sprod(&[a.sigma_m1()], &[b]).constant_term();
             assert_eq!(cmod(lhs), rhs);
         }
@@ -529,7 +540,11 @@ mod tests {
     fn opnorm_of_challenge_is_bounded() {
         // the papers' challenge set has ‖c‖op ≤ T = 14 (rejection); a random
         // small poly should not wildly exceed the l1-based estimate
-        let a = Poly::from_i16(&(0..N).map(|i| (((i * 37 % 7) as i64) - 3) as i16).collect::<Vec<_>>());
+        let a = Poly::from_i16(
+            &(0..N)
+                .map(|i| (((i * 37 % 7) as i64) - 3) as i16)
+                .collect::<Vec<_>>(),
+        );
         let op = a.opnorm();
         assert!(op < 600.0, "opnorm {op} absurd");
     }
@@ -570,7 +585,11 @@ mod tests {
 
     #[test]
     fn q_properties() {
-        assert_eq!(Q % 8, 5, "q ≡ 5 mod 8 required (Lemma 2.1 + two-factor split)");
+        assert_eq!(
+            Q % 8,
+            5,
+            "q ≡ 5 mod 8 required (Lemma 2.1 + two-factor split)"
+        );
         // ord_128(q) = 32 -> X^64+1 splits into 2 degree-32 factors
         let mut x = Q as u128 % 128;
         let mut ord = 1u32;
@@ -586,6 +605,15 @@ mod tests {
         let a = vec![rng_poly(11), rng_poly(12)];
         let b = vec![rng_poly(13), rng_poly(14)];
         let c = vec![rng_poly(15), rng_poly(16)];
-        assert_eq!(sprod(&a, &b).add(&sprod(&a, &c)), sprod(&a, &b.iter().zip(c.iter()).map(|(x, y)| x.add(y)).collect::<Vec<_>>()));
+        assert_eq!(
+            sprod(&a, &b).add(&sprod(&a, &c)),
+            sprod(
+                &a,
+                &b.iter()
+                    .zip(c.iter())
+                    .map(|(x, y)| x.add(y))
+                    .collect::<Vec<_>>()
+            )
+        );
     }
 }

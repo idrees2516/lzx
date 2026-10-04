@@ -19,8 +19,6 @@
 //! non-wrapping arithmetic, only 64-bit loads/stores, the instruction
 //! subset of `decode_family`, signed values via biased u64 encoding.
 
-
-
 /// Public state: final registers, final RAM window, step count.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PublicStateV2 {
@@ -221,10 +219,10 @@ pub fn decode_family(word: u32) -> u64 {
             (0x5, 0x00) => one << fam::SRLI,
             (0x5, 0x10) => one << fam::SRLI,
             // Bitwise and comparisons route with the ADD class.
+            // ((0x4, 0x00) and (0x7, 0x00) already matched DIVQ/DIVR
+            // above — the dead duplicate arms removed.)
             (0x2, 0x00) => one << fam::ADD,
-            (0x4, 0x00) => one << fam::ADD,
             (0x6, 0x00) => one << fam::ADD,
-            (0x7, 0x00) => one << fam::ADD,
             _ => 0,
         },
         0x0b => match funct3 {
@@ -355,7 +353,10 @@ pub struct TraceData {
 }
 
 #[allow(clippy::too_many_lines)]
-pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Result<TraceData, PipelineError> {
+pub fn build_trace(
+    state: &MachineState,
+    rows: &[lattice_vm::TraceRow],
+) -> Result<TraceData, PipelineError> {
     let log_t = rows.len().next_power_of_two().max(2).trailing_zeros() as usize;
     let t_pow = 1usize << log_t;
     let mut regs = [0u64; 32];
@@ -424,9 +425,13 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
                 let shamt = if opcode == 0x33 || opcode == 0x3b {
                     (rs2v & 0x3f) as u32
                 } else {
-                    ((iw >> 20) & 0x3f) as u32
+                    (iw >> 20) & 0x3f
                 };
-                let bnd = if family == fam::SRLI { 1u64 << shamt } else { rs2v };
+                let bnd = if family == fam::SRLI {
+                    1u64 << shamt
+                } else {
+                    rs2v
+                };
                 bnd.wrapping_sub(r).wrapping_sub(1)
             }
         } else {
@@ -530,7 +535,10 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
         p(Col::G0 as usize, gc[0]);
         p(Col::G1 as usize, gc[1]);
         p(Col::G2 as usize, gc[2]);
-        p(Col::Bz as usize, ((family == fam::DIVQ || family == fam::DIVR) && rs2v == 0) as u64);
+        p(
+            Col::Bz as usize,
+            ((family == fam::DIVQ || family == fam::DIVR) && rs2v == 0) as u64,
+        );
         p(Col::Invb as usize, 0);
         p(Col::Kpow as usize, 1u64 << shamt.min(63));
         p(Col::Shamt as usize, shamt);
@@ -595,14 +603,63 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
         for i in 0..32 {
             p(bit(i), ((last_iw >> i) & 1) as u64);
         }
-        for idx in [Col::Rs1a, Col::Rs2a, Col::Rda, Col::Rs1v, Col::Rs2v, Col::Rdv,
-            Col::A0, Col::A1, Col::A2, Col::B0, Col::B1, Col::B2, Col::C0, Col::C1, Col::C2,
-            Col::Ea, Col::Mrv, Col::Mwv, Col::Wada, Col::Wvr, Col::Taken, Col::Eqb,
-            Col::Invab, Col::We, Col::E, Col::E0, Col::E1, Col::E2c, Col::X0f, Col::Invr,
-            Col::Q, Col::Q0, Col::Q1, Col::Q2, Col::Rv, Col::R0, Col::R1, Col::R2,
-            Col::E2, Col::G0, Col::G1, Col::G2, Col::Bz, Col::Invb,
-            Col::Kpow, Col::Shamt, Col::Dkey, Col::Fb0, Col::Fb1, Col::Fb2, Col::Fb3,
-            Col::Rada, Col::WadaR, Col::Rs1m, Col::Rs2m] {
+        for idx in [
+            Col::Rs1a,
+            Col::Rs2a,
+            Col::Rda,
+            Col::Rs1v,
+            Col::Rs2v,
+            Col::Rdv,
+            Col::A0,
+            Col::A1,
+            Col::A2,
+            Col::B0,
+            Col::B1,
+            Col::B2,
+            Col::C0,
+            Col::C1,
+            Col::C2,
+            Col::Ea,
+            Col::Mrv,
+            Col::Mwv,
+            Col::Wada,
+            Col::Wvr,
+            Col::Taken,
+            Col::Eqb,
+            Col::Invab,
+            Col::We,
+            Col::E,
+            Col::E0,
+            Col::E1,
+            Col::E2c,
+            Col::X0f,
+            Col::Invr,
+            Col::Q,
+            Col::Q0,
+            Col::Q1,
+            Col::Q2,
+            Col::Rv,
+            Col::R0,
+            Col::R1,
+            Col::R2,
+            Col::E2,
+            Col::G0,
+            Col::G1,
+            Col::G2,
+            Col::Bz,
+            Col::Invb,
+            Col::Kpow,
+            Col::Shamt,
+            Col::Dkey,
+            Col::Fb0,
+            Col::Fb1,
+            Col::Fb2,
+            Col::Fb3,
+            Col::Rada,
+            Col::WadaR,
+            Col::Rs1m,
+            Col::Rs2m,
+        ] {
             p(idx as usize, 0);
         }
         ram_ra.push(0);
@@ -617,13 +674,22 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
         let rs1v = cols[Col::Rs1v as usize][t];
         let rs2v = cols[Col::Rs2v as usize][t];
         let d = rs1v.sub(&rs2v);
-        cols[Col::Invab as usize][t] =
-            if d.is_zero() { Goldilocks::ZERO } else { d.inverse().unwrap_or(Goldilocks::ZERO) };
+        cols[Col::Invab as usize][t] = if d.is_zero() {
+            Goldilocks::ZERO
+        } else {
+            d.inverse().unwrap_or(Goldilocks::ZERO)
+        };
         let rda = cols[Col::Rda as usize][t];
-        cols[Col::Invr as usize][t] =
-            if rda.is_zero() { Goldilocks::ZERO } else { rda.inverse().unwrap_or(Goldilocks::ZERO) };
-        cols[Col::Invb as usize][t] =
-            if rs2v.is_zero() { Goldilocks::ZERO } else { rs2v.inverse().unwrap_or(Goldilocks::ZERO) };
+        cols[Col::Invr as usize][t] = if rda.is_zero() {
+            Goldilocks::ZERO
+        } else {
+            rda.inverse().unwrap_or(Goldilocks::ZERO)
+        };
+        cols[Col::Invb as usize][t] = if rs2v.is_zero() {
+            Goldilocks::ZERO
+        } else {
+            rs2v.inverse().unwrap_or(Goldilocks::ZERO)
+        };
     }
     Ok(TraceData {
         log_t,
@@ -642,7 +708,18 @@ pub fn build_trace(state: &MachineState, rows: &[lattice_vm::TraceRow]) -> Resul
 fn writes_rd(family: usize) -> bool {
     matches!(
         family,
-        fam::ADD | fam::SUB | fam::MUL | fam::DIVQ | fam::DIVR | fam::SLLI | fam::SRLI
-            | fam::SLTU | fam::JAL | fam::JALR | fam::LOAD | fam::LUI | fam::AUIPC
+        fam::ADD
+            | fam::SUB
+            | fam::MUL
+            | fam::DIVQ
+            | fam::DIVR
+            | fam::SLLI
+            | fam::SRLI
+            | fam::SLTU
+            | fam::JAL
+            | fam::JALR
+            | fam::LOAD
+            | fam::LUI
+            | fam::AUIPC
     )
 }

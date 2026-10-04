@@ -9,10 +9,11 @@
 use lattice_core::keccak::KeccakSponge;
 use lattice_greyhound::greyhound::{commit, eval_polynomial, eval_prove, eval_verify, PcsParams};
 use lattice_greyhound::recursion::{level_table, proof_size_bytes};
-use lattice_greyhound::sizes::{
-    analytic_labrador_size, greyhound_contribution_bytes, labrador_witness_rank, paper_contributions_bytes, table4_total_bytes, TABLE4,
-};
 use lattice_greyhound::sis::ComKey;
+use lattice_greyhound::sizes::{
+    analytic_labrador_size, greyhound_contribution_bytes, labrador_witness_rank,
+    paper_contributions_bytes, table4_total_bytes, TABLE4,
+};
 
 fn sha3_256(input: &[u8]) -> [u8; 32] {
     let mut h = KeccakSponge::new_sha3_256();
@@ -37,17 +38,29 @@ fn rand_poly(seed: u8, i: usize) -> lattice_greyhound::Poly {
 
 fn bench_pcs(log_len: u32) {
     let len = 1usize << log_len;
-    println!("== Greyhound PCS: {len} ring elements (degree {}/{})", len * 64, 1 << 20);
+    println!(
+        "== Greyhound PCS: {len} ring elements (degree {}/{})",
+        len * 64,
+        1 << 20
+    );
     let t0 = std::time::Instant::now();
     let s: Vec<lattice_greyhound::Poly> = (0..len).map(|i| rand_poly(7, i)).collect();
     let params = PcsParams::new(len).expect("params");
     println!(
         "   params: m={} n={} kappa={} kappa1={} f={} fu={} b={} bu={}",
-        params.m, params.n, params.cpp.kappa, params.cpp.kappa1, params.cpp.f, params.cpp.fu, params.cpp.b, params.cpp.bu
+        params.m,
+        params.n,
+        params.cpp.kappa,
+        params.cpp.kappa1,
+        params.cpp.f,
+        params.cpp.fu,
+        params.cpp.b,
+        params.cpp.bu
     );
     // key sized for the PCS + LaBRADOR windows
     let key_len = params.cpp.kappa * params.m * params.cpp.f
-        + params.cpp.kappa1 * (params.n * params.cpp.fu * params.cpp.kappa + params.n * params.cpp.fu)
+        + params.cpp.kappa1
+            * (params.n * params.cpp.fu * params.cpp.kappa + params.n * params.cpp.fu)
         + (1 << 16);
     let key = ComKey::expand(key_len, &sha3_256(b"bench-key"));
     let com = commit(&s, &key).expect("commit");
@@ -64,9 +77,17 @@ fn bench_pcs(log_len: u32) {
     let gh = greyhound_contribution_bytes(pub_params.cpp.kappa1);
     let lab = proof_size_bytes(&proof.labrador);
     println!("   prove: {prove_t:?}  verify: {verify_t:?}");
-    println!("   Greyhound contribution: {gh} B; LaBRADOR sub-proof (model): {lab} B; total: {} B", gh + lab);
+    println!(
+        "   Greyhound contribution: {gh} B; LaBRADOR sub-proof (model): {lab} B; total: {} B",
+        gh + lab
+    );
     let table = level_table(&proof.labrador);
-    println!("   levels: {} ({} tail), sizes: {:?}", table.len(), table.iter().filter(|t| t.tail).count(), table.iter().map(|t| t.bits / 8).collect::<Vec<_>>());
+    println!(
+        "   levels: {} ({} tail), sizes: {:?}",
+        table.len(),
+        table.iter().filter(|t| t.tail).count(),
+        table.iter().map(|t| t.bits / 8).collect::<Vec<_>>()
+    );
     println!();
 }
 
@@ -107,7 +128,14 @@ fn bench_labrador_at_table(idx: usize) {
     let b = lattice_greyhound::ring::sprod(&phi, &s);
     let stmt = PrincipalStatement::new(
         vec![VectorSpec::plain(rank)],
-        vec![DotCnst::with_b(vec![Term { idx: 0, off: 0, phi }], b)],
+        vec![DotCnst::with_b(
+            vec![Term {
+                idx: 0,
+                off: 0,
+                phi,
+            }],
+            b,
+        )],
         vec![],
         s.iter().map(|p| p.normsq()).sum::<u64>() * 4,
     );
@@ -127,7 +155,10 @@ fn bench_labrador_at_table(idx: usize) {
             }
         }
     };
-    println!("   key: {key_len} ring elements ({:.1} MB)", key_len as f64 * 512.0 / 1e6);
+    println!(
+        "   key: {key_len} ring elements ({:.1} MB)",
+        key_len as f64 * 512.0 / 1e6
+    );
     let key = ComKey::expand(key_len, &sha3_256(b"lab-key"));
     println!("   witness+key materialization: {:?}", t0.elapsed());
     let t1 = std::time::Instant::now();
@@ -136,13 +167,28 @@ fn bench_labrador_at_table(idx: usize) {
             let pt = t1.elapsed();
             let t2 = std::time::Instant::now();
             let vr = lattice_greyhound::recursion::verify(&stmt, &proof, &key);
-            println!("   prove: {pt:?}  verify: {:?}  -> {}", t2.elapsed(), if vr.is_ok() { "OK" } else { "FAILED" });
+            println!(
+                "   prove: {pt:?}  verify: {:?}  -> {}",
+                t2.elapsed(),
+                if vr.is_ok() { "OK" } else { "FAILED" }
+            );
             let bits = proof_size_bytes(&proof);
             let table = level_table(&proof);
-            println!("   LaBRADOR sub-proof (measured model): {bits} B = {:.2} KB over {} levels", bits as f64 / 1024.0, table.len());
-            println!("   level sizes (B): {:?}", table.iter().map(|t| t.bits / 8).collect::<Vec<_>>());
+            println!(
+                "   LaBRADOR sub-proof (measured model): {bits} B = {:.2} KB over {} levels",
+                bits as f64 / 1024.0,
+                table.len()
+            );
+            println!(
+                "   level sizes (B): {:?}",
+                table.iter().map(|t| t.bits / 8).collect::<Vec<_>>()
+            );
             let gh = greyhound_contribution_bytes(t.n1);
-            println!("   + Greyhound contribution (n1={}): {gh} B => TOTAL {:.2} KB (paper: 53 KB)", t.n1, (gh + bits) as f64 / 1024.0);
+            println!(
+                "   + Greyhound contribution (n1={}): {gh} B => TOTAL {:.2} KB (paper: 53 KB)",
+                t.n1,
+                (gh + bits) as f64 / 1024.0
+            );
         }
         Err(e) => println!("   prove failed: {e}"),
     }
@@ -167,7 +213,10 @@ fn main() {
             total as f64 / 1024.0
         );
     }
-    let analytic_230 = analytic_labrador_size(labrador_witness_rank(&TABLE4[2]), 2f64.powi(2 * TABLE4[2].b as i32) / 12.0);
+    let analytic_230 = analytic_labrador_size(
+        labrador_witness_rank(&TABLE4[2]),
+        2f64.powi(2 * TABLE4[2].b as i32) / 12.0,
+    );
     println!(
         "   the analytic LaBRADOR sub-proof at 2^30: {analytic_230} B = {:.1} KB; + Greyhound {} B = {:.1} KB",
         analytic_230 as f64 / 1024.0,
@@ -182,7 +231,9 @@ fn main() {
         // materializations in the level's target construction, ~3GB) exceeds
         // a 4GB container's budget — run on a larger machine. The 2^26
         // quarter-scale statement runs fully (see the default path).
-        println!("   the 2^30 statement: 138,880 ring elements — needs >4GB RAM for the prove phase");
+        println!(
+            "   the 2^30 statement: 138,880 ring elements — needs >4GB RAM for the prove phase"
+        );
         bench_labrador_at_table(0); // the 2^26 statement runs fully
     } else {
         bench_labrador_at_table(0); // the 2^26 statement (34,791 elements)

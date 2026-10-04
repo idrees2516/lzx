@@ -32,7 +32,12 @@ impl FieldVec {
     }
 
     pub fn norm_inf(&self) -> i64 {
-        self.0.iter().map(|c| c.sym()).map(|s| s.abs()).max().unwrap_or(0)
+        self.0
+            .iter()
+            .map(|c| c.sym())
+            .map(|s| s.abs())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Embed into R_F^{nR} (coefficient embedding, §2.4.1).
@@ -60,9 +65,7 @@ impl FieldVec {
                 // arr index bit: high half = X_i = 1
                 let lo = cur[i];
                 let hi = cur[half + i];
-                next.push(
-                    K::ONE.sub(ri).mul(&lo).add(&ri.mul(&hi)),
-                );
+                next.push(K::ONE.sub(ri).mul(&lo).add(&ri.mul(&hi)));
             }
             cur = next;
             len = half;
@@ -133,12 +136,7 @@ impl StructMatrix {
             }
             lift.push(ring_row);
         }
-        StructMatrix {
-            rows,
-            lift,
-            m,
-            nf,
-        }
+        StructMatrix { rows, lift, m, nf }
     }
 
     /// The identity matrix M_1 = I_m (Remark 4.1.(3)).
@@ -213,9 +211,7 @@ impl RingMle {
             let lo = &self.cube[i];
             let hi = &self.cube[half + i];
             // (1−r)·lo + r·hi with K-scalar scaling of R_K elements.
-            next.push(
-                lo.scale_k(&K::ONE.sub(r)).add(&hi.scale_k(r)),
-            );
+            next.push(lo.scale_k(&K::ONE.sub(r)).add(&hi.scale_k(r)));
         }
         self.cube = next;
         self.log_len -= 1;
@@ -243,8 +239,6 @@ impl RingMle {
         acc
     }
 }
-
-
 
 /// eq-array utilities over K (for the Sum-Check engine).
 pub struct EqArray;
@@ -306,11 +300,7 @@ mod tests {
         let prod = mat.mul_ring(&zr);
         let field_prod = mat.mul_field(&z);
         for row in 0..m {
-            assert_eq!(
-                prod[row].ct(),
-                field_prod[row],
-                "row {row}: ct(M̄z) = Mz"
-            );
+            assert_eq!(prod[row].ct(), field_prod[row], "row {row}: ct(M̄z) = Mz");
         }
     }
 
@@ -374,7 +364,9 @@ mod tests {
 
     #[test]
     fn eq_array_binds_correctly() {
-        let alpha: Vec<K> = (0..3).map(|i| K::from_fp(Fq::new(3 + i as u64 * 5))).collect();
+        let alpha: Vec<K> = (0..3)
+            .map(|i| K::from_fp(Fq::new(3 + i as u64 * 5)))
+            .collect();
         let arr = EqArray::full(3, &alpha);
         for (i, &v) in arr.iter().enumerate() {
             let mut w = K::ONE;

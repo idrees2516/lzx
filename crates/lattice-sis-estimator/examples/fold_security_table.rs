@@ -61,7 +61,9 @@ fn main() {
             let six_sigma = (12.0 * sigma) as u64;
             for (regime, bound) in [("gate", gate), ("6-sigma", six_sigma)] {
                 if let Some((cl, qm)) = bits(2, n_bar + r, bound) {
-                    println!("| 2 | {label} | {n_bar} | {r} | {regime} | {bound} | {cl:.1} | {qm:.1} |");
+                    println!(
+                        "| 2 | {label} | {n_bar} | {r} | {regime} | {bound} | {cl:.1} | {qm:.1} |"
+                    );
                 }
             }
         }
@@ -105,7 +107,9 @@ fn main() {
             for (r, a) in [(4u64, 1u64 << 6), (8, 1 << 6), (4, 1 << 8)] {
                 let gate = 2 * r * a * BETA0;
                 if let Some((cl, qm)) = bits(k, n_bar + r, gate) {
-                    println!("| {k} | {n_bar} | {r} | 2^{a:#x} | gate {gate} | {cl:.1} | {qm:.1} |");
+                    println!(
+                        "| {k} | {n_bar} | {r} | 2^{a:#x} | gate {gate} | {cl:.1} | {qm:.1} |"
+                    );
                 }
             }
         }

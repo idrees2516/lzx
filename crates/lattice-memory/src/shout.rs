@@ -183,7 +183,10 @@ pub fn prove_shout_core_d1(
     let table_m = table_mle(table, log_k)?;
     transcript.append_field_slice(
         b"shout-core-meta",
-        &[Goldilocks::from_u64(log_k as u64), Goldilocks::from_u64(log_t as u64)],
+        &[
+            Goldilocks::from_u64(log_k as u64),
+            Goldilocks::from_u64(log_t as u64),
+        ],
     )?;
     absorb_table(table, transcript)?;
     let rcycle = transcript.challenge_fields(b"shout-rcycle", log_t)?;
@@ -215,7 +218,10 @@ pub fn verify_shout_core_d1(
     let table_m = table_mle(table, log_k)?;
     transcript.append_field_slice(
         b"shout-core-meta",
-        &[Goldilocks::from_u64(log_k as u64), Goldilocks::from_u64(log_t as u64)],
+        &[
+            Goldilocks::from_u64(log_k as u64),
+            Goldilocks::from_u64(log_t as u64),
+        ],
     )?;
     absorb_table(table, transcript)?;
     let rcycle = transcript.challenge_fields(b"shout-rcycle", log_t)?;
@@ -255,7 +261,12 @@ mod tests {
         // K = 8 table, T = 4 reads.
         let table: Vec<Goldilocks> = [10u64, 21, 32, 43, 54, 65, 76, 87].map(fe).to_vec();
         let reads = vec![(2u64, 32u64), (7, 87), (0, 10), (2, 32)];
-        Fixture { table, log_k: 3, log_t: 2, reads }
+        Fixture {
+            table,
+            log_k: 3,
+            log_t: 2,
+            reads,
+        }
     }
 
     fn build(fx: &Fixture) -> (DenseMle, DenseMle) {
@@ -276,13 +287,18 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"shout-test");
-        let proof = prove_shout(&fx.table, std::slice::from_ref(&matrix), fx.log_k, fx.log_t, &resolver, &mut t)
-            .ok()
-            .unwrap();
+        let proof = prove_shout(
+            &fx.table,
+            std::slice::from_ref(&matrix),
+            fx.log_k,
+            fx.log_t,
+            &resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         let mut t2 = Transcript::new_default(b"shout-test");
-        assert!(
-            verify_shout(&proof, &fx.table, fx.log_k, fx.log_t, 1, &resolver, &mut t2).is_ok()
-        );
+        assert!(verify_shout(&proof, &fx.table, fx.log_k, fx.log_t, 1, &resolver, &mut t2).is_ok());
     }
 
     #[test]
@@ -312,7 +328,10 @@ mod tests {
         let table: Vec<Goldilocks> = (0..16u64).map(|i| fe(i * 7 + 3)).collect();
         let reads = [(0u64, 3u64), (7, 52), (15, 108), (3, 24)];
         let layout = OneHotLayout::new(log_k, log_t, 2, usize::MAX).ok().unwrap();
-        let digits: Vec<Vec<u32>> = reads.iter().map(|&(a, _)| layout.digits(a).ok().unwrap()).collect();
+        let digits: Vec<Vec<u32>> = reads
+            .iter()
+            .map(|&(a, _)| layout.digits(a).ok().unwrap())
+            .collect();
         let m0 = one_hot_dim_matrix(&digits.iter().map(|d| d[0]).collect::<Vec<_>>(), 2, log_t)
             .ok()
             .unwrap();
@@ -351,9 +370,15 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"shout-test");
-        assert!(
-            prove_shout(&fx.table, std::slice::from_ref(&matrix), fx.log_k, fx.log_t, &resolver, &mut t).is_err()
-        );
+        assert!(prove_shout(
+            &fx.table,
+            std::slice::from_ref(&matrix),
+            fx.log_k,
+            fx.log_t,
+            &resolver,
+            &mut t
+        )
+        .is_err());
         let mut t2 = Transcript::new_default(b"shout-test");
         let (m2, rv2) = build(&fx);
         let res2 = WitnessResolver {
@@ -361,9 +386,7 @@ mod tests {
             read_values: Some(&rv2),
             ..Default::default()
         };
-        assert!(
-            prove_shout_core_d1(&fx.table, &m2, fx.log_k, fx.log_t, &res2, &mut t2).is_err()
-        );
+        assert!(prove_shout_core_d1(&fx.table, &m2, fx.log_k, fx.log_t, &res2, &mut t2).is_err());
     }
 
     /// Soundness: the verifier resolving the claim against a TAMPERED
@@ -378,9 +401,16 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"shout-test");
-        let proof = prove_shout(&fx.table, std::slice::from_ref(&matrix), fx.log_k, fx.log_t, &resolver, &mut t)
-            .ok()
-            .unwrap();
+        let proof = prove_shout(
+            &fx.table,
+            std::slice::from_ref(&matrix),
+            fx.log_k,
+            fx.log_t,
+            &resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         // Tamper the rv column the verifier resolves against.
         let mut bad_vals = rv_col.evaluations.clone();
         bad_vals[0] = fe(999);
@@ -391,9 +421,16 @@ mod tests {
             ..Default::default()
         };
         let mut t2 = Transcript::new_default(b"shout-test");
-        assert!(
-            verify_shout(&proof, &fx.table, fx.log_k, fx.log_t, 1, &bad_resolver, &mut t2).is_err()
-        );
+        assert!(verify_shout(
+            &proof,
+            &fx.table,
+            fx.log_k,
+            fx.log_t,
+            1,
+            &bad_resolver,
+            &mut t2
+        )
+        .is_err());
     }
 
     /// Soundness: tampered sumcheck rounds rejected.
@@ -407,9 +444,16 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"shout-test");
-        let mut proof = prove_shout(&fx.table, std::slice::from_ref(&matrix), fx.log_k, fx.log_t, &resolver, &mut t)
-            .ok()
-            .unwrap();
+        let mut proof = prove_shout(
+            &fx.table,
+            std::slice::from_ref(&matrix),
+            fx.log_k,
+            fx.log_t,
+            &resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         if let Some(round) = proof.read_checking.rounds.first_mut() {
             if let Some(v) = round.first_mut() {
                 *v = v.add(&fe(1));
@@ -433,12 +477,19 @@ mod tests {
         let mut t = Transcript::new_default(b"shout-test");
         // Wrong table length.
         let short_table = fx.table[..4].to_vec();
-        assert!(
-            prove_shout(&short_table, std::slice::from_ref(&matrix), fx.log_k, fx.log_t, &resolver, &mut t)
-                .is_err()
-        );
+        assert!(prove_shout(
+            &short_table,
+            std::slice::from_ref(&matrix),
+            fx.log_k,
+            fx.log_t,
+            &resolver,
+            &mut t
+        )
+        .is_err());
         // Wrong matrix arity.
-        let small = one_hot_dim_matrix(&[0u32, 1, 2, 3], 2, fx.log_t).ok().unwrap();
+        let small = one_hot_dim_matrix(&[0u32, 1, 2, 3], 2, fx.log_t)
+            .ok()
+            .unwrap();
         assert!(prove_shout(&fx.table, &[small], fx.log_k, fx.log_t, &resolver, &mut t).is_err());
     }
 }

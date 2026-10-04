@@ -10,7 +10,7 @@
 //! `memory_ops`→memory-ops, `regex`→the regexp benchmark's flavor,
 //! `matrix_mul`/`sorting`→the standard zkVM compute benchmarks.
 
-use crate::asm::{Assembler, AsmError};
+use crate::asm::{AsmError, Assembler};
 
 /// Public statement of one benchmark instance.
 #[derive(Clone, Debug)]
@@ -456,7 +456,7 @@ pub fn matrix_mul(n: usize, a: &[u64], b: &[u64]) -> Result<GuestProgram, AsmErr
     asm.la(A3, lb)?;
     asm.la(A4, lc)?;
     asm.li(A5, n as i64)?; // n
-    // C = 0.
+                           // C = 0.
     asm.li(A6, 0)?;
     let zloop = asm.label("zloop");
     let zdone = asm.label("zdone");
@@ -689,7 +689,7 @@ pub fn muldiv(values: &[(u64, u64, u64)]) -> Result<GuestProgram, AsmError> {
     asm.ld(T2, T0, 8)?; // b
     asm.ld(T3, T0, 16)?; // c
     asm.mul(T1, T1, T2)?; // lo = a*b
-    // if c == 0: q = r = 0.
+                          // if c == 0: q = r = 0.
     asm.beqz(T3, c_zero.into())?;
     asm.divu(T2, T1, T3)?; // q
     asm.remu(T3, T1, T3)?; // r — careful: c is in T3; remu destroys it.
@@ -741,7 +741,9 @@ pub fn muldiv(values: &[(u64, u64, u64)]) -> Result<GuestProgram, AsmError> {
 pub fn lcg(seed: u64) -> impl Iterator<Item = u64> {
     let mut s = seed;
     core::iter::repeat_with(move || {
-        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         s
     })
 }

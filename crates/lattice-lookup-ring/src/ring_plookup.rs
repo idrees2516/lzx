@@ -35,7 +35,6 @@
 //! transcript absorptions; the compiled layer (`compile`) replaces
 //! this with Ajtai commitments + windowed openings.
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use crate::ring_d::{Elem, RingD};
@@ -177,7 +176,9 @@ pub fn build_merge(
             }
         }
         if !matched {
-            return Err(SubError::Verify("tag c_i outside g([N]) or value mismatch".into()));
+            return Err(SubError::Verify(
+                "tag c_i outside g([N]) or value mismatch".into(),
+            ));
         }
     }
     let mut w = Vec::with_capacity(m + n);
@@ -234,9 +235,14 @@ pub fn prove_ring_plookup(
         if !ci.is_binary() {
             return Err(SubError::Verify("c_i not in C".into()));
         }
-        let ok = b.iter().enumerate().any(|(j, bj)| ai == bj && *ci == ring.g_map(j as u64));
+        let ok = b
+            .iter()
+            .enumerate()
+            .any(|(j, bj)| ai == bj && *ci == ring.g_map(j as u64));
         if !ok {
-            return Err(SubError::Verify(format!("a_{i} has no matching (b_j, g(j)) pair")));
+            return Err(SubError::Verify(format!(
+                "a_{i} has no matching (b_j, g(j)) pair"
+            )));
         }
     }
     for j in 0..n {
@@ -410,10 +416,17 @@ pub fn verify_ring_plookup(
         let mapped = l.replace("ep-", "ep2-");
         oracles.eval(ring, &format!("pl-{mapped}"), pt)
     })?;
-    verify_entry_product(ring, m + n, &proof.chi_w, &proof.ep_w, transcript, &|l, pt| {
-        let mapped = l.replace("ep-", "ep3-");
-        oracles.eval(ring, &format!("pl-{mapped}"), pt)
-    })?;
+    verify_entry_product(
+        ring,
+        m + n,
+        &proof.chi_w,
+        &proof.ep_w,
+        transcript,
+        &|l, pt| {
+            let mapped = l.replace("ep-", "ep3-");
+            oracles.eval(ring, &format!("pl-{mapped}"), pt)
+        },
+    )?;
     // The χ check.
     if ring.mul(&proof.chi_a, &proof.chi_b) != proof.chi_w {
         return Err(SubError::Verify("χ_w ≠ χ_a·χ_b".into()));
@@ -498,7 +511,9 @@ mod tests {
     }
 
     fn build_case(r: &RingD, m: usize, n: usize, seed: &str) -> (Vec<Elem>, Vec<Elem>, Vec<Elem>) {
-        let b: Vec<Elem> = (0..n).map(|j| r.random(format!("{seed}-b{j}").as_bytes())).collect();
+        let b: Vec<Elem> = (0..n)
+            .map(|j| r.random(format!("{seed}-b{j}").as_bytes()))
+            .collect();
         let mut a = Vec::with_capacity(m);
         let mut c = Vec::with_capacity(m);
         for i in 0..m {
@@ -528,7 +543,9 @@ mod tests {
         let mut tr = Transcript::new_default(b"pl5");
         let (proof, oracles) = prove_ring_plookup(&r, &a, &b, &c, &mut tr).ok().unwrap();
         let mut tr2 = Transcript::new_default(b"pl5");
-        verify_ring_plookup(&r, 8, 8, &proof, &oracles, &mut tr2).ok().unwrap();
+        verify_ring_plookup(&r, 8, 8, &proof, &oracles, &mut tr2)
+            .ok()
+            .unwrap();
     }
 
     #[test]
@@ -589,7 +606,10 @@ mod tests {
         assert_eq!(sigma.len(), 8);
         assert_eq!(freq.iter().sum::<usize>(), 8);
         let tag_int = |e: &Elem| {
-            e.coeffs().iter().enumerate().fold(0u64, |acc, (i, &c)| acc | (c << i))
+            e.coeffs()
+                .iter()
+                .enumerate()
+                .fold(0u64, |acc, (i, &c)| acc | (c << i))
         };
         for k in 1..w.len() {
             assert!(tag_int(&sigma[k - 1]) <= tag_int(&sigma[k]));

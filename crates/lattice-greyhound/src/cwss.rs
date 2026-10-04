@@ -46,7 +46,13 @@ impl QuadraticWitness {
     /// Check (i) s_i = G·(short) — the digit-width invariant, (ii) A·s_i =
     /// G·t̂_i, (iii) B·t̂ = u, (iv) a^T(s_1|…|s_r)·b = y. (The G-gadget forms
     /// with power-of-two bases.)
-    pub fn check(&self, inst: &QuadraticInstance, key: &ComKey, b_off: usize, bu: u32) -> Result<(), String> {
+    pub fn check(
+        &self,
+        inst: &QuadraticInstance,
+        key: &ComKey,
+        b_off: usize,
+        bu: u32,
+    ) -> Result<(), String> {
         if self.s.len() != inst.r {
             return Err("s multiplicity mismatch".into());
         }
@@ -90,7 +96,11 @@ pub fn cwss_extract(
 ) -> Result<CwssOutput, String> {
     let r = inst.r;
     if transcripts.len() != r + 1 {
-        return Err(format!("need r+1 = {} transcripts, got {}", r + 1, transcripts.len()));
+        return Err(format!(
+            "need r+1 = {} transcripts, got {}",
+            r + 1,
+            transcripts.len()
+        ));
     }
     let v0 = &transcripts[0].v;
     if transcripts.iter().any(|t| t.v != *v0) {
@@ -99,14 +109,21 @@ pub fn cwss_extract(
     // distinct t̂ or ŵ across transcripts → the short [B|D] solution
     // (z_B = t̂_i − t̂_j or z_D = ŵ_i − ŵ_j, norm ≤ 2γ̄ — Lemma 3.2's first case)
     for i in 1..transcripts.len() {
-        if transcripts[i].t_hat != transcripts[0].t_hat || transcripts[i].w_hat != transcripts[0].w_hat {
+        if transcripts[i].t_hat != transcripts[0].t_hat
+            || transcripts[i].w_hat != transcripts[0].w_hat
+        {
             // find the differing component and build the MSIS witness
             let diff: Vec<Poly> = if transcripts[i].t_hat != transcripts[0].t_hat {
                 transcripts[i]
                     .t_hat
                     .iter()
                     .zip(transcripts[0].t_hat.iter())
-                    .flat_map(|(x, y)| x.iter().zip(y.iter()).map(|(p, q)| p.sub(q)).collect::<Vec<_>>())
+                    .flat_map(|(x, y)| {
+                        x.iter()
+                            .zip(y.iter())
+                            .map(|(p, q)| p.sub(q))
+                            .collect::<Vec<_>>()
+                    })
                     .collect()
             } else {
                 transcripts[i]
@@ -116,7 +133,14 @@ pub fn cwss_extract(
                     .map(|(x, y)| x.sub(y))
                     .collect()
             };
-            return Ok(CwssOutput::MsisSolution { z: diff, matrix: if transcripts[i].t_hat != transcripts[0].t_hat { "B" } else { "D" } });
+            return Ok(CwssOutput::MsisSolution {
+                z: diff,
+                matrix: if transcripts[i].t_hat != transcripts[0].t_hat {
+                    "B"
+                } else {
+                    "D"
+                },
+            });
         }
     }
     // coordinate-wise extraction: transcript 0 differs from transcript i in
@@ -165,10 +189,7 @@ pub enum CwssOutput {
         relation_holds: bool,
     },
     /// A short Module-SIS solution for [B|D].
-    MsisSolution {
-        z: Vec<Poly>,
-        matrix: &'static str,
-    },
+    MsisSolution { z: Vec<Poly>, matrix: &'static str },
 }
 
 /// The three-round protocol (Figure 1), opening-in-the-clear variant:
@@ -206,7 +227,12 @@ pub fn three_round_prove(
         }
     }
     let t_hat_flat: Vec<Poly> = wit.t_hat.concat();
-    Ok(ThreeRoundProof { v, w_hat, t_hat_flat, z })
+    Ok(ThreeRoundProof {
+        v,
+        w_hat,
+        t_hat_flat,
+        z,
+    })
 }
 
 /// The Figure 1 verification: the norm check + the three algebraic equations
@@ -266,7 +292,6 @@ pub fn three_round_verify(
     Ok(())
 }
 
-
 /// Lemma 2.11 (weak binding): two weak openings for the same u yield a short
 /// MSIS solution for [A|B] of norm ≤ max(4κ̄β̄, 2γ̄).
 pub fn weak_binding_msis(
@@ -278,7 +303,11 @@ pub fn weak_binding_msis(
     t_hat2: &[Poly],
 ) -> Result<Vec<Poly>, String> {
     // z_B = t̂ − t̂' (if nonzero, a short solution for B)
-    let zb: Vec<Poly> = t_hat.iter().zip(t_hat2.iter()).map(|(x, y)| x.sub(y)).collect();
+    let zb: Vec<Poly> = t_hat
+        .iter()
+        .zip(t_hat2.iter())
+        .map(|(x, y)| x.sub(y))
+        .collect();
     if zb.iter().any(|p| !p.is_zero()) {
         // verify B·z_B = 0 requires the same u — the caller checks; here we
         // return the candidate
@@ -329,12 +358,13 @@ mod tests {
         let key = ComKey::expand(1024, &[5u8; 32]);
         // the honest t̂_i = A·s_i (the identity-gadget form), padded to the
         // flat layout [i][m·κ]
-        let mk_that = |si: &[Poly]| -> Vec<Poly> {
-            key.mul_window(si, 0, kappa)
-        };
+        let mk_that = |si: &[Poly]| -> Vec<Poly> { key.mul_window(si, 0, kappa) };
         let t1 = mk_that(&s1);
         let t2 = mk_that(&s2);
-        let wit = QuadraticWitness { s: vec![s1, s2], t_hat: vec![t1.clone(), t2.clone()] };
+        let wit = QuadraticWitness {
+            s: vec![s1, s2],
+            t_hat: vec![t1.clone(), t2.clone()],
+        };
         let challenges = challenge_vec(r, b"cwss", 0);
         let proof = three_round_prove(&inst, &wit, &key, 16, &challenges).unwrap();
         // the proof carries t_hat_flat = [t1; t2]
@@ -342,10 +372,18 @@ mod tests {
         proof.t_hat_flat = [t1, t2].concat();
         three_round_verify(&inst, &proof, &challenges, &key, 16, 32).unwrap();
         // tamper y
-        let inst_bad = QuadraticInstance { y: y.add(&Poly::constant(1)), ..inst.clone_shallow() };
+        let inst_bad = QuadraticInstance {
+            y: y.add(&Poly::constant(1)),
+            ..inst.clone_shallow()
+        };
         assert!(three_round_verify(&inst_bad, &proof, &challenges, &key, 16, 32).is_err());
         // tamper z
-        let mut bad = ThreeRoundProof { v: proof.v.clone(), w_hat: proof.w_hat.clone(), t_hat_flat: proof.t_hat_flat.clone(), z: proof.z.clone() };
+        let mut bad = ThreeRoundProof {
+            v: proof.v.clone(),
+            w_hat: proof.w_hat.clone(),
+            t_hat_flat: proof.t_hat_flat.clone(),
+            z: proof.z.clone(),
+        };
         bad.z[0] = bad.z[0].add(&Poly::constant(1));
         assert!(three_round_verify(&inst, &bad, &challenges, &key, 16, 32).is_err());
     }
@@ -387,12 +425,13 @@ mod tests {
             kappa1: 2,
         };
         let key = ComKey::expand(1024, &[6u8; 32]);
-        let mk_that = |si: &[Poly]| -> Vec<Poly> {
-            key.mul_window(si, 0, inst.kappa)
-        };
+        let mk_that = |si: &[Poly]| -> Vec<Poly> { key.mul_window(si, 0, inst.kappa) };
         let t1 = mk_that(&s1);
         let t2 = mk_that(&s2);
-        let wit = QuadraticWitness { s: vec![s1, s2], t_hat: vec![t1.clone(), t2.clone()] };
+        let wit = QuadraticWitness {
+            s: vec![s1, s2],
+            t_hat: vec![t1.clone(), t2.clone()],
+        };
         // the base challenges and the variants
         let c_base = challenge_vec(r, b"cwss2", 0);
         let mut transcripts = Vec::new();
@@ -421,13 +460,21 @@ mod tests {
         }
         let out = cwss_extract(&transcripts, &inst, &key, 16).unwrap();
         match out {
-            CwssOutput::RelaxedWitness { s_bar, c_bar, relation_holds, .. } => {
+            CwssOutput::RelaxedWitness {
+                s_bar,
+                c_bar,
+                relation_holds,
+                ..
+            } => {
                 // the extracted s̄ = the honest parts up to the challenge
                 // scaling: (z_0 − z_i)/c̄_i = s_i requires the transcript pair
                 // differing ONLY in coordinate i — the SS structure
                 assert_eq!(s_bar.len(), r);
                 assert_eq!(c_bar.len(), r);
-                assert!(relation_holds, "the extracted witness must satisfy the quadratic relation");
+                assert!(
+                    relation_holds,
+                    "the extracted witness must satisfy the quadratic relation"
+                );
             }
             CwssOutput::MsisSolution { .. } => panic!("honest transcripts must extract a witness"),
         }
@@ -443,7 +490,16 @@ mod tests {
         let s2 = small_vec(m, 4);
         let w: Vec<Poly> = [&s1, &s2].iter().map(|si| sprod(&a, si)).collect();
         let y = sprod(&b, &w);
-        let inst = QuadraticInstance { a, b, u: vec![], y, r, m, kappa: 2, kappa1: 2 };
+        let inst = QuadraticInstance {
+            a,
+            b,
+            u: vec![],
+            y,
+            r,
+            m,
+            kappa: 2,
+            kappa1: 2,
+        };
         let c = challenge_vec(r, b"cwss3", 0);
         let t1 = vec![small_vec(m, 9), small_vec(m, 10)];
         let t2 = vec![small_vec(m, 19), small_vec(m, 20)];

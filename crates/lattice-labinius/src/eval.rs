@@ -26,7 +26,11 @@ pub fn eq_table(ps: &[F162]) -> Vec<F162> {
 /// `u_j = sum_i eq(p0, i) W[i + wdim j]`: one `wdim`-term dot product per column.
 pub fn row_evaluate(witness: &[F162], p0: &[F162]) -> Vec<F162> {
     let wdim = 1usize << p0.len();
-    assert_eq!(witness.len() % wdim, 0, "witness is not whole columns of {wdim}");
+    assert_eq!(
+        witness.len() % wdim,
+        0,
+        "witness is not whole columns of {wdim}"
+    );
     let eq = eq_table(p0);
     (0..witness.len() / wdim)
         .map(|j| dot(&eq, &witness[j * wdim..(j + 1) * wdim]))

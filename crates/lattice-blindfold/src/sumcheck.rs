@@ -93,10 +93,7 @@ impl LibraMask {
     pub fn cube_sum(&self) -> K {
         let ell = self.coef.len();
         let two_ell = K::from_fp(Fq::new(1u64 << ell.min(62)));
-        let two_ellm1 = K::from_fp(Fq::new({
-            
-            1u64 << (ell - 1).min(62)
-        }));
+        let two_ellm1 = K::from_fp(Fq::new(1u64 << (ell - 1).min(62)));
         let mut sum_ij = K::ZERO;
         for c in &self.coef {
             for a in c {
@@ -221,14 +218,7 @@ impl MaskedSumcheck {
                 let beqa = EqArray::bind(&eqa, &xv);
                 let beqr = EqArray::bind(&eqr, &xv);
                 // Sum over the suffix cube:
-                let total = sum_q_suffix(
-                    inputs,
-                    &bound_ring,
-                    &bound_field,
-                    &beqa,
-                    &beqr,
-                    gamma1,
-                );
+                let total = sum_q_suffix(inputs, &bound_ring, &bound_field, &beqa, &beqr, gamma1);
                 pts.push(total);
             }
             // Interpolate the degree-Dmax poly through the points.
@@ -250,7 +240,11 @@ impl MaskedSumcheck {
                 const_term = const_term.add(&pv.scale_fp(&Fq::new(suffix_len as u64)));
             }
             for future in (round + 1)..log_len {
-                let per: u64 = if suffix_len >= 2 { (suffix_len / 2) as u64 } else { 1 };
+                let per: u64 = if suffix_len >= 2 {
+                    (suffix_len / 2) as u64
+                } else {
+                    1
+                };
                 let sum_ij: K = mask.coef[future].iter().fold(K::ZERO, |a, c| a.add(c));
                 const_term = const_term.add(&sum_ij.scale_fp(&Fq::new(per)));
             }
@@ -487,9 +481,7 @@ fn lagrange_coeffs(pts: &[K], d_max: usize) -> Result<Vec<K>, String> {
         }
         let p = piv.ok_or("singular interpolation")?;
         mat.swap(col, p);
-        let inv = mat[col][col]
-            .inverse()
-            .ok_or("singular interpolation")?;
+        let inv = mat[col][col].inverse().ok_or("singular interpolation")?;
         for c in col..=n {
             mat[col][c] = mat[col][c].mul(&inv);
         }
@@ -554,10 +546,7 @@ mod tests {
                         ))
                     })
                     .collect();
-                per.push(RingMle {
-                    cube,
-                    log_len,
-                });
+                per.push(RingMle { cube, log_len });
             }
             ring_mles.push(per);
         }
@@ -566,15 +555,30 @@ mod tests {
             .map(|z| z.0.iter().map(|&c| K::from_fp(c)).collect())
             .collect();
         let alpha: Vec<K> = (0..log_len)
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         let r: Vec<K> = (0..log_len)
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         let eq_alpha = EqArray::full(log_len, &alpha);
         let eq_r = EqArray::full(log_len, &r);
         let gamma1: Vec<K> = (0..nk)
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         let mut inputs = SumcheckInputs {
             ring_mles,
@@ -590,10 +594,20 @@ mod tests {
             eval_weights: None,
         };
         let gamma2: Vec<K> = (0..t)
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         let gamma3: Vec<K> = (0..d)
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         inputs.set_eval_weights(&gamma2, &gamma3);
         // T: the Eval part — Σ_{i>K} γγγ·cf(U_{i,j})_ℓ at the point r
@@ -663,12 +677,17 @@ mod tests {
                             continue;
                         }
                         let rho = crate::rk::PolyK::packaged_rotation(w);
-                        ec = ec
-                            .add(&crate::rk::PolyK::rotated_ct(&rho, &inputs.ring_mles[i][j].cube[x]));
+                        ec = ec.add(&crate::rk::PolyK::rotated_ct(
+                            &rho,
+                            &inputs.ring_mles[i][j].cube[x],
+                        ));
                     }
                 }
             }
-            acc = acc.add(&ea.mul(&f.add(&inputs.delta0.mul(&nc))).add(&inputs.delta1.mul(&er).mul(&ec)));
+            acc = acc.add(
+                &ea.mul(&f.add(&inputs.delta0.mul(&nc)))
+                    .add(&inputs.delta1.mul(&er).mul(&ec)),
+            );
         }
         acc
     }

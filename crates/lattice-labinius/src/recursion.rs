@@ -42,9 +42,7 @@
 use crate::challenge::ShortChallenge;
 use crate::key::CommitmentKey;
 use crate::params::N;
-use crate::scheme::{
-    CommitmentOpening, FoldedWitness, Params, PublicParameters, RowEvaluation,
-};
+use crate::scheme::{CommitmentOpening, FoldedWitness, Params, PublicParameters, RowEvaluation};
 use lattice_labrador::{Block, Constraint, Poly, Statement, VectorSpec, Witness as LWitness};
 
 /// The cap on `|v|^2` per ring element and challenge (upstream `recursion::FOLD_CAP`, D5).
@@ -108,7 +106,9 @@ pub fn prove_opening(
     }
     let vnorm: u64 = vflat.iter().map(|&c| (c as i64 * c as i64) as u64).sum();
     if vnorm > fold_cap {
-        return Err(format!("the fold has squared norm {vnorm}, above the cap {fold_cap}"));
+        return Err(format!(
+            "the fold has squared norm {vnorm}, above the cap {fold_cap}"
+        ));
     }
     let v_padded = pad_per_element(&vflat);
     specs.push(VectorSpec::norm_bounded(v_padded.len() / 64, fold_cap));
@@ -202,7 +202,11 @@ fn centered_slot(x: u32, q: u16) -> i32 {
 }
 
 /// The statement digest: a deterministic function of everything the transcript absorbed.
-pub fn statement_digest(params: &Params, row: &RowEvaluation, challenges: &[ShortChallenge]) -> [u8; 32] {
+pub fn statement_digest(
+    params: &Params,
+    row: &RowEvaluation,
+    challenges: &[ShortChallenge],
+) -> [u8; 32] {
     let mut h = lattice_core::keccak::KeccakSponge::new_sha3_256();
     h.update(b"labinius/recursion/statement/v1");
     absorb_statement_body(&mut h, params, row, challenges);

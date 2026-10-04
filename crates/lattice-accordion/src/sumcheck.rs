@@ -90,14 +90,10 @@ pub struct SummandTables {
 
 impl SummandTables {
     /// Build the reduce-side tables: witness layers, generators, T-factor.
-    pub fn for_reduce(
-        witness: &[Fq],
-        srs: &Srs,
-        t_table: &[Fq],
-        p_prime: ModulePoint,
-    ) -> Self {
-        let g: Vec<ModulePoint> =
-            (0..witness.len()).map(|b| srs.generator(b).clone()).collect();
+    pub fn for_reduce(witness: &[Fq], srs: &Srs, t_table: &[Fq], p_prime: ModulePoint) -> Self {
+        let g: Vec<ModulePoint> = (0..witness.len())
+            .map(|b| srs.generator(b).clone())
+            .collect();
         SummandTables {
             w: witness.to_vec(),
             g,
@@ -108,8 +104,9 @@ impl SummandTables {
 
     /// Build the accumulate-side tables: generators and the `e` factor.
     pub fn for_accumulate(srs: &Srs, e_table: &[Fq]) -> Self {
-        let g: Vec<ModulePoint> =
-            (0..e_table.len()).map(|b| srs.generator(b).clone()).collect();
+        let g: Vec<ModulePoint> = (0..e_table.len())
+            .map(|b| srs.generator(b).clone())
+            .collect();
         SummandTables {
             w: Vec::new(),
             g,
@@ -272,11 +269,7 @@ impl ModuleSumcheckVerifier {
     }
 
     /// Absorb one round message, check the recurrence, draw the challenge.
-    pub fn round(
-        &mut self,
-        msg: &RoundMessage,
-        challenge: Fq,
-    ) -> Result<(), SumcheckError> {
+    pub fn round(&mut self, msg: &RoundMessage, challenge: Fq) -> Result<(), SumcheckError> {
         let round = self.challenges.len() + 1;
         if msg.0.iter().any(|c| c.dim() != self.dim) {
             return Err(SumcheckError::DimensionMismatch);
@@ -348,7 +341,9 @@ mod tests {
         let n = 16;
         let srs = srs_small(n);
         let cube = LayeredCube::new(2, 4);
-        let w: Vec<Fq> = (0..n).map(|i| Fq::from_u64((i as u64 * 4099) % 0xFFFF)).collect();
+        let w: Vec<Fq> = (0..n)
+            .map(|i| Fq::from_u64((i as u64 * 4099) % 0xFFFF))
+            .collect();
         let u = vec![Fq::from_u64(31), Fq::from_u64(37)];
         let t = cube.t_table(&u);
         let pp = srs.value_column().scale(&Fq::from_u64(77));
@@ -363,7 +358,9 @@ mod tests {
         let n = 32;
         let srs = srs_small(n);
         let cube = LayeredCube::new(3, 4);
-        let w: Vec<Fq> = (0..n).map(|i| Fq::from_u64((i as u64 * 2053) % 0xFFFF)).collect();
+        let w: Vec<Fq> = (0..n)
+            .map(|i| Fq::from_u64((i as u64 * 2053) % 0xFFFF))
+            .collect();
         let u = vec![Fq::from_u64(11), Fq::from_u64(13), Fq::from_u64(17)];
         let t = cube.t_table(&u);
         let alpha = Fq::from_u64(991);
@@ -392,8 +389,18 @@ mod tests {
         let n = 16;
         let srs = srs_small(n);
         let cube = LayeredCube::new(2, 4);
-        let r1 = vec![Fq::from_u64(3), Fq::from_u64(5), Fq::from_u64(7), Fq::from_u64(9)];
-        let r2 = vec![Fq::from_u64(11), Fq::from_u64(13), Fq::from_u64(15), Fq::from_u64(17)];
+        let r1 = vec![
+            Fq::from_u64(3),
+            Fq::from_u64(5),
+            Fq::from_u64(7),
+            Fq::from_u64(9),
+        ];
+        let r2 = vec![
+            Fq::from_u64(11),
+            Fq::from_u64(13),
+            Fq::from_u64(15),
+            Fq::from_u64(17),
+        ];
         let g1 = Fq::from_u64(2);
         let g2 = Fq::from_u64(3);
         let e = cube.eq_batch_table(&[r1.clone(), r2.clone()], &[g1, g2]);
@@ -439,10 +446,6 @@ mod tests {
             verifier.round(&bad, r),
             Err(SumcheckError::RecurrenceFailure(1))
         );
-        assert_eq!(
-            verifier.round(&msg, r),
-            Ok(())
-        );
+        assert_eq!(verifier.round(&msg, r), Ok(()));
     }
 }
-

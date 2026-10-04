@@ -102,8 +102,7 @@ pub fn prove_program(
         .append_bytes(b"public-input", &input_digest)
         .map_err(|_| ZkvmError::VerificationFailed)?;
     // Memory fingerprint identity (the Twist sumcheck-facing statement).
-    twist_fingerprint(&all_accesses, &final_state, &mut transcript)
-        .map_err(ZkvmError::Memory)?;
+    twist_fingerprint(&all_accesses, &final_state, &mut transcript).map_err(ZkvmError::Memory)?;
 
     // Pad the register stream to a power of two and commit.
     let padded_len = reg_stream.len().next_power_of_two().max(1);
@@ -130,10 +129,7 @@ pub fn prove_program(
         final_regs: state.regs,
         memory_digest: state.memory.digest(),
     };
-    let output_digest = Transcript::hash_domain(
-        b"zkvm-public-output",
-        &serialize_output(&output),
-    );
+    let output_digest = Transcript::hash_domain(b"zkvm-public-output", &serialize_output(&output));
     let envelope = ProofEnvelope::new(
         prog_digest,
         input_digest,
@@ -162,10 +158,8 @@ pub fn verify_program(
     // 1. Envelope digests must match the statement.
     let prog_digest = crate::program_digest(program);
     let input_digest = crate::public_input_digest(public_input);
-    let output_digest = Transcript::hash_domain(
-        b"zkvm-public-output",
-        &serialize_output(public_output),
-    );
+    let output_digest =
+        Transcript::hash_domain(b"zkvm-public-output", &serialize_output(public_output));
     if envelope.program_digest != prog_digest
         || envelope.public_input_digest != input_digest
         || envelope.public_output_digest != output_digest
@@ -248,8 +242,7 @@ pub fn verify_program(
         .append_bytes(b"public-input", &input_digest)
         .map_err(|_| ZkvmError::VerificationFailed)?;
     let final_state = state.memory.snapshot_pairs();
-    twist_fingerprint(&all_accesses, &final_state, &mut transcript)
-        .map_err(ZkvmError::Memory)?;
+    twist_fingerprint(&all_accesses, &final_state, &mut transcript).map_err(ZkvmError::Memory)?;
     // The witness stream the prover committed: reconstructed from the
     // re-execution (deterministic).
     let mut reg_stream: Vec<Goldilocks> = Vec::with_capacity(rows.len() * 4);
@@ -339,7 +332,9 @@ mod tests {
     fn build_pcs() -> AkitaPcs {
         // Packing: 3 limbs/value; register stream ~ 4-8 values per step.
         // Small program -> small stream; m = 64 slots is ample.
-        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32]).ok().unwrap()
+        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32])
+            .ok()
+            .unwrap()
     }
 
     #[test]
@@ -354,14 +349,13 @@ mod tests {
         prog.extend_from_slice(&enc_addi(2, 0, 5).to_le_bytes());
         let sw: u32 = ((3 << 20) | (1 << 15) | (2 << 12)) | 0x23;
         prog.extend_from_slice(&sw.to_le_bytes());
-        let lw: u32 = ((1 << 15)) | (2 << 12) | (4 << 7) | 0x03;
+        let lw: u32 = (1 << 15) | (2 << 12) | (4 << 7) | 0x03;
         prog.extend_from_slice(&lw.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
 
         let pcs = build_pcs();
         let public_input: Vec<u8> = Vec::new();
-        let (output, envelope) =
-            prove_program(&pcs, &prog, &public_input, 64).ok().unwrap();
+        let (output, envelope) = prove_program(&pcs, &prog, &public_input, 64).ok().unwrap();
         // Sanity: the program computed x3 = 12, stored and loaded it.
         assert_eq!(output.final_regs[3], 12);
         assert_eq!(output.final_regs[4], 12);
@@ -372,16 +366,12 @@ mod tests {
         // Tampered public output rejected.
         let mut bad_output = output.clone();
         bad_output.final_regs[3] = 999;
-        assert!(
-            verify_program(&pcs, &prog, &public_input, &bad_output, &envelope, 64).is_err()
-        );
+        assert!(verify_program(&pcs, &prog, &public_input, &bad_output, &envelope, 64).is_err());
 
         // Wrong program rejected.
         let mut wrong_prog = prog.clone();
         wrong_prog[3] ^= 0xFF;
-        assert!(
-            verify_program(&pcs, &wrong_prog, &public_input, &output, &envelope, 64).is_err()
-        );
+        assert!(verify_program(&pcs, &wrong_prog, &public_input, &output, &envelope, 64).is_err());
 
         // Tampered envelope rejected.
         let mut bad_env = envelope.clone();
@@ -390,9 +380,7 @@ mod tests {
                 b[0] ^= 0xFF;
             }
         }
-        assert!(
-            verify_program(&pcs, &prog, &public_input, &output, &bad_env, 64).is_err()
-        );
+        assert!(verify_program(&pcs, &prog, &public_input, &output, &bad_env, 64).is_err());
     }
 
     #[test]
@@ -418,10 +406,8 @@ mod tests {
         let mut prog = Vec::new();
         prog.extend_from_slice(&enc_addi(1, 0, 5).to_le_bytes());
         prog.extend_from_slice(&enc_addi(1, 1, -1).to_le_bytes());
-        let bne: u32 = ((1 << 31) | (0x3f << 25)) | (1 << 15) | (1 << 12)
-            | (0b1110 << 8)
-            | (1 << 7)
-            | 0x63;
+        let bne: u32 =
+            ((1 << 31) | (0x3f << 25)) | (1 << 15) | (1 << 12) | (0b1110 << 8) | (1 << 7) | 0x63;
         prog.extend_from_slice(&bne.to_le_bytes());
         prog.extend_from_slice(&0x73u32.to_le_bytes());
         let pcs = build_pcs();

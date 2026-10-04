@@ -63,7 +63,10 @@ impl core::fmt::Display for ProjMleError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ProjMleError::WrongCoefficientCount { expected, got } => {
-                write!(f, "monomial coefficient count {got} != power-of-two expectation {expected}")
+                write!(
+                    f,
+                    "monomial coefficient count {got} != power-of-two expectation {expected}"
+                )
             }
             ProjMleError::PointLengthMismatch { expected, got } => {
                 write!(f, "monomial evaluation point length {got} != {expected}")
@@ -87,7 +90,10 @@ impl MonomialMle {
     pub fn new(coeffs: Vec<Goldilocks>) -> Result<Self, ProjMleError> {
         let len = coeffs.len();
         if !len.is_power_of_two() {
-            return Err(ProjMleError::WrongCoefficientCount { expected: len, got: len });
+            return Err(ProjMleError::WrongCoefficientCount {
+                expected: len,
+                got: len,
+            });
         }
         Ok(MonomialMle {
             num_vars: len.trailing_zeros() as usize,
@@ -269,7 +275,10 @@ impl MonomialMle {
             field_simd::mul_scalar_slice(first, *ri, second);
             cur *= 2;
         }
-        MonomialMle { num_vars: n, coeffs }
+        MonomialMle {
+            num_vars: n,
+            coeffs,
+        }
     }
 
     /// `eq_b(r, Y)` evaluated at a single affine point `y`:
@@ -347,7 +356,10 @@ mod tests {
     #[test]
     fn affine_evaluation_matches_boolean_mle() {
         let data: Vec<Goldilocks> = (0..32u64).map(|i| g(i * i + 7)).collect();
-        let dense = DenseMle { num_vars: 5, evaluations: data.clone() };
+        let dense = DenseMle {
+            num_vars: 5,
+            evaluations: data.clone(),
+        };
         let p = MonomialMle::from_truth_table(&data).unwrap();
         let r: Vec<Goldilocks> = (1..=5u64)
             .map(|i| Goldilocks::from_u64(1_000_000_007 * i))
@@ -376,9 +388,13 @@ mod tests {
         assert_eq!(back, data);
         // The Boolean coefficients are those of f̂: evaluate f̂ via
         // DenseMle and via the boolean monomial form and compare.
-        let dense = DenseMle { num_vars: 4, evaluations: data };
-        let r: Vec<Goldilocks> =
-            (1..=4u64).map(|i| Goldilocks::from_u64(997 * i + 13)).collect();
+        let dense = DenseMle {
+            num_vars: 4,
+            evaluations: data,
+        };
+        let r: Vec<Goldilocks> = (1..=4u64)
+            .map(|i| Goldilocks::from_u64(997 * i + 13))
+            .collect();
         let via_mle = dense.evaluate(&r).unwrap();
         // Horner over Boolean monomial coefficients (subtraction allowed).
         let mut acc = Goldilocks::ZERO;

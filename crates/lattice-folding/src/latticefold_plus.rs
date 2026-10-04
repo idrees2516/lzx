@@ -137,9 +137,10 @@ pub fn prove_range(
         .collect();
 
     // Booleanity terms: eq(r,x) · d_i(x) · (1 − d_i(x)) per layer.
-    let eq_id = vp
-        .add_factor(eq)
-        .map_err(|_| LfPlusError::ShapeMismatch { expected: log_vars, got: 0 })?;
+    let eq_id = vp.add_factor(eq).map_err(|_| LfPlusError::ShapeMismatch {
+        expected: log_vars,
+        got: 0,
+    })?;
     for (i, lm) in one_minus.iter().enumerate() {
         let mle = DenseMle {
             num_vars: log_vars,
@@ -154,10 +155,7 @@ pub fn prove_range(
     }
 
     let out = sumcheck::prove(&vp, Goldilocks::ZERO, transcript).map_err(LfPlusError::Sumcheck)?;
-    let digit_claims: Vec<Goldilocks> = layer_ids
-        .iter()
-        .map(|id| out.factor_claims[*id])
-        .collect();
+    let digit_claims: Vec<Goldilocks> = layer_ids.iter().map(|id| out.factor_claims[*id]).collect();
     Ok(AlgebraicRangeProof {
         proof: out.proof,
         digit_claims,
@@ -200,9 +198,13 @@ pub fn verify_range(
         .verify(log_vars, 3, Goldilocks::ZERO, transcript, None)
         .map_err(LfPlusError::Sumcheck)?;
     let r_sc = verdict.point;
-    let eq_at = DenseMle::eq_extension(&r)
-        .evaluate(&r_sc)
-        .map_err(|_| LfPlusError::ShapeMismatch { expected: 0, got: 0 })?;
+    let eq_at =
+        DenseMle::eq_extension(&r)
+            .evaluate(&r_sc)
+            .map_err(|_| LfPlusError::ShapeMismatch {
+                expected: 0,
+                got: 0,
+            })?;
     let mut poly_at = Goldilocks::ZERO;
     for d in &proof.digit_claims {
         poly_at = poly_at.add(&d.mul(&Goldilocks::ONE.sub(d)));
@@ -210,7 +212,10 @@ pub fn verify_range(
     let expected_final = eq_at.mul(&poly_at);
     if verdict.final_claim != expected_final {
         #[cfg(test)]
-        eprintln!("LF+ verify: booleanity final mismatch: got {:?} want {:?}", verdict.final_claim, expected_final);
+        eprintln!(
+            "LF+ verify: booleanity final mismatch: got {:?} want {:?}",
+            verdict.final_claim, expected_final
+        );
         return Err(LfPlusError::RangeProofFailed);
     }
     // Reconstruction at the sumcheck point: Σ 2^i d_i(r_sc) == c(r_sc) + β
@@ -223,7 +228,10 @@ pub fn verify_range(
     let expected = coeff_claim_at_point.add(&Goldilocks::from_u64(beta));
     if acc != expected {
         #[cfg(test)]
-        eprintln!("LF+ verify: reconstruction mismatch: acc={:?} claim+beta={:?}", acc, expected);
+        eprintln!(
+            "LF+ verify: reconstruction mismatch: acc={:?} claim+beta={:?}",
+            acc, expected
+        );
         return Err(LfPlusError::RangeProofFailed);
     }
     Ok(())
@@ -290,16 +298,14 @@ pub fn fold_double_bounded(
     let r_int = if raw >= 1 << 15 { raw - (1 << 16) } else { raw };
     let _r_scalar = q.reduce_i64(r_int);
 
-    let fold_rows = |a: &AjtaiCommitment, b: &AjtaiCommitment| -> Result<AjtaiCommitment, LfPlusError> {
-        let mut rows = Vec::with_capacity(a.rows.len());
-        for (ra, rb) in a.rows.iter().zip(b.rows.iter()) {
-            rows.push(
-                ra.add(&rb.scale_i64(r_int))
-                    .map_err(LfPlusError::Ring)?,
-            );
-        }
-        Ok(AjtaiCommitment { rows })
-    };
+    let fold_rows =
+        |a: &AjtaiCommitment, b: &AjtaiCommitment| -> Result<AjtaiCommitment, LfPlusError> {
+            let mut rows = Vec::with_capacity(a.rows.len());
+            for (ra, rb) in a.rows.iter().zip(b.rows.iter()) {
+                rows.push(ra.add(&rb.scale_i64(r_int)).map_err(LfPlusError::Ring)?);
+            }
+            Ok(AjtaiCommitment { rows })
+        };
     let inner = fold_rows(&d1.inner, &d2.inner)?;
     let outer = fold_rows(&d1.outer, &d2.outer)?;
     let r_abs = r_int.unsigned_abs();
@@ -337,13 +343,17 @@ mod tests {
     #[test]
     fn algebraic_range_proof_happy_path() {
         // Coefficients in [-100, 100].
-        let coeffs: Vec<Goldilocks> = [-100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60]
-            .iter()
-            .map(|c| {
-                // Encode balanced values canonically.
-                Goldilocks::from_u64((*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64)
-            })
-            .collect();
+        let coeffs: Vec<Goldilocks> = [
+            -100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60,
+        ]
+        .iter()
+        .map(|c| {
+            // Encode balanced values canonically.
+            Goldilocks::from_u64(
+                (*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
+            )
+        })
+        .collect();
         let beta = 100u64;
         let mut t = Transcript::new_default(b"lf-range-test");
         let proof = prove_range(&coeffs, beta, &mut t).ok().unwrap();
@@ -357,10 +367,16 @@ mod tests {
 
     #[test]
     fn isolation_digit_claims_match_direct_eval() {
-        let coeffs: Vec<Goldilocks> = [-100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60]
-            .iter()
-            .map(|c| Goldilocks::from_u64((*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64))
-            .collect();
+        let coeffs: Vec<Goldilocks> = [
+            -100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60,
+        ]
+        .iter()
+        .map(|c| {
+            Goldilocks::from_u64(
+                (*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
+            )
+        })
+        .collect();
         let beta = 100u64;
         let mut t = Transcript::new_default(b"lf-range-test");
         let proof = prove_range(&coeffs, beta, &mut t).ok().unwrap();
@@ -370,7 +386,11 @@ mod tests {
         for (idx, c) in coeffs.iter().enumerate() {
             let p_mod = lattice_core::field::GOLDILOCKS_MODULUS;
             let raw = c.to_canonical_u64();
-            let balanced = if raw >= p_mod / 2 { raw as i128 - p_mod as i128 } else { raw as i128 };
+            let balanced = if raw >= p_mod / 2 {
+                raw as i128 - p_mod as i128
+            } else {
+                raw as i128
+            };
             let v = (balanced + beta as i128) as u64;
             for (i, layer) in layers.iter_mut().enumerate() {
                 layer[idx] = Goldilocks::from_u64((v >> i) & 1);
@@ -378,7 +398,10 @@ mod tests {
         }
         // Direct evaluation of digit layers at sc_point.
         for (i, layer) in layers.iter().enumerate() {
-            let mle = DenseMle { num_vars: 4, evaluations: layer.clone() };
+            let mle = DenseMle {
+                num_vars: 4,
+                evaluations: layer.clone(),
+            };
             let direct = mle.evaluate(&proof.sc_point).ok().unwrap();
             assert_eq!(direct, proof.digit_claims[i], "layer {i} mismatch");
         }
@@ -396,10 +419,16 @@ mod tests {
     fn brute_force_evaluate_reference() {
         // Compare evaluate() against brute-force Lagrange interpolation
         // over all hypercube points (ground truth for the MLE semantics).
-        let coeffs: Vec<Goldilocks> = [-100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60]
-            .iter()
-            .map(|c| Goldilocks::from_u64((*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64))
-            .collect();
+        let coeffs: Vec<Goldilocks> = [
+            -100i64, -1, 0, 1, 99, 42, -77, 13, 5, -5, 88, 3, 0, 9, -50, 60,
+        ]
+        .iter()
+        .map(|c| {
+            Goldilocks::from_u64(
+                (*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
+            )
+        })
+        .collect();
         let mle = DenseMle::new(coeffs.clone()).ok().unwrap();
         let point = [
             Goldilocks::from_u64(877746185904530010),
@@ -414,7 +443,11 @@ mod tests {
             let mut w = Goldilocks::ONE;
             for (var, rv) in point.iter().enumerate() {
                 let bit = (idx >> (3 - var)) & 1; // var 0 = MSB
-                let term = if bit == 1 { *rv } else { Goldilocks::ONE.sub(rv) };
+                let term = if bit == 1 {
+                    *rv
+                } else {
+                    Goldilocks::ONE.sub(rv)
+                };
                 w = w.mul(&term);
             }
             acc = acc.add(&v.mul(&w));
@@ -440,7 +473,11 @@ mod tests {
     fn tampered_digit_claim_detected() {
         let coeffs: Vec<Goldilocks> = [-7i64, 3, -2, 11]
             .iter()
-            .map(|c| Goldilocks::from_u64((*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64))
+            .map(|c| {
+                Goldilocks::from_u64(
+                    (*c as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
+                )
+            })
             .collect();
         let beta = 16u64;
         let mut t = Transcript::new_default(b"lf-range-test");
@@ -483,7 +520,9 @@ mod tests {
             .zip(w2.iter())
             .map(|(a, b)| a.add(&b.scale_i64(r)).ok().unwrap())
             .collect();
-        assert!(pk.verify_opening(&folded.commitment.inner, &folded_w).is_ok());
+        assert!(pk
+            .verify_opening(&folded.commitment.inner, &folded_w)
+            .is_ok());
         // Norm budget grows additively with the small factor.
         assert!(folded.norm_budget.beta() <= 64 + (1 << 15) * 64);
     }

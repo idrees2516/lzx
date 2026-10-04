@@ -96,7 +96,8 @@ fn rlc_reduction_end_to_end() {
     rlc_verify(&setup, &accs, &out, &tr).unwrap();
     // Tamper the folded commitment: the homomorphic check breaks.
     let mut bad_out = out.clone();
-    bad_out.inst.coms[0].t_b[0] = bad_out.inst.coms[0].t_b[0].add(&lattice_blindfold::ring::Poly::one(setup.params.d));
+    bad_out.inst.coms[0].t_b[0] =
+        bad_out.inst.coms[0].t_b[0].add(&lattice_blindfold::ring::Poly::one(setup.params.d));
     assert!(rlc_verify(&setup, &accs, &bad_out, &tr).is_err());
 }
 

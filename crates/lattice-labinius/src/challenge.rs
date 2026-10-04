@@ -114,10 +114,7 @@ impl Transcript {
     pub fn sample_f162(&mut self, label: &[u8], n: usize) -> Vec<F162> {
         let mut bytes = vec![0u8; 24 * n];
         self.fill(label, &mut bytes);
-        bytes
-            .chunks(24)
-            .map(F162::from_le24)
-            .collect()
+        bytes.chunks(24).map(F162::from_le24).collect()
     }
 }
 
@@ -332,7 +329,11 @@ fn attempt(x: &mut Xof, weight: usize, perm: &mut [u8; N162]) -> ShortChallenge 
 
 /// Rejection-sample a weight-`w` challenge with `canonical_inf_norm_sq <= bound^2`, returning
 /// it with the number of attempts. All attempts read one XOF derivation of the transcript.
-pub fn sample_short_challenge(t: &mut Transcript, weight: usize, bound: f64) -> (ShortChallenge, u64) {
+pub fn sample_short_challenge(
+    t: &mut Transcript,
+    weight: usize,
+    bound: f64,
+) -> (ShortChallenge, u64) {
     let bound_sq = bound * bound + 1e-12;
     let mut x = t.reader(b"short-challenge");
     let mut perm = [0u8; N162];

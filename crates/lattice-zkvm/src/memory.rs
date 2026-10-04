@@ -36,8 +36,8 @@
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_sumcheck::sumcheck;
-use lattice_sumcheck::SumcheckProof;
 use lattice_sumcheck::sumcheck::SumcheckOutput;
+use lattice_sumcheck::SumcheckProof;
 use lattice_sumcheck::VirtualPolynomial;
 
 use crate::ledger::{Factor, Ledger, LedgerError};
@@ -133,7 +133,10 @@ impl MemoryInstance {
                 evals.push(fe(v));
             }
         }
-        DenseMle { num_vars: self.log_rows() + self.log_ts, evaluations: evals }
+        DenseMle {
+            num_vars: self.log_rows() + self.log_ts,
+            evaluations: evals,
+        }
     }
 
     /// The raf weight table over the padded digit rows: row `i` weighs
@@ -149,7 +152,10 @@ impl MemoryInstance {
                 }
             })
             .collect();
-        DenseMle { num_vars: self.log_rows(), evaluations: evals }
+        DenseMle {
+            num_vars: self.log_rows(),
+            evaluations: evals,
+        }
     }
 
     /// The read/write activity stream column.
@@ -169,15 +175,24 @@ impl MemoryInstance {
     }
 
     pub fn rv_col(&self) -> DenseMle {
-        DenseMle { num_vars: self.log_ts, evaluations: self.rv.clone() }
+        DenseMle {
+            num_vars: self.log_ts,
+            evaluations: self.rv.clone(),
+        }
     }
 
     pub fn wv_col(&self) -> DenseMle {
-        DenseMle { num_vars: self.log_ts, evaluations: self.wv.clone() }
+        DenseMle {
+            num_vars: self.log_ts,
+            evaluations: self.wv.clone(),
+        }
     }
 
     pub fn inc_col(&self) -> DenseMle {
-        DenseMle { num_vars: self.log_ts, evaluations: self.inc_off.clone() }
+        DenseMle {
+            num_vars: self.log_ts,
+            evaluations: self.inc_off.clone(),
+        }
     }
 
     /// The materialized one-hot matrix for a side: MLE over
@@ -191,7 +206,10 @@ impl MemoryInstance {
                 evals[self.addr[j] as usize * t_s + j] = Goldilocks::ONE;
             }
         }
-        DenseMle { num_vars: self.log_k + self.log_ts, evaluations: evals }
+        DenseMle {
+            num_vars: self.log_k + self.log_ts,
+            evaluations: evals,
+        }
     }
 
     /// The materialized increment matrix (the virtual `Inc`).
@@ -204,7 +222,10 @@ impl MemoryInstance {
                 evals[self.addr[j] as usize * t_s + j] = inc;
             }
         }
-        DenseMle { num_vars: self.log_k + self.log_ts, evaluations: evals }
+        DenseMle {
+            num_vars: self.log_k + self.log_ts,
+            evaluations: evals,
+        }
     }
 
     /// The materialized current-value matrix (prover-side; virtual to the
@@ -222,7 +243,10 @@ impl MemoryInstance {
                 current[self.addr[j] as usize] = self.wv[j];
             }
         }
-        DenseMle { num_vars: self.log_k + self.log_ts, evaluations: evals }
+        DenseMle {
+            num_vars: self.log_k + self.log_ts,
+            evaluations: evals,
+        }
     }
 }
 
@@ -280,7 +304,9 @@ pub fn addr_factor(inst: usize) -> Factor {
 }
 
 pub fn activity_factor(inst: usize, write: bool) -> Factor {
-    Factor::ActiveCol { id: 2 * inst + write as usize }
+    Factor::ActiveCol {
+        id: 2 * inst + write as usize,
+    }
 }
 
 /// Prove one instance's full memory argument. The legs are appended to
@@ -305,17 +331,25 @@ pub fn prove_memory(
         .map_err(MemoryError::Transcript)?;
     {
         let eq = DenseMle::eq_extension(&r_bool);
-        let d_minus_1: Vec<Goldilocks> =
-            digits.evaluations.iter().map(|v| v.sub(&Goldilocks::ONE)).collect();
-        let dm = DenseMle { num_vars: log_rows + log_ts, evaluations: d_minus_1 };
+        let d_minus_1: Vec<Goldilocks> = digits
+            .evaluations
+            .iter()
+            .map(|v| v.sub(&Goldilocks::ONE))
+            .collect();
+        let dm = DenseMle {
+            num_vars: log_rows + log_ts,
+            evaluations: d_minus_1,
+        };
         let mut vp = VirtualPolynomial::new(log_rows + log_ts);
-        let di = vp.add_factor(digits.clone()).map_err(MemoryError::Virtual)?;
+        let di = vp
+            .add_factor(digits.clone())
+            .map_err(MemoryError::Virtual)?;
         let dmi = vp.add_factor(dm).map_err(MemoryError::Virtual)?;
         let ei = vp.add_factor(eq).map_err(MemoryError::Virtual)?;
         vp.add_term(Goldilocks::ONE, vec![di, dmi, ei])
             .map_err(MemoryError::Virtual)?;
-        let out = sumcheck::prove(&vp, Goldilocks::ZERO, transcript)
-            .map_err(MemoryError::Sumcheck)?;
+        let out =
+            sumcheck::prove(&vp, Goldilocks::ZERO, transcript).map_err(MemoryError::Sumcheck)?;
         // Bind the factor claims: [D, D−1, eq] at the terminal point.
         let d_at = ledger.tensor_claim(Factor::DigitBits { inst }, &out.challenges)?;
         if d_at != out.factor_claims[0]
@@ -325,7 +359,11 @@ pub fn prove_memory(
         {
             return Err(MemoryError::FinalCheck("booleanity binding"));
         }
-        legs.push(LegProof { name: "B", sc: out.proof, claim: Goldilocks::ZERO });
+        legs.push(LegProof {
+            name: "B",
+            sc: out.proof,
+            claim: Goldilocks::ZERO,
+        });
     }
 
     // ---- R: raf: Σ eq(r'_j, j)·w(row)·D(row, j) = addr_col(r'_j). ----
@@ -341,24 +379,30 @@ pub fn prove_memory(
         let mut vp = VirtualPolynomial::new(log_rows + log_ts);
         let ei = vp.add_factor(eq_j).map_err(MemoryError::Virtual)?;
         let wi = vp.add_factor(w_ext).map_err(MemoryError::Virtual)?;
-        let di = vp.add_factor(digits.clone()).map_err(MemoryError::Virtual)?;
+        let di = vp
+            .add_factor(digits.clone())
+            .map_err(MemoryError::Virtual)?;
         vp.add_term(Goldilocks::ONE, vec![ei, wi, di])
             .map_err(MemoryError::Virtual)?;
-        let out = sumcheck::prove(&vp, addr_claim, transcript)
-            .map_err(MemoryError::Sumcheck)?;
+        let out = sumcheck::prove(&vp, addr_claim, transcript).map_err(MemoryError::Sumcheck)?;
         // Factor claims: [eq_j, w, D] at the terminal point.
         let d_at = ledger.tensor_claim(Factor::DigitBits { inst }, &out.challenges)?;
-        let eq_at = DenseMle::eq_eval(&r_prime, &out.challenges[log_rows..])
-            .map_err(MemoryError::Mle)?;
+        let eq_at =
+            DenseMle::eq_eval(&r_prime, &out.challenges[log_rows..]).map_err(MemoryError::Mle)?;
         if d_at != out.factor_claims[2]
             || eq_at != out.factor_claims[0]
-            || m.raf_weights().evaluate(&out.challenges[..log_rows])
+            || m.raf_weights()
+                .evaluate(&out.challenges[..log_rows])
                 .map_err(MemoryError::Mle)?
                 != out.factor_claims[1]
         {
             return Err(MemoryError::FinalCheck("raf binding"));
         }
-        legs.push(LegProof { name: "R", sc: out.proof, claim: addr_claim });
+        legs.push(LegProof {
+            name: "R",
+            sc: out.proof,
+            claim: addr_claim,
+        });
     }
 
     // ---- C: read-checking: rv(r_c) = Σ eq(r_c,j)·ra·Val (fetch: table). ----
@@ -387,13 +431,16 @@ pub fn prove_memory(
         let vi = vp.add_factor(val_factor).map_err(MemoryError::Virtual)?;
         vp.add_term(Goldilocks::ONE, vec![ei, ri, vi])
             .map_err(MemoryError::Virtual)?;
-        let out = sumcheck::prove(&vp, rv_claim, transcript)
-            .map_err(MemoryError::Sumcheck)?;
+        let out = sumcheck::prove(&vp, rv_claim, transcript).map_err(MemoryError::Sumcheck)?;
         read_point = out.challenges.clone();
         read_ra_claim = out.factor_claims[1];
         read_val_claim = out.factor_claims[2];
         read_final_claim = out.final_claim;
-        legs.push(LegProof { name: "C", sc: out.proof, claim: rv_claim });
+        legs.push(LegProof {
+            name: "C",
+            sc: out.proof,
+            claim: rv_claim,
+        });
     }
 
     // ---- Ma: matrix-eval of ra at the read leg's point. ----
@@ -447,15 +494,19 @@ pub fn prove_memory(
             .map_err(MemoryError::Virtual)?;
         vp.add_term(Goldilocks::ONE, vec![ei, wi, vali])
             .map_err(MemoryError::Virtual)?;
-        let out = sumcheck::prove(&vp, Goldilocks::ZERO, transcript)
-            .map_err(MemoryError::Sumcheck)?;
+        let out =
+            sumcheck::prove(&vp, Goldilocks::ZERO, transcript).map_err(MemoryError::Sumcheck)?;
         write_point = out.challenges.clone();
         // Factor order in the W vp: [eq, inc, wa, wv-lift, val].
         write_inc_claim = out.factor_claims[1];
         write_wa_claim = out.factor_claims[2];
         write_wv_claim = out.factor_claims[3];
         write_val_claim = out.factor_claims[4];
-        legs.push(LegProof { name: "W", sc: out.proof, claim: Goldilocks::ZERO });
+        legs.push(LegProof {
+            name: "W",
+            sc: out.proof,
+            claim: Goldilocks::ZERO,
+        });
     }
 
     // ---- Mb / Mc + the wv column claim at the write point's j-part. ----
@@ -502,11 +553,14 @@ pub fn prove_memory(
         vp.add_term(Goldilocks::ONE, vec![ei, ii])
             .map_err(MemoryError::Virtual)?;
 
-        let out = sumcheck::prove(&vp, tel_claim, transcript)
-            .map_err(MemoryError::Sumcheck)?;
+        let out = sumcheck::prove(&vp, tel_claim, transcript).map_err(MemoryError::Sumcheck)?;
         tel_point = out.challenges.clone();
         tel_inc_claim = out.factor_claims[1];
-        legs.push(LegProof { name: "T", sc: out.proof, claim: tel_claim });
+        legs.push(LegProof {
+            name: "T",
+            sc: out.proof,
+            claim: tel_claim,
+        });
     }
 
     // ---- Md: matrix-eval of Inc at the telescoping point. ----
@@ -575,7 +629,10 @@ pub fn verify_memory(
 
         let (rho_rows, rho_j) = verdict.point.split_at(log_rows);
         let eq_v = DenseMle::eq_eval(&r_prime, rho_j).map_err(MemoryError::Mle)?;
-        let w_v = m.raf_weights().evaluate(rho_rows).map_err(MemoryError::Mle)?;
+        let w_v = m
+            .raf_weights()
+            .evaluate(rho_rows)
+            .map_err(MemoryError::Mle)?;
         let d_at = ledger.tensor_claim(Factor::DigitBits { inst }, &verdict.point)?;
         if eq_v.mul(&w_v).mul(&d_at) != verdict.final_claim {
             return Err(MemoryError::FinalCheck("raf"));
@@ -604,7 +661,15 @@ pub fn verify_memory(
     }
 
     // ---- Ma ----
-    let ra_at = verify_matrix_eval(inst, "Ma", m, ledger, &read_point, next_leg(&mut iter, "Ma")?, transcript)?;
+    let ra_at = verify_matrix_eval(
+        inst,
+        "Ma",
+        m,
+        ledger,
+        &read_point,
+        next_leg(&mut iter, "Ma")?,
+        transcript,
+    )?;
 
     if m.read_only() {
         let (rho_k, rho_j) = read_point.split_at(log_k);
@@ -641,8 +706,24 @@ pub fn verify_memory(
     }
 
     // ---- Mb / Mc ----
-    let wa_at = verify_matrix_eval(inst, "Mb", m, ledger, &write_point, next_leg(&mut iter, "Mb")?, transcript)?;
-    let inc_at_w = verify_matrix_eval(inst, "Mc", m, ledger, &write_point, next_leg(&mut iter, "Mc")?, transcript)?;
+    let wa_at = verify_matrix_eval(
+        inst,
+        "Mb",
+        m,
+        ledger,
+        &write_point,
+        next_leg(&mut iter, "Mb")?,
+        transcript,
+    )?;
+    let inc_at_w = verify_matrix_eval(
+        inst,
+        "Mc",
+        m,
+        ledger,
+        &write_point,
+        next_leg(&mut iter, "Mc")?,
+        transcript,
+    )?;
     let wv_at_w = ledger.tensor_claim(wv_factor(inst), &write_point[log_k..])?;
 
     // ---- V1 + Mu1 ----
@@ -673,7 +754,15 @@ pub fn verify_memory(
     }
 
     // ---- Md ----
-    let inc_at_tel = verify_matrix_eval(inst, "Md", m, ledger, &tel_point, next_leg(&mut iter, "Md")?, transcript)?;
+    let inc_at_tel = verify_matrix_eval(
+        inst,
+        "Md",
+        m,
+        ledger,
+        &tel_point,
+        next_leg(&mut iter, "Md")?,
+        transcript,
+    )?;
 
     // ---- Terminals: the summand identities recomputed from the
     //      authenticated factor values (ra/wa/Inc from the matrix-evals,
@@ -729,7 +818,6 @@ pub(crate) fn matrix_kind(name: &str) -> MatrixKind {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // The leg-polynomial builders (shared between the per-instance protocol
 // above and the Stage-4 leg batching in `legbatch.rs`).
@@ -745,9 +833,15 @@ pub(crate) fn booleanity_vp_at(
     let digits = m.digit_tensor();
     let log_rows = m.log_rows();
     let r_len = log_rows + m.log_ts;
-    let d_minus_1: Vec<Goldilocks> =
-        digits.evaluations.iter().map(|v| v.sub(&Goldilocks::ONE)).collect();
-    let dm = DenseMle { num_vars: r_len, evaluations: d_minus_1 };
+    let d_minus_1: Vec<Goldilocks> = digits
+        .evaluations
+        .iter()
+        .map(|v| v.sub(&Goldilocks::ONE))
+        .collect();
+    let dm = DenseMle {
+        num_vars: r_len,
+        evaluations: d_minus_1,
+    };
     let eq = DenseMle::eq_extension(r_bool);
     let mut vp = VirtualPolynomial::new(r_len);
     let di = vp.add_factor(digits).map_err(MemoryError::Virtual)?;
@@ -841,10 +935,7 @@ pub(crate) fn telescoping_vp(
 }
 
 /// The telescoping claim: `Σ_k eq(r_t, k)·(Final − Init)` — public.
-pub(crate) fn tel_claim(
-    m: &MemoryInstance,
-    r_t: &[Goldilocks],
-) -> Result<Goldilocks, MemoryError> {
+pub(crate) fn tel_claim(m: &MemoryInstance, r_t: &[Goldilocks]) -> Result<Goldilocks, MemoryError> {
     let eq_k = DenseMle::eq_extension(r_t);
     let mut acc = Goldilocks::ZERO;
     for (k, (f, i)) in m.final_state.iter().zip(m.init.iter()).enumerate() {
@@ -871,7 +962,11 @@ pub(crate) fn matrix_vp(
         num_vars: log_ts,
         evaluations: (0..m.t_s())
             .map(|j| {
-                let a = if write_activity { m.wactive[j] } else { m.ractive[j] };
+                let a = if write_activity {
+                    m.wactive[j]
+                } else {
+                    m.ractive[j]
+                };
                 fe(a as u64)
             })
             .collect(),
@@ -888,19 +983,25 @@ pub(crate) fn matrix_vp(
             })
             .collect();
         let fi = vp
-            .add_factor(DenseMle { num_vars: log_ts, evaluations: affine })
+            .add_factor(DenseMle {
+                num_vars: log_ts,
+                evaluations: affine,
+            })
             .map_err(MemoryError::Virtual)?;
         term.push(fi);
     }
     if inc_case {
-        let inc_part: Vec<Goldilocks> =
-            m.inc_off.iter().map(|v| v.sub(&fe(INC_OFFSET))).collect();
+        let inc_part: Vec<Goldilocks> = m.inc_off.iter().map(|v| v.sub(&fe(INC_OFFSET))).collect();
         let ci = vp
-            .add_factor(DenseMle { num_vars: log_ts, evaluations: inc_part })
+            .add_factor(DenseMle {
+                num_vars: log_ts,
+                evaluations: inc_part,
+            })
             .map_err(MemoryError::Virtual)?;
         term.push(ci);
     }
-    vp.add_term(Goldilocks::ONE, term).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, term)
+        .map_err(MemoryError::Virtual)?;
     Ok(vp)
 }
 
@@ -929,18 +1030,25 @@ pub(crate) fn val_vp(
         .collect();
     let lt: Vec<Goldilocks> = (0..m.t_s())
         .map(|j| {
-            let bits: Vec<Goldilocks> =
-                (0..m.log_ts).map(|b| fe((j >> (m.log_ts - 1 - b)) as u64 & 1)).collect();
+            let bits: Vec<Goldilocks> = (0..m.log_ts)
+                .map(|b| fe((j >> (m.log_ts - 1 - b)) as u64 & 1))
+                .collect();
             DenseMle::lt_extension(&bits, r_c).map_err(MemoryError::Mle)
         })
         .collect::<Result<_, _>>()?;
     let claim = val_at.sub(&init_at);
     let mut vp = VirtualPolynomial::new(m.log_ts);
     let ui = vp
-        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: u })
+        .add_factor(DenseMle {
+            num_vars: m.log_ts,
+            evaluations: u,
+        })
         .map_err(MemoryError::Virtual)?;
     let li = vp
-        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: lt })
+        .add_factor(DenseMle {
+            num_vars: m.log_ts,
+            evaluations: lt,
+        })
         .map_err(MemoryError::Virtual)?;
     vp.add_term(Goldilocks::ONE, vec![ui, li])
         .map_err(MemoryError::Virtual)?;
@@ -983,8 +1091,21 @@ fn prove_matrix_eval(
     };
     let claim = matrix.evaluate(point).map_err(MemoryError::Mle)?;
     let out = matrix_eval_sumcheck(m, rho_k, rho_j, claim, kind, transcript)?;
-    bind_matrix_factors(inst, m, ledger, rho_k, rho_j, &out.challenges, &out.factor_claims, kind)?;
-    legs.push(LegProof { name, sc: out.proof, claim });
+    bind_matrix_factors(
+        inst,
+        m,
+        ledger,
+        rho_k,
+        rho_j,
+        &out.challenges,
+        &out.factor_claims,
+        kind,
+    )?;
+    legs.push(LegProof {
+        name,
+        sc: out.proof,
+        claim,
+    });
     Ok(claim)
 }
 
@@ -1006,7 +1127,16 @@ fn verify_matrix_eval(
         .sc
         .verify(m.log_ts, degree, leg.claim, transcript, None)
         .map_err(MemoryError::Sumcheck)?;
-    check_matrix_terminal(inst, m, ledger, rho_k, rho_j, &verdict.point, &verdict.final_claim, kind)?;
+    check_matrix_terminal(
+        inst,
+        m,
+        ledger,
+        rho_k,
+        rho_j,
+        &verdict.point,
+        &verdict.final_claim,
+        kind,
+    )?;
     Ok(leg.claim)
 }
 
@@ -1030,7 +1160,11 @@ fn matrix_eval_sumcheck(
         num_vars: log_ts,
         evaluations: (0..m.t_s())
             .map(|j| {
-                let a = if write_activity { m.wactive[j] } else { m.ractive[j] };
+                let a = if write_activity {
+                    m.wactive[j]
+                } else {
+                    m.ractive[j]
+                };
                 fe(a as u64)
             })
             .collect(),
@@ -1048,19 +1182,25 @@ fn matrix_eval_sumcheck(
             })
             .collect();
         let fi = vp
-            .add_factor(DenseMle { num_vars: log_ts, evaluations: affine })
+            .add_factor(DenseMle {
+                num_vars: log_ts,
+                evaluations: affine,
+            })
             .map_err(MemoryError::Virtual)?;
         term.push(fi);
     }
     if inc_case {
-        let inc_part: Vec<Goldilocks> =
-            m.inc_off.iter().map(|v| v.sub(&fe(INC_OFFSET))).collect();
+        let inc_part: Vec<Goldilocks> = m.inc_off.iter().map(|v| v.sub(&fe(INC_OFFSET))).collect();
         let ci = vp
-            .add_factor(DenseMle { num_vars: log_ts, evaluations: inc_part })
+            .add_factor(DenseMle {
+                num_vars: log_ts,
+                evaluations: inc_part,
+            })
             .map_err(MemoryError::Virtual)?;
         term.push(ci);
     }
-    vp.add_term(Goldilocks::ONE, term).map_err(MemoryError::Virtual)?;
+    vp.add_term(Goldilocks::ONE, term)
+        .map_err(MemoryError::Virtual)?;
     sumcheck::prove(&vp, claim, transcript).map_err(MemoryError::Sumcheck)
 }
 
@@ -1178,23 +1318,34 @@ fn prove_val_eval(
         .collect();
     let lt: Vec<Goldilocks> = (0..m.t_s())
         .map(|j| {
-            let bits: Vec<Goldilocks> =
-                (0..m.log_ts).map(|b| fe((j >> (m.log_ts - 1 - b)) as u64 & 1)).collect();
+            let bits: Vec<Goldilocks> = (0..m.log_ts)
+                .map(|b| fe((j >> (m.log_ts - 1 - b)) as u64 & 1))
+                .collect();
             DenseMle::lt_extension(&bits, r_c).map_err(MemoryError::Mle)
         })
         .collect::<Result<_, _>>()?;
     let claim = val_at.sub(&init_at);
     let mut vp = VirtualPolynomial::new(m.log_ts);
     let ui = vp
-        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: u })
+        .add_factor(DenseMle {
+            num_vars: m.log_ts,
+            evaluations: u,
+        })
         .map_err(MemoryError::Virtual)?;
     let li = vp
-        .add_factor(DenseMle { num_vars: m.log_ts, evaluations: lt })
+        .add_factor(DenseMle {
+            num_vars: m.log_ts,
+            evaluations: lt,
+        })
         .map_err(MemoryError::Virtual)?;
     vp.add_term(Goldilocks::ONE, vec![ui, li])
         .map_err(MemoryError::Virtual)?;
     let out = sumcheck::prove(&vp, claim, transcript).map_err(MemoryError::Sumcheck)?;
-    legs.push(LegProof { name, sc: out.proof.clone(), claim: val_at });
+    legs.push(LegProof {
+        name,
+        sc: out.proof.clone(),
+        claim: val_at,
+    });
     // The u factor's claim = a matrix-eval of Inc at (r_a, V's point).
     let mut full = r_a.to_vec();
     full.extend_from_slice(&out.challenges);
@@ -1274,21 +1425,15 @@ mod tests {
         let mut rv = vec![Goldilocks::ZERO; t_s];
         let mut wv = vec![Goldilocks::ZERO; t_s];
         let mut inc_off = vec![fe(INC_OFFSET); t_s];
-        let accesses: [(u64, bool, u64); 4] = [
-            (1, false, 20),
-            (2, true, 5),
-            (2, false, 5),
-            (3, false, 40),
-        ];
+        let accesses: [(u64, bool, u64); 4] =
+            [(1, false, 20), (2, true, 5), (2, false, 5), (3, false, 40)];
         let mut current = init.clone();
         for (j, (a, w, v)) in accesses.iter().enumerate() {
             addr[j] = *a;
             if *w {
                 wactive[j] = 1;
                 wv[j] = fe(*v);
-                inc_off[j] = fe(*v)
-                    .sub(&current[*a as usize])
-                    .add(&fe(INC_OFFSET));
+                inc_off[j] = fe(*v).sub(&current[*a as usize]).add(&fe(INC_OFFSET));
                 current[*a as usize] = fe(*v);
             } else {
                 ractive[j] = 1;

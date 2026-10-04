@@ -24,11 +24,12 @@
 //!      the ops' addresses (a sound tightening of Construction 6.9's
 //!      `v̂/û̃` dance; documented as the deviation).
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use crate::ring_d::{Elem, RingD};
-use crate::ring_sumcheck::{prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly};
+use crate::ring_sumcheck::{
+    prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly,
+};
 use crate::subprotocols::{
     prove_binary_check, prove_hadamard, verify_binary_check, verify_hadamard, SubError,
 };
@@ -57,7 +58,15 @@ pub struct Records {
 
 impl Records {
     /// The α-combination `(α₁·V, α₂·A, α₃·T)` of a record segment.
-    fn combine(ring: &RingD, alpha1: &Elem, alpha2: &Elem, alpha3: &Elem, seg: &[Elem], addrs: &[u64], times: &[u64]) -> Vec<Elem> {
+    fn combine(
+        ring: &RingD,
+        alpha1: &Elem,
+        alpha2: &Elem,
+        alpha3: &Elem,
+        seg: &[Elem],
+        addrs: &[u64],
+        times: &[u64],
+    ) -> Vec<Elem> {
         seg.iter()
             .zip(addrs.iter().zip(times.iter()))
             .map(|(v, (&a, &t))| {
@@ -125,7 +134,10 @@ pub fn memcheck(
             }
             false => {
                 if cur[addr] != op.value {
-                    return Err(SubError::Verify(format!("read at {} inconsistent", op.addr)));
+                    return Err(SubError::Verify(format!(
+                        "read at {} inconsistent",
+                        op.addr
+                    )));
                 }
                 vr.push(op.value.clone());
                 ar.push(op.addr);
@@ -148,7 +160,14 @@ pub fn memcheck(
         aw.push(addr as u64);
         tw.push(t);
     }
-    Ok(Records { vr, ar, tr, vw, aw, tw })
+    Ok(Records {
+        vr,
+        ar,
+        tr,
+        vw,
+        aw,
+        tw,
+    })
 }
 
 /// The plain-PIOP oracle view of the RAM proof.
@@ -234,7 +253,9 @@ fn consistency_vectors(
         a.push(ring.zero());
         b.push(ring.sub(&final_[i], &records.vr[m + k + i]));
     }
-    let c: Vec<Elem> = (0..total).map(|i| ring.sub(&records.vw[i], &records.vr[i])).collect();
+    let c: Vec<Elem> = (0..total)
+        .map(|i| ring.sub(&records.vw[i], &records.vr[i]))
+        .collect();
     (a, b, c)
 }
 
@@ -278,7 +299,9 @@ pub fn prove_ram_batch(
             }
         }
         if cur != final_ {
-            return Err(SubError::Verify("ops do not produce the final image".into()));
+            return Err(SubError::Verify(
+                "ops do not produce the final image".into(),
+            ));
         }
     }
     let records = memcheck(ring, m, initial, ops, final_)?;
@@ -295,8 +318,10 @@ pub fn prove_ram_batch(
     }
     let n_touched = touched_addrs.len().next_power_of_two().max(2);
     // V-isolation
-    let mut qv_vals: Vec<Elem> =
-        touched_addrs.iter().map(|&a| initial[a as usize].clone()).collect();
+    let mut qv_vals: Vec<Elem> = touched_addrs
+        .iter()
+        .map(|&a| initial[a as usize].clone())
+        .collect();
     let mut qv_tags: Vec<Elem> = touched_addrs.iter().map(|&a| ring.g_map(a)).collect();
     while qv_vals.len() < n_touched {
         qv_vals.push(initial[0].clone());
@@ -305,8 +330,10 @@ pub fn prove_ram_batch(
     let (lookup_reads, reads_oracles) =
         crate::ring_logup::prove_ring_logup(ring, &qv_vals, initial, &qv_tags, transcript)?;
     // V'-isolation
-    let mut qw_vals: Vec<Elem> =
-        touched_addrs.iter().map(|&a| final_[a as usize].clone()).collect();
+    let mut qw_vals: Vec<Elem> = touched_addrs
+        .iter()
+        .map(|&a| final_[a as usize].clone())
+        .collect();
     let mut qw_tags: Vec<Elem> = touched_addrs.iter().map(|&a| ring.g_map(a)).collect();
     while qw_vals.len() < n_touched {
         qw_vals.push(final_[0].clone());
@@ -314,7 +341,9 @@ pub fn prove_ram_batch(
     }
     let (lookup_writes, writes_oracles) =
         crate::ring_logup::prove_ring_logup(ring, &qw_vals, final_, &qw_tags, transcript)?;
-    let canary_1 = transcript.challenge_bytes(b"canary1", 8).unwrap_or_default();
+    let canary_1 = transcript
+        .challenge_bytes(b"canary1", 8)
+        .unwrap_or_default();
     // ---- Sub-protocol 2: the permutation logup (footnote 5) ----
     let alpha1 = ring.sample_challenge(transcript, b"ram-al1");
     let alpha2 = ring.sample_challenge(transcript, b"ram-al2");
@@ -374,9 +403,8 @@ pub fn prove_ram_batch(
                     break;
                 }
             }
-            let j = found.ok_or_else(|| {
-                SubError::Verify("record multisets differ (fail-closed)".into())
-            })?;
+            let j = found
+                .ok_or_else(|| SubError::Verify("record multisets differ (fail-closed)".into()))?;
             perm_q_vals.push(wv.clone());
             perm_q_tags.push(ring.g_map(j as u64));
         }
@@ -394,12 +422,19 @@ pub fn prove_ram_batch(
             perm_q_tags[0].coeffs().to_vec(),
             perm_t[0].coeffs().to_vec(),
             perm_t[1].coeffs().to_vec(),
-            perm_t.iter().enumerate().filter(|(_, v)| **v == perm_q_vals[0]).map(|(j, _)| j).collect::<Vec<_>>()
+            perm_t
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v == perm_q_vals[0])
+                .map(|(j, _)| j)
+                .collect::<Vec<_>>()
         );
     }
     let (perm_logup, perm_oracles) =
         crate::ring_logup::prove_ring_logup(ring, &perm_q_vals, &perm_t, &perm_q_tags, transcript)?;
-    let canary_2 = transcript.challenge_bytes(b"canary2", 8).unwrap_or_default();
+    let canary_2 = transcript
+        .challenge_bytes(b"canary2", 8)
+        .unwrap_or_default();
     // ---- Sub-protocol 2: the read/write-value Hadamard ----
     let (had_a, had_b, had_c) = consistency_vectors(ring, m, k, initial, final_, ops, &records);
     let (hadamard, _hq) = prove_hadamard(ring, &had_a, &had_b, &had_c, transcript)?;
@@ -417,7 +452,9 @@ pub fn prove_ram_batch(
     let ts_table: Vec<Elem> = (1..=total).map(|v| ring.constant(v)).collect();
     let (ts_lookup, ts_oracles) =
         crate::ring_logup::prove_ring_logup(ring, &ts_vals, &ts_table, &ts_tags, transcript)?;
-    let canary_3 = transcript.challenge_bytes(b"canary3", 8).unwrap_or_default();
+    let canary_3 = transcript
+        .challenge_bytes(b"canary3", 8)
+        .unwrap_or_default();
     // ---- Sub-protocol 3: almost identical ----
     let u = touched_indicator(ring, m, ops);
     // the sum-check: Σ_x EQ(x,r)·(1−û(x))(V̂(x)−V̂′(x)) = 0
@@ -443,7 +480,9 @@ pub fn prove_ram_batch(
     let aid_sc = prove_sumcheck(ring, &poly, transcript)?;
     // u binary + the touched set ⊆ ops' addresses (indexed lookup)
     let (u_binary, _ubq) = prove_binary_check(ring, &u, transcript)?;
-    let canary_5 = transcript.challenge_bytes(b"canary5", 8).unwrap_or_default();
+    let canary_5 = transcript
+        .challenge_bytes(b"canary5", 8)
+        .unwrap_or_default();
     // The touched-address lookup: every address with u_i = 1 was
     // accessed by some op. Table = the UNIQUE op addresses (values as
     // ring constants, tags g(addr)); query = the touched addresses
@@ -470,9 +509,12 @@ pub fn prove_ram_batch(
     let mut touched_tags: Vec<Elem> = Vec::new();
     for i in 0..m {
         if u[i].ct() == 1 {
-            let pos = uniq_addrs.iter().position(|&a| a == i as u64).ok_or_else(|| {
-                SubError::Verify("touched address not in the op set (fail-closed)".into())
-            })?;
+            let pos = uniq_addrs
+                .iter()
+                .position(|&a| a == i as u64)
+                .ok_or_else(|| {
+                    SubError::Verify("touched address not in the op set (fail-closed)".into())
+                })?;
             touched_vals.push(ring.constant(i as u64));
             touched_tags.push(ring.g_map(pos as u64));
         }
@@ -481,8 +523,13 @@ pub fn prove_ram_batch(
         touched_vals.push(tab_vals[0].clone());
         touched_tags.push(tab_tags[0].clone());
     }
-    let (touched_lookup, touched_oracles) =
-        crate::ring_logup::prove_ring_logup(ring, &touched_vals, &tab_vals, &touched_tags, transcript)?;
+    let (touched_lookup, touched_oracles) = crate::ring_logup::prove_ring_logup(
+        ring,
+        &touched_vals,
+        &tab_vals,
+        &touched_tags,
+        transcript,
+    )?;
 
     let oracles = RamOracles {
         initial: initial.to_vec(),
@@ -544,10 +591,14 @@ pub fn verify_ram_batch(
         return Err(SubError::Verify("oracle V' ≠ public final image".into()));
     }
     if proof.reads_oracles.b != initial {
-        return Err(SubError::Verify("V-isolation table ≠ public initial image".into()));
+        return Err(SubError::Verify(
+            "V-isolation table ≠ public initial image".into(),
+        ));
     }
     if proof.writes_oracles.b != final_ {
-        return Err(SubError::Verify("V'-isolation table ≠ public final image".into()));
+        return Err(SubError::Verify(
+            "V'-isolation table ≠ public final image".into(),
+        ));
     }
     // Lemma 6.4 record conditions (the transmitted segments):
     // 1: V_R[0:M] = 0, T_R[0:M] = 0;  2: V_W[0:M] = V;
@@ -564,7 +615,9 @@ pub fn verify_ram_batch(
             return Err(SubError::Verify("condition 3 violated".into()));
         }
         if recs.ar[i] != i as u64 || recs.aw[i] != i as u64 || recs.ar[m + k + i] != i as u64 {
-            return Err(SubError::Verify("condition 2/3 address order violated".into()));
+            return Err(SubError::Verify(
+                "condition 2/3 address order violated".into(),
+            ));
         }
     }
     for i in 0..(2 * m + k) {
@@ -574,18 +627,38 @@ pub fn verify_ram_batch(
     }
     for (i, op) in oracles.ops.iter().enumerate() {
         if recs.ar[m + i] != op.addr || recs.aw[m + i] != op.addr {
-            return Err(SubError::Verify("condition 5 (op addresses) violated".into()));
+            return Err(SubError::Verify(
+                "condition 5 (op addresses) violated".into(),
+            ));
         }
     }
     // Sub-protocol 1 (both isolation lookups): the query lengths ride
     // the recorded oracle shapes.
     let n_q = proof.reads_oracles.a.len();
-    crate::ring_logup::verify_ring_logup(ring, n_q, m, &proof.lookup_reads, &proof.reads_oracles, transcript)?;
+    crate::ring_logup::verify_ring_logup(
+        ring,
+        n_q,
+        m,
+        &proof.lookup_reads,
+        &proof.reads_oracles,
+        transcript,
+    )?;
     let n_qw = proof.writes_oracles.a.len();
-    crate::ring_logup::verify_ring_logup(ring, n_qw, m, &proof.lookup_writes, &proof.writes_oracles, transcript)?;
-    let canary_1 = transcript.challenge_bytes(b"canary1", 8).unwrap_or_default();
+    crate::ring_logup::verify_ring_logup(
+        ring,
+        n_qw,
+        m,
+        &proof.lookup_writes,
+        &proof.writes_oracles,
+        transcript,
+    )?;
+    let canary_1 = transcript
+        .challenge_bytes(b"canary1", 8)
+        .unwrap_or_default();
     if canary_1 != proof.canary_1 {
-        return Err(SubError::Verify("canary1 mismatch (after isolation lookups)".into()));
+        return Err(SubError::Verify(
+            "canary1 mismatch (after isolation lookups)".into(),
+        ));
     }
     // Sub-protocol 2: replay the α-combination challenges, then the
     // permutation logup.
@@ -600,17 +673,33 @@ pub fn verify_ram_batch(
         &proof.perm_oracles,
         transcript,
     )?;
-    let canary_2 = transcript.challenge_bytes(b"canary2", 8).unwrap_or_default();
+    let canary_2 = transcript
+        .challenge_bytes(b"canary2", 8)
+        .unwrap_or_default();
     if canary_2 != proof.canary_2 {
-        return Err(SubError::Verify("canary2 mismatch (after perm logup)".into()));
+        return Err(SubError::Verify(
+            "canary2 mismatch (after perm logup)".into(),
+        ));
     }
     // the read/write-value Hadamard.
-    verify_hadamard(ring, 2 * m + k, &proof.hadamard, transcript, &|l, pt| match l {
-        "a" => ring.mle_eval(&oracles.had_a, pt).map_err(|e| format!("{e:?}")),
-        "b" => ring.mle_eval(&oracles.had_b, pt).map_err(|e| format!("{e:?}")),
-        "c" => ring.mle_eval(&oracles.had_c, pt).map_err(|e| format!("{e:?}")),
-        _ => Err("bad label".into()),
-    })?;
+    verify_hadamard(
+        ring,
+        2 * m + k,
+        &proof.hadamard,
+        transcript,
+        &|l, pt| match l {
+            "a" => ring
+                .mle_eval(&oracles.had_a, pt)
+                .map_err(|e| format!("{e:?}")),
+            "b" => ring
+                .mle_eval(&oracles.had_b, pt)
+                .map_err(|e| format!("{e:?}")),
+            "c" => ring
+                .mle_eval(&oracles.had_c, pt)
+                .map_err(|e| format!("{e:?}")),
+            _ => Err("bad label".into()),
+        },
+    )?;
     // timestamp positivity.
     crate::ring_logup::verify_ring_logup(
         ring,
@@ -620,7 +709,9 @@ pub fn verify_ram_batch(
         &proof.ts_oracles,
         transcript,
     )?;
-    let canary_3 = transcript.challenge_bytes(b"canary3", 8).unwrap_or_default();
+    let canary_3 = transcript
+        .challenge_bytes(b"canary3", 8)
+        .unwrap_or_default();
     if canary_3 != proof.canary_3 {
         return Err(SubError::Verify("canary3 mismatch (after ts logup)".into()));
     }
@@ -640,23 +731,36 @@ pub fn verify_ram_batch(
             num_factors: 3,
         }],
     };
-    verify_sumcheck(ring, &shape, &ring.zero(), &proof.aid_sc, transcript, &mut |ti, fi, pt| {
-        let _ = ti;
-        match fi {
-            0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
-            1 => {
-                // 1 − u at the point: the verifier queries u and negates
-                let uv = ring.mle_eval(&oracles.u, pt).map_err(|e| format!("{e:?}"))?;
-                Ok(ring.sub(&ring.one(), &uv))
+    verify_sumcheck(
+        ring,
+        &shape,
+        &ring.zero(),
+        &proof.aid_sc,
+        transcript,
+        &mut |ti, fi, pt| {
+            let _ = ti;
+            match fi {
+                0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
+                1 => {
+                    // 1 − u at the point: the verifier queries u and negates
+                    let uv = ring
+                        .mle_eval(&oracles.u, pt)
+                        .map_err(|e| format!("{e:?}"))?;
+                    Ok(ring.sub(&ring.one(), &uv))
+                }
+                2 => {
+                    let iv = ring
+                        .mle_eval(&oracles.initial, pt)
+                        .map_err(|e| format!("{e:?}"))?;
+                    let fv = ring
+                        .mle_eval(&oracles.final_, pt)
+                        .map_err(|e| format!("{e:?}"))?;
+                    Ok(ring.sub(&iv, &fv))
+                }
+                _ => Err("bad factor".into()),
             }
-            2 => {
-                let iv = ring.mle_eval(&oracles.initial, pt).map_err(|e| format!("{e:?}"))?;
-                let fv = ring.mle_eval(&oracles.final_, pt).map_err(|e| format!("{e:?}"))?;
-                Ok(ring.sub(&iv, &fv))
-            }
-            _ => Err("bad factor".into()),
-        }
-    })
+        },
+    )
     .map_err(SubError::from)?;
     // u binary.
     verify_binary_check(ring, m, &proof.u_binary, transcript, &|l, pt| match l {
@@ -664,16 +768,23 @@ pub fn verify_ram_batch(
         other => {
             if let Some(j) = other.strip_prefix("bc-cf") {
                 let j: usize = j.parse().map_err(|_| "bad index")?;
-                let row: Vec<Elem> =
-                    oracles.u.iter().map(|e| ring.constant(e.coeffs()[j])).collect();
+                let row: Vec<Elem> = oracles
+                    .u
+                    .iter()
+                    .map(|e| ring.constant(e.coeffs()[j]))
+                    .collect();
                 return ring.mle_eval(&row, pt).map_err(|e| format!("{e:?}"));
             }
             Err(format!("unknown label {other}"))
         }
     })?;
-    let canary_5 = transcript.challenge_bytes(b"canary5", 8).unwrap_or_default();
+    let canary_5 = transcript
+        .challenge_bytes(b"canary5", 8)
+        .unwrap_or_default();
     if canary_5 != proof.canary_5 {
-        return Err(SubError::Verify("canary5 mismatch (after the u binary check)".into()));
+        return Err(SubError::Verify(
+            "canary5 mismatch (after the u binary check)".into(),
+        ));
     }
     // the touched-addr lookup.
     let n_tab = proof.touched_oracles.a.len();
@@ -700,14 +811,24 @@ mod tests {
 
     #[allow(clippy::cast_possible_truncation)]
     fn build_ops(r: &RingD, m: usize, k: usize, seed: &str) -> (Vec<Elem>, Vec<RamOp>, Vec<Elem>) {
-        let initial: Vec<Elem> = (0..m).map(|i| r.random(format!("{seed}-i{i}").as_bytes())).collect();
+        let initial: Vec<Elem> = (0..m)
+            .map(|i| r.random(format!("{seed}-i{i}").as_bytes()))
+            .collect();
         let mut ops = Vec::new();
         let mut cur = initial.clone();
         for i in 0..k {
             let addr = ((i * 5 + 1) % m) as u64;
             let val = r.random(format!("{seed}-v{i}").as_bytes());
             let write = i % 2 == 0;
-            ops.push(RamOp { write, addr, value: if write { val.clone() } else { cur[addr as usize].clone() } });
+            ops.push(RamOp {
+                write,
+                addr,
+                value: if write {
+                    val.clone()
+                } else {
+                    cur[addr as usize].clone()
+                },
+            });
             if write {
                 cur[addr as usize] = val;
             }
@@ -766,8 +887,8 @@ mod tests {
         let r = ring();
         let (initial, ops, final_) = build_ops(&r, 4, 8, "rb");
         let mut tr = Transcript::new_default(b"ram");
-        let (proof, oracles) =
-            prove_ram_batch(&r, &initial, &ops, &final_, &mut tr).unwrap_or_else(|e| panic!("{e:?}"));
+        let (proof, oracles) = prove_ram_batch(&r, &initial, &ops, &final_, &mut tr)
+            .unwrap_or_else(|e| panic!("{e:?}"));
         let mut tr2 = Transcript::new_default(b"ram");
         verify_ram_batch(&r, 4, 8, &initial, &final_, &proof, &oracles, &mut tr2)
             .unwrap_or_else(|e| panic!("verify: {e:?}"));
@@ -788,7 +909,9 @@ mod tests {
         let (initial, ops, final_) = build_ops(&r, 4, 8, "tv");
         let (proof, mut oracles) = {
             let mut tr = Transcript::new_default(b"ram3");
-            let (p, o) = prove_ram_batch(&r, &initial, &ops, &final_, &mut tr).ok().unwrap();
+            let (p, o) = prove_ram_batch(&r, &initial, &ops, &final_, &mut tr)
+                .ok()
+                .unwrap();
             (p, o)
         };
         // tamper the initial image: the aid sum-check catches it

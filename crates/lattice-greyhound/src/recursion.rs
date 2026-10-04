@@ -43,7 +43,11 @@ pub fn prove(
         }
         // predicted size of the current witness (entropy bits)
         let cur_size = witness_size_bits(&cur_wit);
-        let (proof, next_stmt, next_wit) = prove_level(&cur_stmt, &cur_wit, key, false).map_err(|e| { eprintln!("[prove] level {} FAILED: {e}", levels.len()); e })?;
+        let (proof, next_stmt, next_wit) =
+            prove_level(&cur_stmt, &cur_wit, key, false).map_err(|e| {
+                eprintln!("[prove] level {} FAILED: {e}", levels.len());
+                e
+            })?;
         let next_size = witness_size_bits(next_wit.as_ref().unwrap());
         levels.push(proof);
         if next_size >= cur_size {
@@ -120,8 +124,7 @@ pub fn level_size_bits(lp: &LevelProof) -> u64 {
             (((psq as f64).sqrt().log2() - 4.0 + 2.05).max(1.0) * 256.0) as u64
         }
     };
-    ((lp.u1.len() + lp.u2.len() + LIFTS) * N * LOGQ) as u64 + jl_bits
-        + 128 // the challenge seeds
+    ((lp.u1.len() + lp.u2.len() + LIFTS) * N * LOGQ) as u64 + jl_bits + 128 // the challenge seeds
 }
 
 /// Total proof size in bytes (the analytic model — matches the serialized
@@ -187,7 +190,7 @@ pub struct LevelRow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use crate::protocol::prove_level;
     use crate::ring::Poly;
 
@@ -224,13 +227,25 @@ mod tests {
             ],
             vec![crate::relation::DotCnst::with_b(
                 vec![
-                    crate::relation::Term { idx: 0, off: 0, phi },
-                    crate::relation::Term { idx: 1, off: 0, phi: phi2.clone() },
+                    crate::relation::Term {
+                        idx: 0,
+                        off: 0,
+                        phi,
+                    },
+                    crate::relation::Term {
+                        idx: 1,
+                        off: 0,
+                        phi: phi2.clone(),
+                    },
                 ],
                 b,
             )],
             vec![crate::relation::DotCnst {
-                terms: vec![crate::relation::Term { idx: 2, off: 0, phi: phi2 }],
+                terms: vec![crate::relation::Term {
+                    idx: 2,
+                    off: 0,
+                    phi: phi2,
+                }],
                 a: vec![],
                 b: Some(b_ct),
                 ct_only: true,
@@ -253,7 +268,10 @@ mod tests {
                 *p = p.add(&Poly::constant(1));
             }
         }
-        assert!(verify(&st, &bad, &key).is_err(), "tampered witness accepted");
+        assert!(
+            verify(&st, &bad, &key).is_err(),
+            "tampered witness accepted"
+        );
     }
 
     #[test]
@@ -269,7 +287,11 @@ mod tests {
         // the target statement's constraints hold of the target witness
         rebuilt.check_all(&target_wit.as_ref().unwrap().s).unwrap();
         // the digest binds: prover-constructed and verifier-reconstructed agree
-        assert_eq!(rebuilt.digest, target.as_ref().unwrap().digest, "reduce must reproduce the prover's target statement");
+        assert_eq!(
+            rebuilt.digest,
+            target.as_ref().unwrap().digest,
+            "reduce must reproduce the prover's target statement"
+        );
         let _ = proof;
     }
 

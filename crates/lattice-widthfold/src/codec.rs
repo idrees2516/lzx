@@ -81,9 +81,7 @@ pub fn decode_response(wire: &ResponseWire) -> Result<Vec<i32>, String> {
                 .read(s - 1)
                 .ok_or_else(|| "raw bits underflow".to_string())?;
             let mag = low | (1u64 << (s - 1));
-            let sign = br
-                .read(1)
-                .ok_or_else(|| "raw bits underflow".to_string())?;
+            let sign = br.read(1).ok_or_else(|| "raw bits underflow".to_string())?;
             let v = mag as i64;
             out.push(if sign == 1 { -v as i32 } else { v as i32 });
         }
@@ -175,9 +173,7 @@ mod tests {
         let n = ring.n();
         let elems: Vec<RingElement> = (0..7)
             .map(|i| {
-                let coeffs: Vec<u32> = (0..n)
-                    .map(|c| ((i * 131 + c * 17) % 1000) as u32)
-                    .collect();
+                let coeffs: Vec<u32> = (0..n).map(|c| ((i * 131 + c * 17) % 1000) as u32).collect();
                 RingElement::from_coeffs(&ring, coeffs)
             })
             .collect();

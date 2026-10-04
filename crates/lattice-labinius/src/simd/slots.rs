@@ -123,14 +123,8 @@ pub unsafe fn mac_slots(acc: &mut SlotAcc, ch: &Ch, e: *const i16) {
         } else {
             _mm512_loadu_si512(e.add(32 * b) as *const __m512i)
         };
-        let pe = _mm512_madd_epi16(
-            _mm512_load_si512(ch.e[b].as_ptr() as *const __m512i),
-            x,
-        );
-        let po = _mm512_madd_epi16(
-            _mm512_load_si512(ch.o[b].as_ptr() as *const __m512i),
-            x,
-        );
+        let pe = _mm512_madd_epi16(_mm512_load_si512(ch.e[b].as_ptr() as *const __m512i), x);
+        let po = _mm512_madd_epi16(_mm512_load_si512(ch.o[b].as_ptr() as *const __m512i), x);
         let pa = acc.v[2 * b].as_mut_ptr() as *mut __m512i;
         let pb = acc.v[2 * b + 1].as_mut_ptr() as *mut __m512i;
         _mm512_store_si512(pa, _mm512_add_epi32(_mm512_load_si512(pa), pe));
@@ -146,7 +140,10 @@ pub unsafe fn mac_slots(acc: &mut SlotAcc, ch: &Ch, e: *const i16) {
 pub unsafe fn reduce_slots<const Q: u16>(acc: &mut SlotAcc) {
     for v in acc.v.iter_mut() {
         let p = v.as_mut_ptr() as *mut __m512i;
-        _mm512_store_si512(p, cm::reduce_vec::<Q>(_mm512_load_si512(p as *const __m512i)));
+        _mm512_store_si512(
+            p,
+            cm::reduce_vec::<Q>(_mm512_load_si512(p as *const __m512i)),
+        );
     }
 }
 
@@ -162,7 +159,10 @@ pub unsafe fn finish_slots<const Q: u16>(acc: &SlotAcc, out: &mut [i16; N162]) {
     for (j, v) in acc.v.iter().enumerate() {
         let x = cm::mod_q::<Q>(_mm512_load_si512(v.as_ptr() as *const __m512i));
         let x = _mm512_mask_sub_epi32(x, _mm512_cmpgt_epi32_mask(x, half), x, qv);
-        _mm256_storeu_si256(tmp[j].as_mut_ptr() as *mut __m256i, _mm512_cvtepi32_epi16(x));
+        _mm256_storeu_si256(
+            tmp[j].as_mut_ptr() as *mut __m256i,
+            _mm512_cvtepi32_epi16(x),
+        );
     }
     for b in 0..BLOCKS {
         for k in 0..16 {

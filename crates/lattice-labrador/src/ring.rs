@@ -84,10 +84,14 @@ impl Poly {
         Self(core::array::from_fn(|i| -self.0[i]))
     }
     pub fn add(&self, o: &Self) -> Self {
-        Self(core::array::from_fn(|i| cmod(self.0[i] as i128 + o.0[i] as i128)))
+        Self(core::array::from_fn(|i| {
+            cmod(self.0[i] as i128 + o.0[i] as i128)
+        }))
     }
     pub fn sub(&self, o: &Self) -> Self {
-        Self(core::array::from_fn(|i| cmod(self.0[i] as i128 - o.0[i] as i128)))
+        Self(core::array::from_fn(|i| {
+            cmod(self.0[i] as i128 - o.0[i] as i128)
+        }))
     }
     pub fn add_assign(&mut self, o: &Self) {
         *self = self.add(o);
@@ -128,11 +132,19 @@ impl Poly {
         self.add(&o.scale(v))
     }
     pub fn scale(&self, v: i64) -> Self {
-        Self(core::array::from_fn(|i| cmod(self.0[i] as i128 * v as i128)))
+        Self(core::array::from_fn(|i| {
+            cmod(self.0[i] as i128 * v as i128)
+        }))
     }
     /// `sigma_{-1}`: the ring automorphism `X -> -X` (coefficient i negated for odd i).
     pub fn sigma_m1(&self) -> Self {
-        Self(core::array::from_fn(|i| if i.is_multiple_of(2) { self.0[i] } else { -self.0[i] }))
+        Self(core::array::from_fn(|i| {
+            if i.is_multiple_of(2) {
+                self.0[i]
+            } else {
+                -self.0[i]
+            }
+        }))
     }
     /// The automorphism `X -> X^5` (5 is coprime to 128).
     pub fn sigma5(&self) -> Self {
@@ -321,7 +333,11 @@ fn small_challenge(len: usize, seed: &[u8; 32], nonce: u64) -> Vec<Poly> {
         }
         for k in 0..32 {
             let pos = perm[k] as usize % 64;
-            let sign = if bytes[i * 256 + 64 + k] & 1 == 0 { 1 } else { -1 };
+            let sign = if bytes[i * 256 + 64 + k] & 1 == 0 {
+                1
+            } else {
+                -1
+            };
             p[pos] = sign;
         }
         out.push(Poly(p));
@@ -362,7 +378,9 @@ mod tests {
         // pseudo-random sweep across the reachable range
         let mut r = 0x9E37_79B9_7F4A_7C15i128;
         for _ in 0..100_000 {
-            r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            r = r
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let v = (r >> 7) % (1i128 << 100);
             assert_eq!(cmod(v), cmod_div(v), "v={v}");
             assert_eq!(cmod(-v), cmod_div(-v), "v=-{v}");

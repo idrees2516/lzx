@@ -43,7 +43,12 @@ impl JlMatrix {
         let nbytes = (rows * cols * bits_per).div_ceil(8);
         let mut bits = vec![0u8; nbytes];
         crate::ring::expand_seed(seed, nonce, &mut bits);
-        Self { rows, cols, mode, bits }
+        Self {
+            rows,
+            cols,
+            mode,
+            bits,
+        }
     }
 
     /// The (row, col) entry ∈ {−1, 0, 1} (ternary) or {−1, 1} (±1 mode).
@@ -117,7 +122,11 @@ pub struct JlProjection {
 /// and Σ p² ≤ 256·normsq (±1 mode; 128·normsq for ternary — the paper's
 /// √128·β check).
 pub fn jl_accept(p: &[i64], normsq: u64, mode: JlMode) -> bool {
-    let factor = if mode == JlMode::Ternary { 128u64 } else { 256u64 };
+    let factor = if mode == JlMode::Ternary {
+        128u64
+    } else {
+        256u64
+    };
     let bound = {
         let mut e = 0u32;
         while (1u64 << e) < 4 * (normsq as f64).sqrt() as u64 {
@@ -137,11 +146,7 @@ pub fn jl_normsq(p: &[i64]) -> u64 {
 
 /// Project the joined parts: one matrix per part, p = Σ_i Π_i·coeffs(s_i).
 /// Retries with fresh nonces until accepted (the reference's `project`).
-pub fn project_parts(
-    parts: &[Vec<Poly>],
-    mode: JlMode,
-    seed: &[u8],
-) -> JlProjection {
+pub fn project_parts(parts: &[Vec<Poly>], mode: JlMode, seed: &[u8]) -> JlProjection {
     let normsq: u64 = parts
         .iter()
         .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
@@ -151,7 +156,15 @@ pub fn project_parts(
         nonce += 1;
         let mats: Vec<JlMatrix> = parts
             .iter()
-            .map(|v| JlMatrix::expand(256, v.len() * N, mode, seed, nonce.wrapping_mul(parts.len() as u64) + v.len() as u64))
+            .map(|v| {
+                JlMatrix::expand(
+                    256,
+                    v.len() * N,
+                    mode,
+                    seed,
+                    nonce.wrapping_mul(parts.len() as u64) + v.len() as u64,
+                )
+            })
             .collect();
         let mut p = vec![0i64; 256];
         for (i, v) in parts.iter().enumerate() {
@@ -175,11 +188,7 @@ pub fn project_parts(
 /// Φ_i = Σ_j ω_j·σ^{-1}(π_i^{(j)}) — note the σ^{-1} packing: the paper's
 /// constraint ⟨σ^{-1}(π_i^{(j)}), s_i⟩ uses the conjugated row so that the
 /// constant term of the ring product equals the coefficient dot product.
-pub fn collapse_jl(
-    mats: &[JlMatrix],
-    p: &[i64],
-    omega: &[i64],
-) -> (Vec<Vec<Poly>>, i64) {
+pub fn collapse_jl(mats: &[JlMatrix], p: &[i64], omega: &[i64]) -> (Vec<Vec<Poly>>, i64) {
     debug_assert_eq!(omega.len(), 256);
     let mut phis = Vec::with_capacity(mats.len());
     for (i, m) in mats.iter().enumerate() {
@@ -227,7 +236,10 @@ mod tests {
     #[test]
     fn projection_norm_scaling() {
         let parts = small_parts();
-        let normsq: u64 = parts.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).sum();
+        let normsq: u64 = parts
+            .iter()
+            .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+            .sum();
         let proj = project_parts(&parts, JlMode::PlusMinus1, b"jl");
         // the acceptance guarantees the bound
         assert!(jl_normsq(&proj.p) <= 256 * normsq.max(1));
@@ -247,7 +259,10 @@ mod tests {
         // the collapsed constraint evaluated at the witness must have ct = ⟨ω, p⟩
         let parts = small_parts();
         let seed = b"jl-collapse";
-        let normsq: u64 = parts.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).sum();
+        let normsq: u64 = parts
+            .iter()
+            .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+            .sum();
         // build a fixed (non-rejected) projection
         let mats: Vec<JlMatrix> = parts
             .iter()
@@ -262,7 +277,9 @@ mod tests {
             }
         }
         let _ = normsq;
-        let omega: Vec<i64> = (0..256).map(|i| (i * 2654435761u64 % (crate::ring::Q as u64 - 2) + 1) as i64).collect();
+        let omega: Vec<i64> = (0..256)
+            .map(|i| (i * 2654435761u64 % (crate::ring::Q as u64 - 2) + 1) as i64)
+            .collect();
         let (phis, target) = collapse_jl(&mats, &p, &omega);
         // evaluate Σ_i ⟨Φ_i, s_i⟩ — constant term must equal target
         let mut acc = Poly::zero();

@@ -77,7 +77,11 @@ pub struct PgRelation {
 impl PgRelation {
     /// The relation's degree (max product arity).
     pub fn degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(0)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Evaluate F(w) slot-wise: a vector of ring elements (one output
@@ -212,8 +216,7 @@ pub fn fold(
     let r_int = cs.coefficients[0]; // balanced in [-2^16, 2^16]
     let r_scalar = q.reduce_i64(r_int);
     let r = Goldilocks::from_u64(
-        (r_int as i128)
-            .rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
+        (r_int as i128).rem_euclid(lattice_core::field::GOLDILOCKS_MODULUS as i128) as u64,
     );
     let challenge = FoldChallenge {
         field_elem: r,
@@ -280,7 +283,12 @@ pub fn fold(
     let folded_commitment = {
         // t' = t1 + r·t2 (commitment homomorphism).
         let mut rows = Vec::with_capacity(pk.params.k);
-        for (t1, t2) in inst1.commitment.rows.iter().zip(inst2.commitment.rows.iter()) {
+        for (t1, t2) in inst1
+            .commitment
+            .rows
+            .iter()
+            .zip(inst2.commitment.rows.iter())
+        {
             let rt2 = t2.scale_i64(r_scalar as i64);
             rows.push(t1.add(&rt2).map_err(PgError::Ring)?);
         }
@@ -428,7 +436,11 @@ fn falling_factorial_coefficient(j: usize, power: usize, q: &lattice_ring::Modul
     let vals: Vec<u32> = (0..j as u32).collect();
     let k = j - power;
     let e = elementary_symmetric(&vals, k, q);
-    let sign = if (j - power) % 2 == 0 { 1u64 } else { q.q as u64 - 1 };
+    let sign = if (j - power) % 2 == 0 {
+        1u64
+    } else {
+        q.q as u64 - 1
+    };
     // Divide by j!.
     let mut fact = 1u64;
     for i in 1..=j as u64 {
@@ -548,8 +560,16 @@ mod tests {
         let w2 = small_witness(&ring, b"b");
         let t1 = pk.commit(&w1).ok().unwrap();
         let t2 = pk.commit(&w2).ok().unwrap();
-        let inst1 = PgInstance { commitment: t1, u: Goldilocks::ZERO, norm_budget: 16 };
-        let inst2 = PgInstance { commitment: t2, u: Goldilocks::ZERO, norm_budget: 16 };
+        let inst1 = PgInstance {
+            commitment: t1,
+            u: Goldilocks::ZERO,
+            norm_budget: 16,
+        };
+        let inst2 = PgInstance {
+            commitment: t2,
+            u: Goldilocks::ZERO,
+            norm_budget: 16,
+        };
         assert!(matches!(
             fold(&pk, &rel, &inst1, &inst2, &w1, &w2),
             Err(PgError::NormBudgetExceeded { .. })
@@ -564,11 +584,10 @@ mod tests {
         let evals = rel.evaluate(&w).ok().unwrap();
         // Spot-check coefficient 0: w0^2 + 3 w1 w2 - w2^2.
         let q = pk.params.ring.modulus;
-        let expected = q
-            .add(
-                q.mul(w[0].coeff(0), w[0].coeff(0)),
-                q.mul(3, q.mul(w[1].coeff(0), w[2].coeff(0))),
-            );
+        let expected = q.add(
+            q.mul(w[0].coeff(0), w[0].coeff(0)),
+            q.mul(3, q.mul(w[1].coeff(0), w[2].coeff(0))),
+        );
         let expected = q.sub(expected, q.mul(w[2].coeff(0), w[2].coeff(0)));
         assert_eq!(evals[0].coeff(0), expected);
         assert_eq!(rel.degree(), 2);
@@ -586,8 +605,16 @@ mod tests {
         let w2 = small_witness(&ring, b"c2");
         let t1 = pk.commit(&w1).ok().unwrap();
         let t2 = pk.commit(&w2).ok().unwrap();
-        let inst1 = PgInstance { commitment: t1, u: Goldilocks::ZERO, norm_budget: 16 };
-        let inst2 = PgInstance { commitment: t2, u: Goldilocks::ZERO, norm_budget: 16 };
+        let inst1 = PgInstance {
+            commitment: t1,
+            u: Goldilocks::ZERO,
+            norm_budget: 16,
+        };
+        let inst2 = PgInstance {
+            commitment: t2,
+            u: Goldilocks::ZERO,
+            norm_budget: 16,
+        };
         let (_folded, cross, chal) = fold(&pk, &rel, &inst1, &inst2, &w1, &w2).ok().unwrap();
         assert_eq!(cross.terms.len(), 2); // E_1, E_2
 
@@ -602,10 +629,7 @@ mod tests {
         let f2 = rel.evaluate(&w2).ok().unwrap();
         let r3 = q.pow(chal.ring_scalar, 3);
         let r2 = q.pow(chal.ring_scalar, 2);
-        let mut rhs = f1[0]
-            .add(&f2[0].scale_i64(r3 as i64))
-            .ok()
-            .unwrap();
+        let mut rhs = f1[0].add(&f2[0].scale_i64(r3 as i64)).ok().unwrap();
         rhs = rhs
             .add(&cross.terms[0][0].scale_i64(chal.ring_scalar as i64))
             .ok()

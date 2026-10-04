@@ -16,8 +16,19 @@ use lattice_ring::{Modulus32, RingConfig};
 
 fn wire_bytes(p: &SalsaGroupedResponse) -> usize {
     let sc = p.sumcheck.rounds.iter().map(|r| r.len() * 8).sum::<usize>();
-    let d1 = p.chain.sumcheck.rounds.iter().map(|r| r.len() * 8).sum::<usize>();
-    let func = p.functional.rounds.iter().map(|r| r.len() * 8).sum::<usize>();
+    let d1 = p
+        .chain
+        .sumcheck
+        .rounds
+        .iter()
+        .map(|r| r.len() * 8)
+        .sum::<usize>();
+    let func = p
+        .functional
+        .rounds
+        .iter()
+        .map(|r| r.len() * 8)
+        .sum::<usize>();
     sc + d1 + func + 8 * 4 + 32
 }
 
@@ -36,8 +47,9 @@ fn main() {
             m: m_slots,
             norm_bound: 1 << 20,
         };
-        let pk =
-            lattice_commitment::ajtai::AjtaiPublicKey::from_seed(params, [91u8; 32]).ok().unwrap();
+        let pk = lattice_commitment::ajtai::AjtaiPublicKey::from_seed(params, [91u8; 32])
+            .ok()
+            .unwrap();
         let pcs = AkitaPcs { pk: pk.clone() };
         // A trace-like column with bounded values (the Clear mode's
         // NormProof regime; full-range values exceed ANY sound bound —
@@ -74,7 +86,9 @@ fn main() {
         let salsa_bytes = wire_bytes(&salsa);
         let mut vt = Transcript::new_default(b"salsa-size");
         let com = pcs.commit_bytes(&f).ok().unwrap();
-        assert!(pcs.verify_grouped_salsa(&com, &claims, &salsa, &mut vt).is_ok());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims, &salsa, &mut vt)
+            .is_ok());
         println!(
             "| 2^{log_n} | {clear_bytes} | {salsa_bytes} | {:.1}x |",
             clear_bytes as f64 / salsa_bytes.max(1) as f64

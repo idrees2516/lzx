@@ -101,7 +101,10 @@ impl SparseOneHotFactor {
         for (j, &e) in self.entries.iter().enumerate() {
             evals[e as usize * t + j] = Goldilocks::ONE;
         }
-        DenseMle::new(evals).map_err(|_| PiopError::Shape { expected: k * t, got: 0 })
+        DenseMle::new(evals).map_err(|_| PiopError::Shape {
+            expected: k * t,
+            got: 0,
+        })
     }
 
     /// Work accounting: nonzero entries vs the dense cell count.
@@ -187,15 +190,20 @@ impl SparseShoutInstance {
             .read_factors
             .first()
             .map(|f| f.log_k)
-            .ok_or(PiopError::Shape { expected: 1, got: 0 })?;
+            .ok_or(PiopError::Shape {
+                expected: 1,
+                got: 0,
+            })?;
         if point.len() != log_n + self.log_t {
             return Err(PiopError::Shape {
                 expected: log_n + self.log_t,
                 got: point.len(),
             });
         }
-        let table_mle = DenseMle::new(self.table.clone())
-            .map_err(|_| PiopError::Shape { expected: 1 << self.log_k, got: 0 })?;
+        let table_mle = DenseMle::new(self.table.clone()).map_err(|_| PiopError::Shape {
+            expected: 1 << self.log_k,
+            got: 0,
+        })?;
         // Σ over the T cycles of eq(p_j, j)·Val(combine(entries_j))
         // where combine places the per-dimension entries into the
         // combined address — at kernel scale (d = 1) it is direct.

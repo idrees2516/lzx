@@ -41,7 +41,10 @@
 //! incoming messages `[zᵢ]` and local data `z_loc` produces `z` only if
 //! `φ(z, z_loc, [zᵢ], w)` holds; base-case vertices have no inputs.
 
-use crate::accum::{accumulate, create_base_accumulator_at, decide, num_vars_for, verify_accumulation, AccumProof, Accumulator};
+use crate::accum::{
+    accumulate, create_base_accumulator_at, decide, num_vars_for, verify_accumulation, AccumProof,
+    Accumulator,
+};
 use crate::nark;
 use crate::pedersen::PedersenKey;
 use crate::sps::SpsRelation;
@@ -225,20 +228,11 @@ pub fn prove_step<R: SpsRelation>(
     let inst_x = pred.pack_instance(z, z_loc, &inputs)?;
     let mut t0 = Transcript::new_default(b"pcd-pred");
     t0.append_message(b"pcd-step-seed", step_seed)?;
-    let proof0 = nark::prove(
-        pred.relation,
-        &params.key,
-        &inst_x,
-        messages,
-        &mut t0,
-    )?;
+    let proof0 = nark::prove(pred.relation, &params.key, &inst_x, messages, &mut t0)?;
 
     // Accumulate the R_φ pair into the ZK accumulator against the incoming
     // edges' accumulators (the R^(0) half; DAG merge semantics).
-    let old_accs: Vec<Accumulator> = edges
-        .iter()
-        .filter_map(|e| e.accumulator.clone())
-        .collect();
+    let old_accs: Vec<Accumulator> = edges.iter().filter_map(|e| e.accumulator.clone()).collect();
     if old_accs.is_empty() {
         return Err(PcdError::Shape("base case — use prove_base"));
     }
@@ -427,7 +421,9 @@ mod tests {
         assert!(decide(&rel, &params.key, &base_state.accumulator).is_ok());
 
         // Step 1: one real input + one base edge.
-        let z1: Vec<Fp256> = (0..4).map(|i| Fp256::from_canonical_u64(i as u64 + 10)).collect();
+        let z1: Vec<Fp256> = (0..4)
+            .map(|i| Fp256::from_canonical_u64(i as u64 + 10))
+            .collect();
         let zloc1 = vec![Fp256::from_canonical_u64(100), Fp256::from_canonical_u64(7)];
         let edges1 = vec![
             IncomingEdge {
@@ -442,22 +438,30 @@ mod tests {
             },
         ];
         let inst1 = pred
-            .pack_instance(
-                &z1,
-                &zloc1,
-                &[Some(z1.clone()), None],
-            )
+            .pack_instance(&z1, &zloc1, &[Some(z1.clone()), None])
             .ok()
             .unwrap();
         let msgs1 = step_messages(&rel, b"step-1", &inst1);
-        let (proof1, state1) =
-            prove_step(&pred, &params, &z1, &zloc1, &edges1, &msgs1, &base_state, b"s1").ok().unwrap();
+        let (proof1, state1) = prove_step(
+            &pred,
+            &params,
+            &z1,
+            &zloc1,
+            &edges1,
+            &msgs1,
+            &base_state,
+            b"s1",
+        )
+        .ok()
+        .unwrap();
         // The predicate proof π^(0) is NOT part of the transmitted proof:
         assert!(!proof1.acc_proof.sumcheck.rounds.is_empty());
         assert!(decide(&rel, &params.key, &state1.accumulator).is_ok());
 
         // Step 2: two real inputs.
-        let z2: Vec<Fp256> = (0..4).map(|i| Fp256::from_canonical_u64(i as u64 + 20)).collect();
+        let z2: Vec<Fp256> = (0..4)
+            .map(|i| Fp256::from_canonical_u64(i as u64 + 20))
+            .collect();
         let zloc2 = vec![Fp256::from_canonical_u64(200), Fp256::from_canonical_u64(9)];
         let edges2 = vec![
             IncomingEdge {
@@ -472,50 +476,73 @@ mod tests {
             },
         ];
         let inst2 = pred
-            .pack_instance(
-                &z2,
-                &zloc2,
-                &[Some(z1.clone()), Some(z1.clone())],
-            )
+            .pack_instance(&z2, &zloc2, &[Some(z1.clone()), Some(z1.clone())])
             .ok()
             .unwrap();
         let msgs2 = step_messages(&rel, b"step-2", &inst2);
         let (proof2, state2) =
-            prove_step(&pred, &params, &z2, &zloc2, &edges2, &msgs2, &state1, b"s2").ok().unwrap();
+            prove_step(&pred, &params, &z2, &zloc2, &edges2, &msgs2, &state1, b"s2")
+                .ok()
+                .unwrap();
         // PROBE: compare the decider's map value with the fold-expectation.
         {
             let acc2 = &state2.accumulator;
-            let e_dec = rel.eval_map(&acc2.instance.x, &acc2.witness.messages, &acc2.instance.challenges).ok().unwrap();
+            let e_dec = rel
+                .eval_map(
+                    &acc2.instance.x,
+                    &acc2.witness.messages,
+                    &acc2.instance.challenges,
+                )
+                .ok()
+                .unwrap();
             // The old accumulator (step 1) map value:
-            let e_old = rel.eval_map(&state1.accumulator.instance.x, &state1.accumulator.witness.messages, &state1.accumulator.instance.challenges).ok().unwrap();
-            println!("e_dec    = {:?}", e_dec.iter().map(|v| v.to_i128()).collect::<Vec<_>>());
-            println!("e_old    = {:?}", e_old.iter().map(|v| v.to_i128()).collect::<Vec<_>>());
+            let e_old = rel
+                .eval_map(
+                    &state1.accumulator.instance.x,
+                    &state1.accumulator.witness.messages,
+                    &state1.accumulator.instance.challenges,
+                )
+                .ok()
+                .unwrap();
+            println!(
+                "e_dec    = {:?}",
+                e_dec.iter().map(|v| v.to_i128()).collect::<Vec<_>>()
+            );
+            println!(
+                "e_old    = {:?}",
+                e_old.iter().map(|v| v.to_i128()).collect::<Vec<_>>()
+            );
         }
         assert!(decide(&rel, &params.key, &state2.accumulator).is_ok());
 
         // Final verification (b0 ∧ b1 ∧ b2 through the chain driver).
-        let ok = verify_chain_step(&pred, &params, &z2, &zloc2, &edges2, &state2, &proof2, b"s2")
-            .ok()
-            .unwrap();
+        let ok = verify_chain_step(
+            &pred, &params, &z2, &zloc2, &edges2, &state2, &proof2, b"s2",
+        )
+        .ok()
+        .unwrap();
         assert!(ok, "chain verification failed");
 
         // Tampered final z → rejected (the packed instance no longer
         // matches the accumulated one).
         let mut zbad = z2.clone();
         zbad[0] = zbad[0].add(&Fp256::from_canonical_u64(1));
-        let ok_bad = verify_chain_step(&pred, &params, &zbad, &zloc2, &edges2, &state2, &proof2, b"s2")
-            .ok()
-            .unwrap();
+        let ok_bad = verify_chain_step(
+            &pred, &params, &zbad, &zloc2, &edges2, &state2, &proof2, b"s2",
+        )
+        .ok()
+        .unwrap();
         assert!(!ok_bad);
 
         // Tampered accumulator → rejected (decider).
         let mut bad_state = state2.clone();
         bad_state.accumulator.instance.v_g[0] =
             bad_state.accumulator.instance.v_g[0].add(&Fp256::from_canonical_u64(1));
-        let ok_bad2 =
-            verify_chain_step(&pred, &params, &z2, &zloc2, &edges2, &bad_state, &proof2, b"s2")
-                .ok()
-                .unwrap();
+        let ok_bad2 = verify_chain_step(
+            &pred, &params, &z2, &zloc2, &edges2, &bad_state, &proof2, b"s2",
+        )
+        .ok()
+        .unwrap();
         assert!(!ok_bad2);
     }
 }

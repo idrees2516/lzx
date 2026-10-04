@@ -38,9 +38,14 @@ pub enum RingScError {
     Transcript(TranscriptError),
     Ring(lattice_ring::RingError),
     /// Table lengths are not a power of two / disagree across factors.
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// A round message failed the sumcheck recurrence.
-    RoundCheckFailed { round: usize },
+    RoundCheckFailed {
+        round: usize,
+    },
     /// The terminal identity failed (caller-side check helper).
     TerminalFailed,
 }
@@ -117,20 +122,17 @@ pub fn trace_balanced(t: &RingElement) -> i64 {
 
 /// Evaluate the multilinear extension of a ring-element table at a point of
 /// `Z_q^μ` (iterative affine binding — O(2^μ·n) ring adds).
-pub fn mle_eval_ring(
-    table: &[RingElement],
-    point: &[u32],
-) -> Result<RingElement, RingScError> {
+pub fn mle_eval_ring(table: &[RingElement], point: &[u32]) -> Result<RingElement, RingScError> {
     // A length-1 table is a constant: its MLE at ANY point is the value
     // itself (the Π^lin/Π_air terminal's private-slot substitution).
     if table.len() == 1 {
         return Ok(table[0].clone());
     }
     if point.is_empty() {
-        return table
-            .first()
-            .cloned()
-            .ok_or(RingScError::Shape { expected: 1, got: 0 });
+        return table.first().cloned().ok_or(RingScError::Shape {
+            expected: 1,
+            got: 0,
+        });
     }
     let ring = table
         .first()
@@ -167,9 +169,10 @@ pub fn mle_eval_ring(
         }
         cur = next;
     }
-    cur.into_iter()
-        .next()
-        .ok_or(RingScError::Shape { expected: 1, got: 0 })
+    cur.into_iter().next().ok_or(RingScError::Shape {
+        expected: 1,
+        got: 0,
+    })
 }
 
 /// The eq-tensor table `eq(bin(z), r)` over the μ-dimensional cube as ring
@@ -183,7 +186,11 @@ pub fn eq_table_ring(ring: &RingConfig, r: &[u32]) -> Vec<RingElement> {
         let mut v: i128 = 1;
         for (b, &c) in r.iter().enumerate() {
             let bit = (z >> (r.len() - 1 - b)) & 1;
-            let factor = if bit == 1 { i128::from(c) } else { 1 - i128::from(c) };
+            let factor = if bit == 1 {
+                i128::from(c)
+            } else {
+                1 - i128::from(c)
+            };
             v = (v * factor).rem_euclid(q);
         }
         out.push(ring.constant(v.rem_euclid(q) as u32));
@@ -193,11 +200,7 @@ pub fn eq_table_ring(ring: &RingConfig, r: &[u32]) -> Vec<RingElement> {
 
 /// Uniform `Z_q` challenge from the transcript (rejection-sampled u64 —
 /// unbiased; the pikkufold_lrp discipline).
-pub fn challenge_zq(
-    transcript: &mut Transcript,
-    label: &[u8],
-    q: u32,
-) -> Result<u32, RingScError> {
+pub fn challenge_zq(transcript: &mut Transcript, label: &[u8], q: u32) -> Result<u32, RingScError> {
     let limit = u64::from(q);
     let bound = u64::MAX - (u64::MAX % limit) - 1;
     for _ in 0..16 {
@@ -328,7 +331,11 @@ fn round_eval(
 /// Lagrange interpolation of a degree-`d` polynomial at `c`, given its
 /// evaluations at the integer points 0..=d (Newton/vandermonde-free: the
 /// points are fixed and small — precomputed Lagrange basis in i128).
-fn lagrange_at(ring: &RingConfig, evals: &[RingElement], c: u32) -> Result<RingElement, RingScError> {
+fn lagrange_at(
+    ring: &RingConfig,
+    evals: &[RingElement],
+    c: u32,
+) -> Result<RingElement, RingScError> {
     let d = evals.len() - 1;
     let q = ring.modulus.q as i128;
     let mut acc = ring.zero();
@@ -408,15 +415,10 @@ pub fn ring_sc_prove(
             }
         }
     }
-    let degree: usize = claims
-        .iter()
-        .map(|c| c.tables.len())
-        .max()
-        .unwrap_or(0);
+    let degree: usize = claims.iter().map(|c| c.tables.len()).max().unwrap_or(0);
     let q = ring.modulus.q;
 
-    let mut bound: Vec<Vec<Vec<RingElement>>> =
-        claims.iter().map(|c| c.tables.clone()).collect();
+    let mut bound: Vec<Vec<Vec<RingElement>>> = claims.iter().map(|c| c.tables.clone()).collect();
     let mut rounds: Vec<Vec<RingElement>> = Vec::with_capacity(num_vars);
     let mut point: Vec<u32> = Vec::with_capacity(num_vars);
 
@@ -458,12 +460,10 @@ pub fn ring_sc_prove(
     for claim_tables in &bound {
         let mut vals = Vec::with_capacity(claim_tables.len());
         for table in claim_tables {
-            vals.push(
-                table
-                    .first()
-                    .cloned()
-                    .ok_or(RingScError::Shape { expected: 1, got: 0 })?,
-            );
+            vals.push(table.first().cloned().ok_or(RingScError::Shape {
+                expected: 1,
+                got: 0,
+            })?);
         }
         final_values.push(vals);
     }
@@ -529,7 +529,11 @@ mod tests {
     fn rand_vec(ring: &RingConfig, m: usize, tag: &[u8], span: u32) -> Vec<RingElement> {
         (0..m)
             .map(|i| {
-                let bytes = Transcript::xof(b"ring-sc-test", &[tag, &(i as u32).to_le_bytes()].concat(), 4 * ring.n());
+                let bytes = Transcript::xof(
+                    b"ring-sc-test",
+                    &[tag, &(i as u32).to_le_bytes()].concat(),
+                    4 * ring.n(),
+                );
                 let coeffs: Vec<u32> = bytes
                     .chunks(4)
                     .take(ring.n())
@@ -631,8 +635,9 @@ mod tests {
             value: value.clone(),
         };
         let mut t = Transcript::new_default(b"lzx-ring-sc");
-        let proof =
-            ring_sc_prove(&ring, &[claim], &[ring.one()], &mut t).ok().unwrap();
+        let proof = ring_sc_prove(&ring, &[claim], &[ring.one()], &mut t)
+            .ok()
+            .unwrap();
         // verify: replay and derive the final claim
         let mut vt = Transcript::new_default(b"lzx-ring-sc");
         let last = ring_sc_verify(&ring, 2, mu, &value, &proof, &mut vt)
@@ -677,10 +682,9 @@ mod tests {
             },
         ];
         let mut t = Transcript::new_default(b"lzx-ring-sc-multi");
-        let proof =
-            ring_sc_prove(&ring, &claims, &[ring.one(), alpha], &mut t)
-                .ok()
-                .unwrap();
+        let proof = ring_sc_prove(&ring, &claims, &[ring.one(), alpha], &mut t)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"lzx-ring-sc-multi");
         let last = ring_sc_verify(&ring, 2, mu, &target, &proof, &mut vt)
             .ok()

@@ -121,24 +121,39 @@ pub enum PglError {
     RelationEval,
     /// Constraint count must be a power of two (β-compression needs
     /// `t = log2 n` randomizer levels).
-    ConstraintCountNotPowerOfTwo { got: usize },
+    ConstraintCountNotPowerOfTwo {
+        got: usize,
+    },
     /// Relations must be constant-term-free (`f(0) = 0`) — the ghost
     /// zero-witness fold requires homogeneous-style relations.
-    NonHomogeneousRelation { term_index: usize },
+    NonHomogeneousRelation {
+        term_index: usize,
+    },
     /// The Gröbner division left a non-zero remainder: a fresh instance
     /// does not satisfy its constraints (detected prover-side).
-    FreshInstanceInvalid { linear_residual: usize },
+    FreshInstanceInvalid {
+        linear_residual: usize,
+    },
     /// The boot decomposition does not recompose to the witness.
     DecompositionMismatch,
     /// Verifier-side failures (fold/boot verification).
     FoldCommitmentMismatch,
     ErrorCheckFailed,
-    DegreeBoundExceeded { got: usize, max: usize },
-    Shape { expected: usize, got: usize },
+    DegreeBoundExceeded {
+        got: usize,
+        max: usize,
+    },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// Accumulator relation violated at decide time.
     DecideFailed,
     /// Norm budget exceeded (wraparound gate).
-    NormBudgetExceeded { budget: u64, got: u64 },
+    NormBudgetExceeded {
+        budget: u64,
+        got: u64,
+    },
 }
 
 impl From<AjtaiError> for PglError {
@@ -196,7 +211,11 @@ impl PglConstraintSystem {
 
     /// Relation degree (max over constraints).
     pub fn degree(&self) -> usize {
-        self.constraints.iter().map(|r| r.degree()).max().unwrap_or(0)
+        self.constraints
+            .iter()
+            .map(|r| r.degree())
+            .max()
+            .unwrap_or(0)
     }
 
     /// Evaluate constraint `i` at `w` → a single ring element, with
@@ -209,16 +228,22 @@ impl PglConstraintSystem {
     /// `MPoly` over `Y` with ring-element coefficients (Hadamard products
     /// do not commute with polynomial composition).
     pub fn evaluate_i(&self, i: usize, w: &[RingElement]) -> Result<RingElement, PglError> {
-        let rel = self
-            .constraints
-            .get(i)
-            .ok_or(PglError::Shape { expected: i, got: self.constraints.len() })?;
+        let rel = self.constraints.get(i).ok_or(PglError::Shape {
+            expected: i,
+            got: self.constraints.len(),
+        })?;
         let ring = w
             .first()
             .map(|e| e.config().clone())
-            .ok_or(PglError::Shape { expected: rel.num_slots, got: 0 })?;
+            .ok_or(PglError::Shape {
+                expected: rel.num_slots,
+                got: 0,
+            })?;
         if w.len() != rel.num_slots {
-            return Err(PglError::Shape { expected: rel.num_slots, got: w.len() });
+            return Err(PglError::Shape {
+                expected: rel.num_slots,
+                got: w.len(),
+            });
         }
         let mut acc = ring.zero();
         for (c, ids) in &rel.terms {
@@ -241,7 +266,10 @@ impl PglConstraintSystem {
         let ring = w
             .first()
             .map(|e| e.config().clone())
-            .ok_or(PglError::Shape { expected: 1, got: 0 })?;
+            .ok_or(PglError::Shape {
+                expected: 1,
+                got: 0,
+            })?;
         let mut acc = ring.zero();
         for (i, _) in self.constraints.iter().enumerate() {
             let fi = self.evaluate_i(i, w)?;
@@ -389,11 +417,7 @@ impl MPoly {
     }
 
     /// Multiply two polynomials, erroring past `max_degree`.
-    pub fn mul_bounded(
-        &self,
-        other: &MPoly,
-        max_degree: usize,
-    ) -> Result<MPoly, PglError> {
+    pub fn mul_bounded(&self, other: &MPoly, max_degree: usize) -> Result<MPoly, PglError> {
         let mut out = MPoly::zero(self.vars);
         for (e1, c1) in &self.terms {
             for (e2, c2) in &other.terms {
@@ -441,7 +465,10 @@ impl MPoly {
         let ring = point
             .first()
             .map(|p| p.config().clone())
-            .ok_or(PglError::Shape { expected: self.vars, got: 0 })?;
+            .ok_or(PglError::Shape {
+                expected: self.vars,
+                got: 0,
+            })?;
         let mut acc = ring.zero();
         for (e, c) in &self.terms {
             // monomial value = Π Y_i^{e_i}
@@ -487,8 +514,7 @@ pub fn groebner_divide(
     for (e, c) in &poly.terms {
         work.insert(e.clone(), c.clone());
     }
-    let mut quotients: BTreeMap<(usize, usize), BTreeMap<Vec<u32>, RingElement>> =
-        BTreeMap::new();
+    let mut quotients: BTreeMap<(usize, usize), BTreeMap<Vec<u32>, RingElement>> = BTreeMap::new();
     let mut remainder: BTreeMap<Vec<u32>, RingElement> = BTreeMap::new();
 
     while !work.is_empty() {
@@ -519,11 +545,12 @@ pub fn groebner_divide(
                 continue;
             }
         };
-        let b = support
-            .iter()
-            .copied()
-            .find(|&b| b > a)
-            .or(if exp[a] >= 2 { Some(a) } else { None });
+        let b =
+            support
+                .iter()
+                .copied()
+                .find(|&b| b > a)
+                .or(if exp[a] >= 2 { Some(a) } else { None });
         match b {
             Some(b) => {
                 // M = Y_a·Y_b·M'; reduce to Y_a·M'; quotient K_ab += c·M'.
@@ -627,7 +654,10 @@ fn compute_f_poly(
     let ring = beta
         .first()
         .map(|b| b.config().clone())
-        .ok_or(PglError::Shape { expected: t, got: 0 })?;
+        .ok_or(PglError::Shape {
+            expected: t,
+            got: 0,
+        })?;
     // δ-vector: δ_j = δ^{2^j} for j = 0..t−1.
     let mut delta_vec = Vec::with_capacity(t);
     let mut d = delta.clone();
@@ -673,7 +703,10 @@ fn compute_h_poly(
     let ring = beta_star
         .first()
         .map(|b| b.config().clone())
-        .ok_or(PglError::Shape { expected: 1, got: 0 })?;
+        .ok_or(PglError::Shape {
+            expected: 1,
+            got: 0,
+        })?;
     let m = witnesses[0].len();
     // slot_polys[s] = Σ_j L_j(Y)·w_j[s]  (degree-1 MPoly per slot)
     let mut slot_polys: Vec<MPoly> = Vec::with_capacity(m);
@@ -725,7 +758,10 @@ pub fn fig2_fold(
 ) -> Result<(PglAccInstance, Vec<RingElement>, PglFoldProof), PglError> {
     let k = fresh.len();
     if k == 0 {
-        return Err(PglError::Shape { expected: 1, got: 0 });
+        return Err(PglError::Shape {
+            expected: 1,
+            got: 0,
+        });
     }
     let ring = pk.params.ring.clone();
     let t = cs.t_levels();
@@ -792,10 +828,7 @@ pub fn fig2_fold(
         });
     }
     for (ab, _) in &quotients {
-        transcript.append_bytes(
-            b"pgl-k",
-            format!("{:?}", ab.0).as_bytes(),
-        )?;
+        transcript.append_bytes(b"pgl-k", format!("{:?}", ab.0).as_bytes())?;
     }
     for (_, q) in &quotients {
         for (e, c) in &q.terms {
@@ -811,7 +844,12 @@ pub fn fig2_fold(
     // ---- Round 3: y ← C^k, y_0 := 1 (Cyclo's trick). ----
     let mut y = vec![ring.one()];
     for _ in 0..k {
-        y.push(sample_ring_challenge(&mut transcript, b"pgl-y", chal_params, &ring)?);
+        y.push(sample_ring_challenge(
+            &mut transcript,
+            b"pgl-y",
+            chal_params,
+            &ring,
+        )?);
     }
 
     // ---- Updates (verifier-computable) ----
@@ -917,10 +955,7 @@ pub fn fig2_verify(
         }
     }
     for (ab, _) in &proof.quotients {
-        transcript.append_bytes(
-            b"pgl-k",
-            format!("{:?}", ab.0).as_bytes(),
-        )?;
+        transcript.append_bytes(b"pgl-k", format!("{:?}", ab.0).as_bytes())?;
     }
     for (_, q) in &proof.quotients {
         for (e, c) in &q.terms {
@@ -934,7 +969,12 @@ pub fn fig2_verify(
     }
     let mut y = vec![ring.one()];
     for _ in 0..k {
-        y.push(sample_ring_challenge(&mut transcript, b"pgl-y", chal_params, &ring)?);
+        y.push(sample_ring_challenge(
+            &mut transcript,
+            b"pgl-y",
+            chal_params,
+            &ring,
+        )?);
     }
     if y != proof.y {
         return Err(PglError::ErrorCheckFailed);
@@ -999,7 +1039,10 @@ fn decompose_base_b(
     let ring = w
         .first()
         .map(|e| e.config().clone())
-        .ok_or(PglError::Shape { expected: 1, got: 0 })?;
+        .ok_or(PglError::Shape {
+            expected: 1,
+            got: 0,
+        })?;
     let q = ring.modulus;
     // result[j][slot][coeff] = j-th balanced digit of the slot value.
     let mut result: Vec<Vec<Vec<i64>>> = vec![vec![vec![0i64; ring.n()]; w.len()]; num_blocks];
@@ -1107,7 +1150,12 @@ pub fn fig3_boot(
     }
     let mut y = vec![ring.one()];
     for _ in 0..num_blocks.saturating_sub(1) {
-        y.push(sample_ring_challenge(&mut transcript, b"boot-y", chal_params, &ring)?);
+        y.push(sample_ring_challenge(
+            &mut transcript,
+            b"boot-y",
+            chal_params,
+            &ring,
+        )?);
     }
     // 5. Updates: t* = Σ L_j(y)·t_j; e* = Σ L_j(y)·e_j + Σ K_ab(y)·Z_ab(y);
     //    w* = Σ L_j(y)·w_j.
@@ -1153,12 +1201,7 @@ pub fn fig3_boot(
         })?;
     let block_norms: Vec<u32> = blocks
         .iter()
-        .map(|b| {
-            b.iter()
-                .map(|e| e.infinity_norm())
-                .max()
-                .unwrap_or(0)
-        })
+        .map(|b| b.iter().map(|e| e.infinity_norm()).max().unwrap_or(0))
         .collect();
 
     let new_acc = PglAccInstance {
@@ -1208,8 +1251,7 @@ pub fn fig3_boot_verify(
         let mut acc_p = ring.one();
         for _ in 0..k_prime {
             pts.push(acc_p.clone());
-            let b_ring = ring
-                .constant((base.rem_euclid(ring.modulus.q as i64)) as u32);
+            let b_ring = ring.constant((base.rem_euclid(ring.modulus.q as i64)) as u32);
             acc_p = acc_p.add(&b_ring)?;
         }
         pts
@@ -1249,7 +1291,12 @@ pub fn fig3_boot_verify(
     }
     let mut y = vec![ring.one()];
     for _ in 0..k_prime.saturating_sub(1) {
-        y.push(sample_ring_challenge(&mut transcript, b"boot-y", chal_params, &ring)?);
+        y.push(sample_ring_challenge(
+            &mut transcript,
+            b"boot-y",
+            chal_params,
+            &ring,
+        )?);
     }
     if y != proof.y {
         return Err(PglError::ErrorCheckFailed);
@@ -1295,8 +1342,7 @@ pub struct BlockRangeAttachment {
 /// short by construction) and mapped into `[0, p)`.
 fn block_to_goldilocks(w_j: &[RingElement]) -> Vec<Goldilocks> {
     let p = lattice_core::field::GOLDILOCKS_MODULUS as i128;
-    w_j
-        .iter()
+    w_j.iter()
         .flat_map(|e| {
             let q = e.config().modulus.q;
             e.coeffs().iter().map(move |&c| {
@@ -1320,8 +1366,10 @@ pub fn block_coeff_claim(
     let padded_len = attachment.num_coeffs.next_power_of_two();
     let mut evals = coeffs.to_vec();
     evals.resize(padded_len.max(1), Goldilocks::ZERO);
-    let mle = DenseMle::new(evals)
-        .map_err(|_| PglError::Shape { expected: padded_len, got: attachment.num_coeffs })?;
+    let mle = DenseMle::new(evals).map_err(|_| PglError::Shape {
+        expected: padded_len,
+        got: attachment.num_coeffs,
+    })?;
     mle.evaluate(&attachment.proof.sc_point)
         .map_err(|_| PglError::DecideFailed)
 }
@@ -1394,17 +1442,11 @@ mod tests {
         PglConstraintSystem::new(vec![
             PgRelation {
                 num_slots: 3,
-                terms: vec![
-                    (1, vec![0, 1]),
-                    (q - 1, vec![2, 2]),
-                ],
+                terms: vec![(1, vec![0, 1]), (q - 1, vec![2, 2])],
             },
             PgRelation {
                 num_slots: 3,
-                terms: vec![
-                    (1, vec![1, 2]),
-                    (q - 1, vec![0, 2]),
-                ],
+                terms: vec![(1, vec![1, 2]), (q - 1, vec![0, 2])],
             },
         ])
         .ok()
@@ -1475,13 +1517,17 @@ mod tests {
                 PglFreshInstance { t, w }
             })
             .collect();
-        let (new_acc, w_star, proof) =
-            fig2_fold(&pk, &cs, &acc, &w0, &fresh, &chal).ok().unwrap();
+        let (new_acc, w_star, proof) = fig2_fold(&pk, &cs, &acc, &w0, &fresh, &chal).ok().unwrap();
         // The fold must have produced genuine quotients (cross terms).
-        assert!(!proof.quotients.is_empty(), "degenerate test: no cross terms");
+        assert!(
+            !proof.quotients.is_empty(),
+            "degenerate test: no cross terms"
+        );
         // Verifier: recompute (t*, e*) and compare.
         let fresh_t: Vec<AjtaiCommitment> = fresh.iter().map(|f| f.t.clone()).collect();
-        let (vt, ve) = fig2_verify(&pk, &cs, &acc, &fresh_t, &proof, &chal).ok().unwrap();
+        let (vt, ve) = fig2_verify(&pk, &cs, &acc, &fresh_t, &proof, &chal)
+            .ok()
+            .unwrap();
         assert_eq!(vt.rows, new_acc.t.rows, "folded commitment mismatch");
         assert_eq!(ve, new_acc.e, "e*-check mismatch");
         // Decider accepts with the folded witness.
@@ -1560,8 +1606,7 @@ mod tests {
                 PglFreshInstance { t, w }
             })
             .collect();
-        let (new_acc, _, mut proof) =
-            fig2_fold(&pk, &cs, &acc, &w0, &fresh, &chal).ok().unwrap();
+        let (new_acc, _, mut proof) = fig2_fold(&pk, &cs, &acc, &w0, &fresh, &chal).ok().unwrap();
         // Tamper F_1: α is derived after the F coefficients are absorbed,
         // so the transcript replay itself detects the tamper; if the
         // replay happens to pass, F(α) changes ⇒ e* changes.
@@ -1594,11 +1639,13 @@ mod tests {
                     PglFreshInstance { t, w }
                 })
                 .collect();
-            let (new_acc, w_star, proof) =
-                fig2_fold(&pk, &cs, &acc, &w_cur, &fresh, &chal).ok().unwrap();
+            let (new_acc, w_star, proof) = fig2_fold(&pk, &cs, &acc, &w_cur, &fresh, &chal)
+                .ok()
+                .unwrap();
             let fresh_t: Vec<AjtaiCommitment> = fresh.iter().map(|f| f.t.clone()).collect();
-            let (vt, ve) =
-                fig2_verify(&pk, &cs, &acc, &fresh_t, &proof, &chal).ok().unwrap();
+            let (vt, ve) = fig2_verify(&pk, &cs, &acc, &fresh_t, &proof, &chal)
+                .ok()
+                .unwrap();
             assert_eq!(vt.rows, new_acc.t.rows);
             assert_eq!(ve, new_acc.e);
             acc = new_acc;
@@ -1653,8 +1700,9 @@ mod tests {
                     PglFreshInstance { t, w }
                 })
                 .collect();
-            let (new_acc, w_star, _) =
-                fig2_fold(&pk, &cs, &acc, &w_cur, &fresh, &chal).ok().unwrap();
+            let (new_acc, w_star, _) = fig2_fold(&pk, &cs, &acc, &w_cur, &fresh, &chal)
+                .ok()
+                .unwrap();
             acc = new_acc;
             w_cur = w_star;
         }
@@ -1667,8 +1715,9 @@ mod tests {
         let (boot_acc, boot_w, proof) =
             fig3_boot(&pk, &cs, &acc, &w_cur, 8, 3, &chal).ok().unwrap();
         // Verifier accepts: recompose + D-point + updates.
-        let (vt, ve) =
-            fig3_boot_verify(&pk, &cs, &acc, &proof, 8, &chal).ok().unwrap();
+        let (vt, ve) = fig3_boot_verify(&pk, &cs, &acc, &proof, 8, &chal)
+            .ok()
+            .unwrap();
         assert_eq!(vt.rows, boot_acc.t.rows);
         assert_eq!(ve, boot_acc.e);
         // Booted witness: folded digit combination — still opens and the
@@ -1707,8 +1756,9 @@ mod tests {
         let chal = PglChallengeParams::for_ring(&ring);
         let w0 = small_witness(&ring, b"acc");
         let acc = make_acc(&pk, &cs, &w0);
-        let (_, _, proof, attachments) =
-            boot_with_range(&pk, &cs, &acc, &w0, 8, 3, &chal).ok().unwrap();
+        let (_, _, proof, attachments) = boot_with_range(&pk, &cs, &acc, &w0, 8, 3, &chal)
+            .ok()
+            .unwrap();
         assert_eq!(attachments.len(), proof.t_blocks.len());
         // Each attachment's range proof verifies over its own transcript,
         // with the coefficient claim derived from the digit block.
@@ -1724,7 +1774,8 @@ mod tests {
                 claim,
                 &mut vt,
             )
-            .ok().unwrap();
+            .ok()
+            .unwrap();
         }
     }
 
@@ -1770,6 +1821,4 @@ mod tests {
             Err(PglError::NonHomogeneousRelation { .. })
         ));
     }
-
-
 }

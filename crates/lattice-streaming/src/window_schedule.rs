@@ -113,7 +113,10 @@ impl WindowSchedule {
             omegas.push(w);
             s += w;
         }
-        WindowSchedule { omegas, final_rounds: ell - s }
+        WindowSchedule {
+            omegas,
+            final_rounds: ell - s,
+        }
     }
 
     /// The cumulative window-start positions `S_1..S_{T+1}`.
@@ -234,7 +237,18 @@ pub fn prove_stream_windowed(
     transcript: &mut Transcript,
     k: usize,
 ) -> Result<StreamWindowOutput, WindowScheduleError> {
-    prove_with_schedule(num_vars, factors, terms, claim, transcript, &WindowSchedule::plan(num_vars, terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1), k))
+    prove_with_schedule(
+        num_vars,
+        factors,
+        terms,
+        claim,
+        transcript,
+        &WindowSchedule::plan(
+            num_vars,
+            terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1),
+            k,
+        ),
+    )
 }
 
 #[allow(clippy::too_many_lines)]
@@ -279,8 +293,10 @@ pub fn prove_with_schedule(
             .map(|_| vec![Goldilocks::ZERO; side.pow(omega as u32)])
             .collect();
         // Per-suffix scratch: the d window tables (2^ω each).
-        let mut scratch: Vec<Vec<Goldilocks>> =
-            factors.iter().map(|_| vec![Goldilocks::ZERO; 1 << omega]).collect();
+        let mut scratch: Vec<Vec<Goldilocks>> = factors
+            .iter()
+            .map(|_| vec![Goldilocks::ZERO; 1 << omega])
+            .collect();
         peak_elems = peak_elems
             .max(q_grids.iter().map(|g| g.len()).sum::<usize>() + scratch.len() * (1 << omega));
 
@@ -290,14 +306,18 @@ pub fn prove_with_schedule(
             for (k, oracle) in factors.iter_mut().enumerate() {
                 for b in 0..(1usize << omega) {
                     let x = (b << suffix_bits) | x2;
-                    scratch[k][b] = folded_eval(*oracle, &challenges[..s_t], x as u64, ell - s_t, &mut oracle_evals);
+                    scratch[k][b] = folded_eval(
+                        *oracle,
+                        &challenges[..s_t],
+                        x as u64,
+                        ell - s_t,
+                        &mut oracle_evals,
+                    );
                 }
             }
             for (ti, (_c, ids)) in terms.iter().enumerate() {
-                let mut tables: Vec<Vec<Goldilocks>> = ids
-                    .iter()
-                    .map(|&fi| scratch[fi].clone())
-                    .collect();
+                let mut tables: Vec<Vec<Goldilocks>> =
+                    ids.iter().map(|&fi| scratch[fi].clone()).collect();
                 while tables.len() < d {
                     tables.push(vec![Goldilocks::ONE; 1 << omega]);
                 }
@@ -315,8 +335,9 @@ pub fn prove_with_schedule(
         for j in 1..=omega {
             let t_axis = j - 1;
             let tail_axes = omega - j;
-            let strides: Vec<usize> =
-                (0..omega).map(|a| side.pow((omega - a - 1) as u32)).collect();
+            let strides: Vec<usize> = (0..omega)
+                .map(|a| side.pow((omega - a - 1) as u32))
+                .collect();
             let w_offsets: Vec<usize> = {
                 let mut offs = Vec::with_capacity(1usize << tail_axes);
                 for w in 0..1usize << tail_axes {
@@ -392,8 +413,10 @@ pub fn prove_with_schedule(
     let s_final = starts[schedule.omegas.len()];
     let rem_bits = ell - s_final;
     let rem = 1usize << rem_bits;
-    let mut bound: Vec<Vec<Goldilocks>> =
-        factors.iter().map(|_| vec![Goldilocks::ZERO; rem]).collect();
+    let mut bound: Vec<Vec<Goldilocks>> = factors
+        .iter()
+        .map(|_| vec![Goldilocks::ZERO; rem])
+        .collect();
     peak_elems = peak_elems.max(bound.len() * rem);
     {
         let mut walk = EqWalk::new(&challenges[..s_final]);
@@ -415,8 +438,7 @@ pub fn prove_with_schedule(
     }
 
     // The linear-time tail: bind once per round, per-t affine values.
-    let t_bars: Vec<Goldilocks> =
-        (0..=d as u64).map(Goldilocks::from_u64).collect();
+    let t_bars: Vec<Goldilocks> = (0..=d as u64).map(Goldilocks::from_u64).collect();
     for _round in 0..rem_bits {
         let half = bound[0].len() / 2;
         let deltas: Vec<Vec<Goldilocks>> = bound
@@ -546,21 +568,22 @@ mod tests {
                 .iter()
                 .map(|t| OwnedOracle::new(t.evaluations.clone()))
                 .collect();
-            let mut oracle_refs: Vec<&mut dyn IndexOracle> =
-                oracles.iter_mut().map(|o| o as &mut dyn IndexOracle).collect();
+            let mut oracle_refs: Vec<&mut dyn IndexOracle> = oracles
+                .iter_mut()
+                .map(|o| o as &mut dyn IndexOracle)
+                .collect();
             let terms = vec![(Goldilocks::ONE, (0..d).collect::<Vec<_>>())];
             let mut ts1 = Transcript::new_default(b"stream-win");
-            let out = prove_stream_windowed(
-                log_vars,
-                &mut oracle_refs,
-                &terms,
-                claim,
-                &mut ts1,
-                k,
-            )
-            .unwrap();
-            assert_eq!(base.proof.rounds, out.rounds, "rounds: log={log_vars} d={d} k={k}");
-            assert_eq!(base.challenges, out.challenges, "challenges: log={log_vars} d={d} k={k}");
+            let out = prove_stream_windowed(log_vars, &mut oracle_refs, &terms, claim, &mut ts1, k)
+                .unwrap();
+            assert_eq!(
+                base.proof.rounds, out.rounds,
+                "rounds: log={log_vars} d={d} k={k}"
+            );
+            assert_eq!(
+                base.challenges, out.challenges,
+                "challenges: log={log_vars} d={d} k={k}"
+            );
             assert_eq!(base.final_claim, out.final_claim);
             assert_eq!(base.factor_claims, out.factor_claims);
         }
@@ -575,7 +598,12 @@ mod tests {
         let sch = WindowSchedule::plan(20, 2, 2);
         assert!(sch.omegas.iter().all(|&w| (1..=6 + 2).contains(&w)));
         // Geometric prefix (1, then α/(δ−1) ≈ 4), then the space cap.
-        assert_eq!(&sch.omegas[..2], &[1usize, 4usize], "geometric start: {:?}", sch.omegas);
+        assert_eq!(
+            &sch.omegas[..2],
+            &[1usize, 4usize],
+            "geometric start: {:?}",
+            sch.omegas
+        );
         assert!(
             sch.omegas.windows(2).all(|w| w[1] >= w[0]),
             "non-decreasing: {:?}",
@@ -606,12 +634,14 @@ mod tests {
             .iter()
             .map(|t| OwnedOracle::new(t.evaluations.clone()))
             .collect();
-        let mut oracle_refs: Vec<&mut dyn IndexOracle> =
-            oracles.iter_mut().map(|o| o as &mut dyn IndexOracle).collect();
+        let mut oracle_refs: Vec<&mut dyn IndexOracle> = oracles
+            .iter_mut()
+            .map(|o| o as &mut dyn IndexOracle)
+            .collect();
         let terms = vec![(Goldilocks::ONE, vec![0usize, 1])];
         let mut ts = Transcript::new_default(b"space");
-        let out = prove_stream_windowed(log_vars, &mut oracle_refs, &terms, claim, &mut ts, 2)
-            .unwrap();
+        let out =
+            prove_stream_windowed(log_vars, &mut oracle_refs, &terms, claim, &mut ts, 2).unwrap();
         let m = 1usize << log_vars;
         // The in-memory engine holds ℓ·M factor entries; the streaming
         // windowed prover's peak must be a small fraction of M.
@@ -642,7 +672,12 @@ mod tests {
         let mut claim = Goldilocks::ZERO;
         for e in 0..(1usize << log_vars) {
             claim = claim
-                .add(&fe(3).mul(&f0.evaluations[e]).mul(&f1.evaluations[e]).mul(&f2.evaluations[e]))
+                .add(
+                    &fe(3)
+                        .mul(&f0.evaluations[e])
+                        .mul(&f1.evaluations[e])
+                        .mul(&f2.evaluations[e]),
+                )
                 .add(&fe(5).mul(&f0.evaluations[e]));
         }
         let mut ts0 = Transcript::new_default(b"multi");
@@ -653,8 +688,10 @@ mod tests {
             .iter()
             .map(|t| OwnedOracle::new(t.evaluations.clone()))
             .collect();
-        let mut oracle_refs: Vec<&mut dyn IndexOracle> =
-            oracles.iter_mut().map(|o| o as &mut dyn IndexOracle).collect();
+        let mut oracle_refs: Vec<&mut dyn IndexOracle> = oracles
+            .iter_mut()
+            .map(|o| o as &mut dyn IndexOracle)
+            .collect();
         let terms = vec![(fe(3), vec![0usize, 1, 2]), (fe(5), vec![0])];
         let mut ts1 = Transcript::new_default(b"multi");
         let out = prove_stream_windowed(7, &mut oracle_refs, &terms, claim, &mut ts1, 2).unwrap();
@@ -679,8 +716,10 @@ mod tests {
             .iter()
             .map(|t| OwnedOracle::new(t.evaluations.clone()))
             .collect();
-        let mut oracle_refs: Vec<&mut dyn IndexOracle> =
-            oracles.iter_mut().map(|o| o as &mut dyn IndexOracle).collect();
+        let mut oracle_refs: Vec<&mut dyn IndexOracle> = oracles
+            .iter_mut()
+            .map(|o| o as &mut dyn IndexOracle)
+            .collect();
         let terms = vec![(Goldilocks::ONE, vec![0usize, 1])];
         let mut ts = Transcript::new_default(b"wrong");
         let bad = claim.add(&Goldilocks::ONE);

@@ -87,13 +87,12 @@ pub mod module;
 pub mod pcs;
 pub mod sumcheck;
 
+pub use extract::{extract, ExtractionOutcome, HonestReduceProver, ReduceProver};
 pub use module::{
-    digit_layers, eq_eval_index, Fq, LayeredCube, ModulePoint, Srs,
-    ACCORDION_DIGIT_BITS, ACCORDION_LAYERS, Q_50,
+    digit_layers, eq_eval_index, Fq, LayeredCube, ModulePoint, Srs, ACCORDION_DIGIT_BITS,
+    ACCORDION_LAYERS, Q_50,
 };
 pub use pcs::{
-    accumulate, accumulate_verify, decide, decide_batched, eval_claim, reduce,
-    reduce_verify, AccumulateProof, AccordionPcsParams, Instance, PcsError,
-    ReduceProof,
+    accumulate, accumulate_verify, decide, decide_batched, eval_claim, reduce, reduce_verify,
+    AccordionPcsParams, AccumulateProof, Instance, PcsError, ReduceProof,
 };
-pub use extract::{extract, ExtractionOutcome, HonestReduceProver, ReduceProver};

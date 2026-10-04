@@ -78,7 +78,11 @@ impl JlMatrix {
                 _ => 0,
             });
         }
-        JlMatrix { rows, cols, entries }
+        JlMatrix {
+            rows,
+            cols,
+            entries,
+        }
     }
 
     #[inline]
@@ -98,8 +102,8 @@ impl JlMatrix {
                     acc += (e as i128) * (v as i128);
                 }
             }
-            let mut red = ((acc % ring.modulus.q as i128) + ring.modulus.q as i128)
-                % ring.modulus.q as i128;
+            let mut red =
+                ((acc % ring.modulus.q as i128) + ring.modulus.q as i128) % ring.modulus.q as i128;
             if red < 0 {
                 red += ring.modulus.q as i128;
             }
@@ -109,7 +113,11 @@ impl JlMatrix {
     }
 
     /// Project a full witness (block-wise): blocks of `self.cols`.
-    pub fn project(&self, ring: &RingConfig, w: &[RingElement]) -> Result<Vec<RingElement>, L2Error> {
+    pub fn project(
+        &self,
+        ring: &RingConfig,
+        w: &[RingElement],
+    ) -> Result<Vec<RingElement>, L2Error> {
         if w.len() % self.cols != 0 {
             return Err(L2Error::Shape("witness not block-aligned".into()));
         }
@@ -260,7 +268,10 @@ pub fn prove_l2_norm_check(
     for w in witnesses.iter() {
         let norm = l2_norm(w, ring.modulus.q);
         if norm > params.beta as f64 {
-            return Err(L2Error::Norm { got: norm as u64, bound: params.beta });
+            return Err(L2Error::Norm {
+                got: norm as u64,
+                bound: params.beta,
+            });
         }
     }
     // ---- the projection RoK ----
@@ -287,14 +298,21 @@ pub fn prove_l2_norm_check(
     let _ = tr.append_bytes(b"v-commit", &v_commitment.to_bytes());
     let c0: Vec<RingElement> = (0..ell)
         .map(|j| {
-            let b = tr.challenge_bytes(format!("c0-{j}").as_bytes(), 2).unwrap_or_default();
+            let b = tr
+                .challenge_bytes(format!("c0-{j}").as_bytes(), 2)
+                .unwrap_or_default();
             ring.constant(((b[0] as u32) % 3).max(1)) // {1,2} short-ish
         })
         .collect();
-    let log_proj = (params.m / params.block).max(1).next_power_of_two().trailing_zeros() as usize;
+    let log_proj = (params.m / params.block)
+        .max(1)
+        .next_power_of_two()
+        .trailing_zeros() as usize;
     let c1: Vec<RingElement> = (0..log_proj.max(1))
         .map(|i| {
-            let b = tr.challenge_bytes(format!("c1-{i}").as_bytes(), 2).unwrap_or_default();
+            let b = tr
+                .challenge_bytes(format!("c1-{i}").as_bytes(), 2)
+                .unwrap_or_default();
             ring.constant(((b[0] as u32) % 3).max(1))
         })
         .collect();
@@ -343,15 +361,18 @@ pub fn prove_l2_norm_check(
             let b = balanced(e.coeffs()[0], ring.modulus.q);
             acc += (b * b) as i128;
         }
-        let red = ((acc % ring.modulus.q as i128) + ring.modulus.q as i128)
-            % ring.modulus.q as i128;
+        let red =
+            ((acc % ring.modulus.q as i128) + ring.modulus.q as i128) % ring.modulus.q as i128;
         u.push(ring.constant(red as u32));
     }
     // ct(u_j) ≤ β² (integer comparison — the values are canonical)
     for uj in u.iter() {
         let val = uj.coeffs()[0] as u64;
         if val > params.beta * params.beta {
-            return Err(L2Error::Norm { got: val, bound: params.beta * params.beta });
+            return Err(L2Error::Norm {
+                got: val,
+                bound: params.beta * params.beta,
+            });
         }
     }
     // the random evaluation point r* for the self-product claims
@@ -362,7 +383,9 @@ pub fn prove_l2_norm_check(
     }
     let r_star: Vec<RingElement> = (0..log_m)
         .map(|i| {
-            let b = tr2.challenge_bytes(format!("r-{i}").as_bytes(), 4).unwrap_or_default();
+            let b = tr2
+                .challenge_bytes(format!("r-{i}").as_bytes(), 4)
+                .unwrap_or_default();
             let mut w = [0u8; 4];
             w.copy_from_slice(&b);
             ring.constant(u32::from_le_bytes(w) % ring.modulus.q)
@@ -404,7 +427,10 @@ pub fn prove_l2_norm_check(
     let mut t_openings = Vec::with_capacity(ell);
     let form = proj_form_vector(ring, &pi, &c1, params);
     for (j, w) in witnesses.iter().enumerate() {
-        let rel = LinearRelation { coefficients: form.clone(), target: t[j].clone() };
+        let rel = LinearRelation {
+            coefficients: form.clone(),
+            target: t[j].clone(),
+        };
         let proof = LinearProof::prove(
             key,
             std::slice::from_ref(&rel),
@@ -416,8 +442,19 @@ pub fn prove_l2_norm_check(
         t_openings.push(proof);
     }
     Ok(L2NormCheckProof {
-        proj: ProjRok { params: params.clone(), v, v_commitment, t, s },
-        exact: ExactRok { u, u_prime, u_double_prime, r_star },
+        proj: ProjRok {
+            params: params.clone(),
+            v,
+            v_commitment,
+            t,
+            s,
+        },
+        exact: ExactRok {
+            u,
+            u_prime,
+            u_double_prime,
+            r_star,
+        },
         eval_openings,
         t_openings,
     })
@@ -453,7 +490,11 @@ fn proj_form_vector(
 
 /// MLE evaluation of a constant-entry vector at a ring point (the
 /// standard fold).
-fn mle_eval_constant(ring: &RingConfig, evals: &[RingElement], point: &[RingElement]) -> RingElement {
+fn mle_eval_constant(
+    ring: &RingConfig,
+    evals: &[RingElement],
+    point: &[RingElement],
+) -> RingElement {
     let mut cur = evals.to_vec();
     for xi in point.iter().rev() {
         let one_minus = match ring.one().sub(xi) {
@@ -562,14 +603,21 @@ pub fn verify_l2_norm_check(
     let _ = tr.append_bytes(b"v-commit", &proof.proj.v_commitment.to_bytes());
     let c0: Vec<RingElement> = (0..ell)
         .map(|j| {
-            let b = tr.challenge_bytes(format!("c0-{j}").as_bytes(), 2).unwrap_or_default();
+            let b = tr
+                .challenge_bytes(format!("c0-{j}").as_bytes(), 2)
+                .unwrap_or_default();
             ring.constant(((b[0] as u32) % 3).max(1))
         })
         .collect();
-    let log_proj = (params.m / params.block).max(1).next_power_of_two().trailing_zeros() as usize;
+    let log_proj = (params.m / params.block)
+        .max(1)
+        .next_power_of_two()
+        .trailing_zeros() as usize;
     let c1: Vec<RingElement> = (0..log_proj.max(1))
         .map(|i| {
-            let b = tr.challenge_bytes(format!("c1-{i}").as_bytes(), 2).unwrap_or_default();
+            let b = tr
+                .challenge_bytes(format!("c1-{i}").as_bytes(), 2)
+                .unwrap_or_default();
             ring.constant(((b[0] as u32) % 3).max(1))
         })
         .collect();
@@ -591,7 +639,10 @@ pub fn verify_l2_norm_check(
     // the t_j openings against the (recomputed) form vector
     let form = proj_form_vector(ring, &pi, &c1, params);
     for (j, opening) in proof.t_openings.iter().enumerate() {
-        let rel = LinearRelation { coefficients: form.clone(), target: proof.proj.t[j].clone() };
+        let rel = LinearRelation {
+            coefficients: form.clone(),
+            target: proof.proj.t[j].clone(),
+        };
         opening
             .verify(key, std::slice::from_ref(&rel), &commitments[j])
             .map_err(|_| L2Error::Verify(format!("t opening {j} failed")))?;
@@ -646,7 +697,10 @@ pub fn norm_ledger(beta: u64, ell: u64, base: u64) -> Result<NormLedger, L2Error
         depth += 1;
     }
     if cur > beta {
-        return Err(L2Error::Norm { got: cur, bound: beta });
+        return Err(L2Error::Norm {
+            got: cur,
+            bound: beta,
+        });
     }
     Ok(NormLedger {
         beta,
@@ -667,7 +721,13 @@ mod tests {
     }
 
     fn params(m: usize, ell: usize, beta: u64, block: usize) -> L2Params {
-        L2Params { ring: ring(), m, ell, beta, block }
+        L2Params {
+            ring: ring(),
+            m,
+            ell,
+            beta,
+            block,
+        }
     }
 
     /// A constant-entry (Z_q-instantiation) short witness: each slot a
@@ -698,9 +758,18 @@ mod tests {
             }
         }
         let total = pi.entries.len();
-        assert!((zeros as f64 / total as f64 - 0.5).abs() < 0.05, "Pr[0] ≈ 1/2");
-        assert!((ones as f64 / total as f64 - 0.25).abs() < 0.05, "Pr[+1] ≈ 1/4");
-        assert!((negs as f64 / total as f64 - 0.25).abs() < 0.05, "Pr[-1] ≈ 1/4");
+        assert!(
+            (zeros as f64 / total as f64 - 0.5).abs() < 0.05,
+            "Pr[0] ≈ 1/2"
+        );
+        assert!(
+            (ones as f64 / total as f64 - 0.25).abs() < 0.05,
+            "Pr[+1] ≈ 1/4"
+        );
+        assert!(
+            (negs as f64 / total as f64 - 0.25).abs() < 0.05,
+            "Pr[-1] ≈ 1/4"
+        );
     }
 
     #[test]
@@ -737,7 +806,9 @@ mod tests {
         // 2 instances, m = 512, blocks of 256 (compression L = 1)
         let p = params(512, 2, 1 << 13, 256);
         let ring = p.ring.clone();
-        let key = AjtaiPublicKey::from_seed(p.ajtai_params(), [5u8; 32]).ok().unwrap();
+        let key = AjtaiPublicKey::from_seed(p.ajtai_params(), [5u8; 32])
+            .ok()
+            .unwrap();
         let w0 = short_witness(&ring, 512, 512, b"w0");
         let w1 = short_witness(&ring, 512, 512, b"w1");
         let witnesses = vec![w0, w1];
@@ -745,8 +816,10 @@ mod tests {
             .iter()
             .map(|w| key.commit(w).ok().unwrap())
             .collect();
-        let proof = prove_l2_norm_check(&p, &key, &witnesses, &commitments, b"pi").unwrap_or_else(|e| panic!("prove: {e:?}"));
-        verify_l2_norm_check(&p, &key, &commitments, &proof, b"pi").unwrap_or_else(|e| panic!("verify: {e:?}"));
+        let proof = prove_l2_norm_check(&p, &key, &witnesses, &commitments, b"pi")
+            .unwrap_or_else(|e| panic!("prove: {e:?}"));
+        verify_l2_norm_check(&p, &key, &commitments, &proof, b"pi")
+            .unwrap_or_else(|e| panic!("verify: {e:?}"));
         // tampered commitment -> openings fail
         let mut bad_c = commitments.clone();
         // recommit to a different witness
@@ -787,7 +860,7 @@ mod tests {
         let ledger = norm_ledger(1 << 14, 4, 2).ok().unwrap();
         assert!(ledger.beta_triple_prime <= ledger.beta);
         assert_eq!(ledger.depth, 2); // 4β -> 2β -> β
-        // iterating: the ledger closes at every step
+                                     // iterating: the ledger closes at every step
         for ell in [2u64, 4, 8, 16] {
             let l = norm_ledger(1 << 14, ell, 2).ok().unwrap();
             assert!(l.beta_triple_prime <= l.beta, "drift at L={ell}");

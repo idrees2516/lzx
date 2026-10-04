@@ -90,17 +90,17 @@
 // better for the cube/ring-coordinate arithmetic.
 #![allow(clippy::needless_range_loop)]
 
+pub mod abdlop;
+pub mod ajtai;
+pub mod embed;
 pub mod fp;
 pub mod fq2;
+pub mod gauss;
+pub mod params;
+pub mod pok;
+pub mod protocol;
 pub mod ring;
 pub mod rk;
-pub mod embed;
-pub mod gauss;
-pub mod ajtai;
-pub mod abdlop;
-pub mod pok;
 pub mod sumcheck;
-pub mod params;
-pub mod protocol;
 
 pub use params::{Params, SecurityBudget};

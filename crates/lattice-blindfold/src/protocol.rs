@@ -66,7 +66,13 @@ impl LbfSetup {
         };
         LbfSetup {
             params: params.clone(),
-            ajtai: AjtaiL::setup_d(params.kappa_ajtai, params.nr(), params.nr_bl(), params.d, rng),
+            ajtai: AjtaiL::setup_d(
+                params.kappa_ajtai,
+                params.nr(),
+                params.nr_bl(),
+                params.d,
+                rng,
+            ),
             abdlop: AbdlopPp::setup(
                 params.kappa,
                 params.ell,
@@ -169,11 +175,7 @@ pub fn cecom_check(
 }
 
 /// Commit the hints y_j as one ABDLOP block per hint (fresh ternary salts).
-fn commit_hint(
-    pp: &AbdlopPp,
-    y: &PolyK,
-    rng: &mut Rng,
-) -> (AbdlopCommitment, AbdlopOpening) {
+fn commit_hint(pp: &AbdlopPp, y: &PolyK, rng: &mut Rng) -> (AbdlopCommitment, AbdlopOpening) {
     AbdlopOpening::commit_rk(pp, std::slice::from_ref(y), &[], rng)
 }
 
@@ -310,7 +312,12 @@ pub fn r1cs_reduction(
         None
     };
     // ---- Step 2: challenges.
-    let draw_k = |rng: &mut Rng| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q));
+    let draw_k = |rng: &mut Rng| {
+        K(
+            Fq(rng.next_u64() % crate::fp::Q),
+            Fq(rng.next_u64() % crate::fp::Q),
+        )
+    };
     let alpha: Vec<K> = (0..log_m).map(|_| draw_k(rng)).collect();
     let gamma1: Vec<K> = (0..nk).map(|_| draw_k(rng)).collect();
     let gamma2: Vec<K> = (0..t).map(|_| draw_k(rng)).collect();
@@ -363,7 +370,12 @@ pub fn r1cs_reduction(
     // The mask p and its packed coefficients: 1 + Dmax·ℓ coefficients.
     let n_coeffs = 1 + d_max * log_m;
     let n_packed = n_coeffs.div_ceil(d);
-    let draw_k = |rng: &mut Rng| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q));
+    let draw_k = |rng: &mut Rng| {
+        K(
+            Fq(rng.next_u64() % crate::fp::Q),
+            Fq(rng.next_u64() % crate::fp::Q),
+        )
+    };
     let mut mask_coeffs: Vec<K> = Vec::with_capacity(n_coeffs);
     mask_coeffs.push(draw_k(rng)); // a0
     for _ in 1..n_coeffs {
@@ -673,11 +685,7 @@ pub fn r1cs_reduction(
     for i in 0..capital_k {
         // m_prod,i − ŷ_{i,2}·ŷ_{i,3} = 0 (the M2·M3 product slots)
         quads.push(QuadRelation {
-            products: vec![(
-                (surr_blk(i, 1), 0),
-                (surr_blk(i, 2), 0),
-                neg_w.clone(),
-            )],
+            products: vec![((surr_blk(i, 1), 0), (surr_blk(i, 2), 0), neg_w.clone())],
             linear: vec![((prod_blk(i), 0), one_w.clone())],
             constant: PolyK::zero(d),
         });
@@ -685,23 +693,25 @@ pub fn r1cs_reduction(
     let widths15 = p.pok_widths_fresh(step15_blocks.len());
     let inner15 = p.pok_widths_fresh(step15_blocks.len() + 1);
     let step15 = if !step15_blocks.is_empty() {
-        Some(pok_quadratic(
-            &setup.abdlop,
-            &step15_blocks,
-            &quads,
-            widths15,
-            inner15,
-            p.tau,
-            p.beta_ch,
-            p.w_max(),
-            rng,
+        Some(
+            pok_quadratic(
+                &setup.abdlop,
+                &step15_blocks,
+                &quads,
+                widths15,
+                inner15,
+                p.tau,
+                p.beta_ch,
+                p.w_max(),
+                rng,
+            )
+            .map_err(|e| {
+                if std::env::var("BF_DEBUG").is_ok() {
+                    eprintln!("STEP15 quadratic failed: {e:?}");
+                }
+                e
+            })?,
         )
-        .map_err(|e| {
-            if std::env::var("BF_DEBUG").is_ok() {
-                eprintln!("STEP15 quadratic failed: {e:?}");
-            }
-            e
-        })?)
     } else {
         None
     };
@@ -710,10 +720,7 @@ pub fn r1cs_reduction(
     // γ_i·ct(tB^{cube,i} − tB^{1,i}); cE = eq(r′,r)·Σ_{i>K,j,ℓ} γγγ·cf(tB^{(i,j)})_ℓ.
     let mut c_f = K::ZERO;
     for i in 0..capital_k {
-        let v = prod_coms[i]
-            .t_b[0]
-            .sub(&surr_coms[i][1].t_b[0])
-            .ct();
+        let v = prod_coms[i].t_b[0].sub(&surr_coms[i][1].t_b[0]).ct();
         c_f = c_f.add(&gamma1[i].mul(&K::from_fp(v)));
     }
     let mut c_n = K::ZERO;
@@ -826,9 +833,7 @@ pub fn r1cs_reduction(
             for j in 0..t {
                 let mut w_ell = vec![K::ZERO; d];
                 for l in 1..=d {
-                    w_ell[l - 1] = gamma1[i]
-                        .mul(&gamma2[j])
-                        .mul(&gamma3[l - 1]);
+                    w_ell[l - 1] = gamma1[i].mul(&gamma2[j]).mul(&gamma3[l - 1]);
                 }
                 let pi = PolyK::packaged_rotation(&w_ell);
                 let w = pi.scale_k(&delta1.mul(&eq_rp_r));
@@ -888,14 +893,26 @@ pub fn r1cs_reduction(
             }
         }
         // sq, cube, prod
-        for o in &sq_openings { debug_slot_arrays.push(o.slots.clone()); }
-        for o in &cube_openings { debug_slot_arrays.push(o.slots.clone()); }
-        for o in &prod_openings { debug_slot_arrays.push(o.slots.clone()); }
+        for o in &sq_openings {
+            debug_slot_arrays.push(o.slots.clone());
+        }
+        for o in &cube_openings {
+            debug_slot_arrays.push(o.slots.clone());
+        }
+        for o in &prod_openings {
+            debug_slot_arrays.push(o.slots.clone());
+        }
         // coeffs
         debug_slot_arrays.push(coeffs_op.slots.clone());
-        let rr = crate::pok::RelRows { rows: vec![crate::pok::RelRow::const_coeff(w18.clone(), target18, d)] };
+        let rr = crate::pok::RelRows {
+            rows: vec![crate::pok::RelRow::const_coeff(w18.clone(), target18, d)],
+        };
         let got = rr.eval_all(&debug_slot_arrays);
-        eprintln!("STEP18 honest ct = {:?}, target h = {:?}", got[0].ct(), target18);
+        eprintln!(
+            "STEP18 honest ct = {:?}, target h = {:?}",
+            got[0].ct(),
+            target18
+        );
         // Decompose: eq(r',α)(F + δ0·NC)(r') + δ1·Eval(r') + ζ·p(r').
         {
             let mut f_rp = K::ZERO;
@@ -918,9 +935,14 @@ pub fn r1cs_reduction(
             if let Some(ew) = sc_inputs.eval_weights.as_ref() {
                 for (i, per) in ew.iter().enumerate() {
                     for (j, w) in per.iter().enumerate() {
-                        if w.iter().all(|x| x.is_zero()) { continue; }
+                        if w.iter().all(|x| x.is_zero()) {
+                            continue;
+                        }
                         let rho = PolyK::packaged_rotation(w);
-                        eval_rp = eval_rp.add(&PolyK::rotated_ct(&rho, &sc_inputs.ring_mles[i][j].eval(&r_prime)));
+                        eval_rp = eval_rp.add(&PolyK::rotated_ct(
+                            &rho,
+                            &sc_inputs.ring_mles[i][j].eval(&r_prime),
+                        ));
                     }
                 }
             }
@@ -931,7 +953,11 @@ pub fn r1cs_reduction(
                 .add(&zeta.mul(&p_rp));
             eprintln!(
                 "STEP18 direct = {:?} (F={:?} NC={:?} Eval={:?} zp={:?})",
-                direct, f_rp, nc_rp, eval_rp, zeta.mul(&p_rp)
+                direct,
+                f_rp,
+                nc_rp,
+                eval_rp,
+                zeta.mul(&p_rp)
             );
             // Decompose the ROW evaluation per weight family.
             let eval_w = |weights: &Vec<(usize, usize, PolyK)>| -> K {
@@ -951,7 +977,11 @@ pub fn r1cs_reduction(
                 wf.push((surr18(i, 0), 0, na));
                 wf.push((surr18(i, 0), 1, nb));
             }
-            eprintln!("STEP18 F-row = {:?} expect {:?}", eval_w(&wf), eq_rp_alpha.mul(&f_rp));
+            eprintln!(
+                "STEP18 F-row = {:?} expect {:?}",
+                eval_w(&wf),
+                eq_rp_alpha.mul(&f_rp)
+            );
             // NC-family:
             let mut wnc: Vec<(usize, usize, PolyK)> = Vec::new();
             for i in 0..nk {
@@ -964,7 +994,11 @@ pub fn r1cs_reduction(
                 wnc.push((surr18(i, 0), 0, na));
                 wnc.push((surr18(i, 0), 1, nb));
             }
-            eprintln!("STEP18 NC-row = {:?} expect {:?}", eval_w(&wnc), eq_rp_alpha.mul(&delta0).mul(&nc_rp));
+            eprintln!(
+                "STEP18 NC-row = {:?} expect {:?}",
+                eval_w(&wnc),
+                eq_rp_alpha.mul(&delta0).mul(&nc_rp)
+            );
             // Eval-family (hints):
             let mut we: Vec<(usize, usize, PolyK)> = Vec::new();
             {
@@ -985,17 +1019,25 @@ pub fn r1cs_reduction(
                     }
                 }
             }
-            eprintln!("STEP18 Eval-row = {:?} expect {:?}", eval_w(&we), delta1.mul(&eq_rp_r).mul(&eval_rp));
+            eprintln!(
+                "STEP18 Eval-row = {:?} expect {:?}",
+                eval_w(&we),
+                delta1.mul(&eq_rp_r).mul(&eval_rp)
+            );
             // Coeffs-family:
             let mut wc: Vec<(usize, usize, PolyK)> = Vec::new();
             {
                 let r_weight_of = |pos: usize| -> K {
-                    if pos == 0 { K::ONE } else {
+                    if pos == 0 {
+                        K::ONE
+                    } else {
                         let rel = pos - 1;
                         let var = rel / d_max + 1;
                         let j = rel % d_max + 1;
                         let mut pw = K::ONE;
-                        for _ in 0..j { pw = pw.mul(&r_prime[var - 1]); }
+                        for _ in 0..j {
+                            pw = pw.mul(&r_prime[var - 1]);
+                        }
                         pw
                     }
                 };
@@ -1003,7 +1045,9 @@ pub fn r1cs_reduction(
                     let mut w_ell = vec![K::ZERO; d];
                     for t_i in 0..d {
                         let pos = e * d + t_i;
-                        if pos < n_coeffs { w_ell[t_i] = r_weight_of(pos); }
+                        if pos < n_coeffs {
+                            w_ell[t_i] = r_weight_of(pos);
+                        }
                     }
                     let rho = PolyK::packaged_rotation(&w_ell);
                     let (wa, wb) = msg_weight(&rho.scale_k(&zeta));
@@ -1011,7 +1055,11 @@ pub fn r1cs_reduction(
                     wc.push((coeffs18, 2 * e + 1, wb));
                 }
             }
-            eprintln!("STEP18 coeffs-row = {:?} expect {:?}", eval_w(&wc), zeta.mul(&p_rp));
+            eprintln!(
+                "STEP18 coeffs-row = {:?} expect {:?}",
+                eval_w(&wc),
+                zeta.mul(&p_rp)
+            );
         }
     }
     let widths18 = p.pok_widths_fresh(blocks18.len());
@@ -1072,10 +1120,7 @@ pub fn r1cs_reduction(
         mus,
     };
     let _ = step1;
-    Ok((
-        R1csOutput { pairs, r_prime },
-        transcript,
-    ))
+    Ok((R1csOutput { pairs, r_prime }, transcript))
 }
 
 /// Verify the R1CS reduction transcript (all sub-protocols).
@@ -1147,7 +1192,13 @@ pub fn r1cs_verify(
             }
         }
         let (rows, gammas) = tr.step12_rows(setup);
-        verify_ct_wrapper(&setup.abdlop, &coms, Some((&rows, gammas)), None, &tr.step12)?;
+        verify_ct_wrapper(
+            &setup.abdlop,
+            &coms,
+            Some((&rows, gammas)),
+            None,
+            &tr.step12,
+        )?;
     }
     // Step 15 quadratic PoK.
     if let Some(step15) = &tr.step15 {
@@ -1248,9 +1299,7 @@ impl R1csTranscript {
                 for j in 0..t {
                     let mut w_ell = vec![K::ZERO; d];
                     for l in 1..=d {
-                        w_ell[l - 1] = self.gamma1[i]
-                            .mul(&self.gamma2[j])
-                            .mul(&self.gamma3[l - 1]);
+                        w_ell[l - 1] = self.gamma1[i].mul(&self.gamma2[j]).mul(&self.gamma3[l - 1]);
                     }
                     let pi = PolyK::packaged_rotation(&w_ell);
                     let w = pi.scale_k(&self.delta1.mul(&eq_rp_r));
@@ -1335,9 +1384,7 @@ impl R1csTranscript {
             for j in 0..t {
                 let mut w_ell = vec![K::ZERO; d];
                 for l in 1..=d {
-                    w_ell[l - 1] = self.gamma1[i]
-                        .mul(&self.gamma2[j])
-                        .mul(&self.gamma3[l - 1]);
+                    w_ell[l - 1] = self.gamma1[i].mul(&self.gamma2[j]).mul(&self.gamma3[l - 1]);
                 }
                 let pi = PolyK::packaged_rotation(&w_ell);
                 let (wa, wb) = msg_weight(&pi.scale_k(&self.delta1));
@@ -1420,11 +1467,7 @@ impl R1csTranscript {
         for i in 0..capital_k {
             // m_prod,i = ŷ_{i,2}·ŷ_{i,3} = surr_blk(i,1)·surr_blk(i,2).
             quads.push(QuadRelation {
-                products: vec![(
-                    (surr_blk(i, 1), 0),
-                    (surr_blk(i, 2), 0),
-                    neg_w.clone(),
-                )],
+                products: vec![((surr_blk(i, 1), 0), (surr_blk(i, 2), 0), neg_w.clone())],
                 linear: vec![((prod_blk(i), 0), one_w.clone())],
                 constant: PolyK::zero(d),
             });
@@ -1495,7 +1538,10 @@ pub fn rlc_reduction(
     };
     // ---- The mask loop (Steps 2-16).
     let s_width = p.rlc_width();
-    let r_old = pairs.first().map(|pr| pr.inst.r.clone()).unwrap_or_default();
+    let r_old = pairs
+        .first()
+        .map(|pr| pr.inst.r.clone())
+        .unwrap_or_default();
     let m1 = setup.m1();
     let mats = [&m1, &setup.m2, &setup.m3];
     let mut attempts = 0u32;
@@ -1532,7 +1578,8 @@ pub fn rlc_reduction(
         let mut cy0_coms: Vec<AbdlopCommitment> = Vec::with_capacity(n_blocks_cy0);
         let mut cy0_ops: Vec<AbdlopOpening> = Vec::with_capacity(n_blocks_cy0);
         for b in 0..n_blocks_cy0 {
-            let chunk: Vec<Poly> = rf_msgs[b * p.ell..((b + 1) * p.ell).min(rf_msgs.len())].to_vec();
+            let chunk: Vec<Poly> =
+                rf_msgs[b * p.ell..((b + 1) * p.ell).min(rf_msgs.len())].to_vec();
             let mut padded = chunk.clone();
             while padded.len() < p.ell {
                 padded.push(Poly::zero(d));
@@ -1542,7 +1589,9 @@ pub fn rlc_reduction(
             cy0_ops.push(o);
         }
         // Step 7: send Cy,0 and {Cy,j} — then the verifier's ρ⃗ (Step 8).
-        let rhos: Vec<Poly> = (0..nk).map(|_| StrongSet::sample(d, b"rho", &mut rho_ctr())).collect();
+        let rhos: Vec<Poly> = (0..nk)
+            .map(|_| StrongSet::sample(d, b"rho", &mut rho_ctr()))
+            .collect();
         // Step 9-10: v := Σρz_i; z := v + y.
         let mut v: Vec<i64> = vec![0i64; p.nf];
         for (i, rho) in rhos.iter().enumerate() {
@@ -1558,7 +1607,8 @@ pub fn rlc_reduction(
             for (blk, zp) in zr.iter().enumerate() {
                 let prod = rho.mul(zp);
                 for (o, pc) in v[blk * d..(blk + 1) * d].iter_mut().zip(prod.0.iter()) {
-                    *o = ((*o as i128 + pc.sym() as i128).clamp(i64::MIN as i128, i64::MAX as i128)) as i64;
+                    *o = ((*o as i128 + pc.sym() as i128).clamp(i64::MIN as i128, i64::MAX as i128))
+                        as i64;
                 }
             }
         }
@@ -1568,16 +1618,7 @@ pub fn rlc_reduction(
             continue;
         }
         // Step 12-13: open Cy,0 in the clear (reveal salts).
-        accepted = Some((
-            y_f,
-            c_y,
-            x_y,
-            cyj_coms,
-            cyj_ops,
-            cy0_coms,
-            cy0_ops,
-            yy,
-        ));
+        accepted = Some((y_f, c_y, x_y, cyj_coms, cyj_ops, cy0_coms, cy0_ops, yy));
         let z_f = FieldVec(z.iter().map(|&x| Fq::from_i64(x)).collect());
         let mut tr_rhos = rhos;
         tr_rhos.truncate(nk);
@@ -1592,7 +1633,9 @@ pub fn rlc_reduction(
             match &accepted {
                 Some(a) => a,
                 None => {
-                    return Err(PokError::ExtractionFailed("unreachable: no accepting attempt".into()))
+                    return Err(PokError::ExtractionFailed(
+                        "unreachable: no accepting attempt".into(),
+                    ))
                 }
             },
             rng,
@@ -1600,7 +1643,9 @@ pub fn rlc_reduction(
         let (cy0, cyj, cy0_opening) = match &accepted {
             Some(a) => (a.5.clone(), a.3.clone(), a.6.clone()),
             None => {
-                return Err(PokError::ExtractionFailed("unreachable: no accepting attempt".into()))
+                return Err(PokError::ExtractionFailed(
+                    "unreachable: no accepting attempt".into(),
+                ))
             }
         };
         let transcript = RlcTranscript {
@@ -1701,7 +1746,10 @@ fn rlc_finish(
     // property, so its input part is public).
     let x_folded: Vec<Fq> = z_f.0[..p.nf_in].to_vec();
     // ---- Steps 19-20: fold the salts and hints, commit the folded y_j.
-    let r_old = pairs.first().map(|pr| pr.inst.r.clone()).unwrap_or_default();
+    let r_old = pairs
+        .first()
+        .map(|pr| pr.inst.r.clone())
+        .unwrap_or_default();
     let m1 = setup.m1();
     let _mats = [&m1, &setup.m2, &setup.m3];
     let mut folded_y: Vec<PolyK> = Vec::with_capacity(t);
@@ -1797,13 +1845,8 @@ pub fn rlc_verify(
     }
     // Step 21: Commit(y_j) = Σρ Commit(y_{i,j}) + Cy,j.
     for j in 0..t {
-        let coms_ref: Vec<&AbdlopCommitment> =
-            pairs.iter().map(|pr| &pr.inst.coms[j]).collect();
-        let expect = crate::abdlop::homomorphic_comb(
-            &coms_ref,
-            &tr.rhos,
-            Some(&tr.cyj[j]),
-        );
+        let coms_ref: Vec<&AbdlopCommitment> = pairs.iter().map(|pr| &pr.inst.coms[j]).collect();
+        let expect = crate::abdlop::homomorphic_comb(&coms_ref, &tr.rhos, Some(&tr.cyj[j]));
         if out.inst.coms[j].t_a != expect.t_a || out.inst.coms[j].t_b != expect.t_b {
             return Err(PokError::CommitmentCheck(j));
         }
@@ -1978,14 +2021,7 @@ pub fn dec_reduction(
             },
         });
     }
-    Ok((
-        out,
-        DecTranscript {
-            c_is,
-            coms,
-            step5,
-        },
-    ))
+    Ok((out, DecTranscript { c_is, coms, step5 }))
 }
 
 /// Verify Π'_DEC.
@@ -2080,10 +2116,7 @@ pub fn dec_verify(
 /// Protocol 11: sample a randomized CEcom(b, L, B̃, Commit, T, K)^k
 /// instance-witness pair: one Gaussian z ← D_s^{nF} (restarted while
 /// ∥z∥∞ > τs), split into k pieces sharing the point r.
-pub fn sample_blind_cecom(
-    setup: &LbfSetup,
-    rng: &mut Rng,
-) -> Result<Vec<CecomPair>, PokError> {
+pub fn sample_blind_cecom(setup: &LbfSetup, rng: &mut Rng) -> Result<Vec<CecomPair>, PokError> {
     let p = &setup.params;
     let d = p.d;
     let t = p.t;
@@ -2103,7 +2136,12 @@ pub fn sample_blind_cecom(
         let pieces = split_b_k(&zr, p.b, p.k);
         // The shared point r.
         let r: Vec<K> = (0..p.log_m())
-            .map(|_| K(Fq(rng.next_u64() % crate::fp::Q), Fq(rng.next_u64() % crate::fp::Q)))
+            .map(|_| {
+                K(
+                    Fq(rng.next_u64() % crate::fp::Q),
+                    Fq(rng.next_u64() % crate::fp::Q),
+                )
+            })
             .collect();
         let m1 = setup.m1();
         let mats = [&m1, &setup.m2, &setup.m3];

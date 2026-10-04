@@ -53,9 +53,7 @@
 use crate::pedersen::{PedersenCommitment, PedersenKey};
 use crate::sps::{derive_challenges, SpsInstance, SpsRelation, SpsWitness};
 use crate::util::{challenge_fp, eq_basis_eval, eq_eval};
-use crate::zk_sumcheck::{
-    prove_masked_batched, verify_masked_batched, MaskPoly, ZkSumcheckProof,
-};
+use crate::zk_sumcheck::{prove_masked_batched, verify_masked_batched, MaskPoly, ZkSumcheckProof};
 use crate::Fp256;
 use lattice_core::transcript::Transcript;
 
@@ -200,7 +198,11 @@ pub fn create_base_accumulator_at<R: SpsRelation>(
     // base's relaxed error — exactly the Nova-u drift semantics — not
     // rejected; the zero-pads of every accumulation carry the same value.
     let zero_challenges = vec![Fp256::ZERO; mu.saturating_sub(1)];
-    let e0 = rel.eval_map(&vec![Fp256::ZERO; rel.inst_len()], &zero_msgs, &zero_challenges)?;
+    let e0 = rel.eval_map(
+        &vec![Fp256::ZERO; rel.inst_len()],
+        &zero_msgs,
+        &zero_challenges,
+    )?;
     // Commit the zero messages (identity commitments with fresh blinds for
     // hiding) and the base error.
     let mut commitments = Vec::with_capacity(mu);
@@ -299,11 +301,7 @@ pub fn accumulate<R: SpsRelation>(
     let mut dummy_coms = Vec::with_capacity(mu);
     let mut dummy_blinds = Vec::with_capacity(mu);
     for i in 0..mu {
-        let msg = crate::util::challenge_fp_vec(
-            transcript,
-            b"dummy-msg",
-            rel.msg_len(i),
-        )?;
+        let msg = crate::util::challenge_fp_vec(transcript, b"dummy-msg", rel.msg_len(i))?;
         let blind = challenge_fp(transcript, b"dummy-blind")?;
         let c = key.commit(&msg, &blind)?;
         dummy_msgs.push(msg);
@@ -369,13 +367,20 @@ pub fn accumulate<R: SpsRelation>(
         challenges.push(accj.instance.challenges.clone());
         coms.push(accj.instance.commitments.clone());
         // The accumulator's error: its map value (the relaxed error).
-        let e = rel.eval_map(&accj.instance.x, &accj.witness.messages, &accj.instance.challenges)?;
+        let e = rel.eval_map(
+            &accj.instance.x,
+            &accj.witness.messages,
+            &accj.instance.challenges,
+        )?;
         errors.push(e);
         masks.push(accj.witness.mask.clone());
         msg_blinds.push(accj.witness.msg_blinds.clone());
         error_blinds.push(accj.witness.error_blind);
         error_coms.push(accj.instance.error_commitment);
-        old_claims.push(Some((accj.instance.beta.clone(), accj.instance.v_g.clone())));
+        old_claims.push(Some((
+            accj.instance.beta.clone(),
+            accj.instance.v_g.clone(),
+        )));
     }
 
     // Pad positions carry COPIES of the dummy: their map value equals the
@@ -507,7 +512,11 @@ pub fn accumulate<R: SpsRelation>(
         out
     };
     let x_new = fold_vec(&xs);
-    let ch_new: Vec<Fp256> = if mu > 1 { fold_vec(&challenges) } else { Vec::new() };
+    let ch_new: Vec<Fp256> = if mu > 1 {
+        fold_vec(&challenges)
+    } else {
+        Vec::new()
+    };
     let mut msg_new: Vec<Vec<Fp256>> = Vec::with_capacity(mu);
     let mut msg_blind_new: Vec<Fp256> = Vec::with_capacity(mu);
     for i in 0..mu {
@@ -519,9 +528,8 @@ pub fn accumulate<R: SpsRelation>(
     // Commitment folds (homomorphic).
     let mut com_new: Vec<PedersenCommitment> = Vec::with_capacity(mu);
     for i in 0..mu {
-        let items: Vec<(Fp256, PedersenCommitment)> = (0..parties)
-            .map(|p| (eq_beta[p], coms[p][i]))
-            .collect();
+        let items: Vec<(Fp256, PedersenCommitment)> =
+            (0..parties).map(|p| (eq_beta[p], coms[p][i])).collect();
         com_new.push(PedersenCommitment::linear_combine(&items));
     }
     // The error commitment: E = w₀·C^e₀ + Σ_acc eq·Eⱼ + Com_pub(ẽ), where
@@ -651,7 +659,16 @@ pub fn verify_accumulation<R: SpsRelation>(
         .iter()
         .map(|a| (a.beta.clone(), a.v_g.clone()))
         .collect();
-    let sc_out = verify_masked_batched(l, d, n, &alpha, &gamma, &old_claims, &pf.sumcheck, transcript)?;
+    let sc_out = verify_masked_batched(
+        l,
+        d,
+        n,
+        &alpha,
+        &gamma,
+        &old_claims,
+        &pf.sumcheck,
+        transcript,
+    )?;
     let beta = &sc_out.beta;
     let eq_beta: Vec<Fp256> = (0..parties).map(|p| eq_basis_eval(p, beta)).collect();
 
@@ -710,9 +727,7 @@ pub fn verify_accumulation<R: SpsRelation>(
                 let c = match p {
                     0 => pf.dummy.commitments[i],
                     j if (1..=m).contains(&j) => predicate_instances[j - 1].commitments[i],
-                    j if (m + 1..=m + a).contains(&j) => {
-                        old_accumulators[j - m - 1].commitments[i]
-                    }
+                    j if (m + 1..=m + a).contains(&j) => old_accumulators[j - m - 1].commitments[i],
                     _ => pf.dummy.commitments[i],
                 };
                 expect_c = expect_c.add(&c.scale(&eq_beta[p]));
@@ -779,7 +794,11 @@ pub fn decide<R: SpsRelation>(
         }
     }
     // 2+3. e = V_sps(x, m, r) and E = Com(e; r_E).
-    let e = rel.eval_map(&acc.instance.x, &acc.witness.messages, &acc.instance.challenges)?;
+    let e = rel.eval_map(
+        &acc.instance.x,
+        &acc.witness.messages,
+        &acc.instance.challenges,
+    )?;
     if !key.verify_opening(&acc.instance.error_commitment, &e, &acc.witness.error_blind)? {
         return Err(AccumError::DeciderRejected("error commitment"));
     }
@@ -810,8 +829,9 @@ mod tests {
         z.extend(x.iter().cloned());
         z.extend(w.iter().cloned());
         let msgs = vec![z];
-        let (mut inst, mut wit) =
-            crate::sps::commit_messages(&msgs, key, &mut t).ok().unwrap();
+        let (mut inst, mut wit) = crate::sps::commit_messages(&msgs, key, &mut t)
+            .ok()
+            .unwrap();
         inst.x = x.to_vec();
         inst.challenges = derive_challenges(&inst).ok().unwrap();
         // Fill the witness messages correctly (commit_messages stored them).
@@ -833,14 +853,23 @@ mod tests {
 
         let mut t = Transcript::new_default(b"acc-test");
         // Base accumulator for the chain's L = 2.
-        let base = create_base_accumulator_at(&rel, &key, 2, &mut t).ok().unwrap();
+        let base = create_base_accumulator_at(&rel, &key, 2, &mut t)
+            .ok()
+            .unwrap();
 
         let mut tprov = Transcript::new_default(b"acc-test2");
         let l2 = num_vars_for(3);
-        let (acc, pf) =
-            accumulate(&rel, &key, std::slice::from_ref(&inst), std::slice::from_ref(&wit), std::slice::from_ref(&base), l2, &mut tprov)
-            .ok()
-            .unwrap();
+        let (acc, pf) = accumulate(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst),
+            std::slice::from_ref(&wit),
+            std::slice::from_ref(&base),
+            l2,
+            &mut tprov,
+        )
+        .ok()
+        .unwrap();
 
         // Verifier (fresh transcript, same label).
         let mut tver = Transcript::new_default(b"acc-test2");
@@ -861,32 +890,70 @@ mod tests {
         assert!(dec.is_ok(), "decider failed: {dec:?}");
     }
 
-
     #[test]
     fn probe_chain_step1() {
         let rel = R1csSps::many_solutions(1, 5, 3, b"probe-seed");
         let key = key();
         let mut t = Transcript::new_default(b"probe");
-        let base = create_base_accumulator_at(&rel, &key, 2, &mut t).ok().unwrap();
+        let base = create_base_accumulator_at(&rel, &key, 2, &mut t)
+            .ok()
+            .unwrap();
         // Step 0.
         let (x0, w0) = rel.draw_solution(b"pw0");
         let (inst0, wit0) = make_satisfying_pair(&rel, &key, &x0, &w0);
         let mut tp0 = Transcript::new_default(b"probe-step");
-        let (acc0, _pf0) = accumulate(&rel, &key, std::slice::from_ref(&inst0), &[wit0], std::slice::from_ref(&base), 2, &mut tp0).ok().unwrap();
+        let (acc0, _pf0) = accumulate(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst0),
+            &[wit0],
+            std::slice::from_ref(&base),
+            2,
+            &mut tp0,
+        )
+        .ok()
+        .unwrap();
         assert!(decide(&rel, &key, &acc0).is_ok());
         // Step 1.
         let (x1, w1) = rel.draw_solution(b"pw1");
         let (inst1, wit1) = make_satisfying_pair(&rel, &key, &x1, &w1);
         let mut tp1 = Transcript::new_default(b"probe-step");
-        let (acc1, _pf1) = accumulate(&rel, &key, std::slice::from_ref(&inst1), &[wit1], std::slice::from_ref(&acc0), 2, &mut tp1).ok().unwrap();
+        let (acc1, _pf1) = accumulate(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst1),
+            &[wit1],
+            std::slice::from_ref(&acc0),
+            2,
+            &mut tp1,
+        )
+        .ok()
+        .unwrap();
         // Compare the decider's map value with a direct evaluation of the
         // interpolated map at beta.
-        let e_dec = rel.eval_map(&acc1.instance.x, &acc1.witness.messages, &acc1.instance.challenges).ok().unwrap();
-        println!("decider e  = {:?}", e_dec.iter().map(|v| v.to_i128()).collect::<Vec<_>>());
+        let e_dec = rel
+            .eval_map(
+                &acc1.instance.x,
+                &acc1.witness.messages,
+                &acc1.instance.challenges,
+            )
+            .ok()
+            .unwrap();
+        println!(
+            "decider e  = {:?}",
+            e_dec.iter().map(|v| v.to_i128()).collect::<Vec<_>>()
+        );
         // The expected committed error: rebuild via the fold of per-party
         // errors + e_tilde. e_tilde is not stored; instead check the opening
         // directly: E == Com(e_dec, blind)?
-        let ok = key.verify_opening(&acc1.instance.error_commitment, &e_dec, &acc1.witness.error_blind).ok().unwrap();
+        let ok = key
+            .verify_opening(
+                &acc1.instance.error_commitment,
+                &e_dec,
+                &acc1.witness.error_blind,
+            )
+            .ok()
+            .unwrap();
         println!("opening check: {}", ok);
         assert!(ok);
     }
@@ -897,16 +964,25 @@ mod tests {
         let rel = R1csSps::many_solutions(1, 5, 3, b"chain-seed");
         let key = key();
         let mut t = Transcript::new_default(b"chain");
-        let mut current = create_base_accumulator_at(&rel, &key, 2, &mut t).ok().unwrap();
+        let mut current = create_base_accumulator_at(&rel, &key, 2, &mut t)
+            .ok()
+            .unwrap();
         for step in 0..3u8 {
             let seed: Vec<u8> = [b"chain-w".as_ref(), &[step]].concat();
             let (xs, ws) = rel.draw_solution(&seed);
             let (inst, wit) = make_satisfying_pair(&rel, &key, &xs, &ws);
             let mut tp = Transcript::new_default(b"chain-step");
-            let (acc, pf) =
-                accumulate(&rel, &key, std::slice::from_ref(&inst), &[wit], &[current.clone()], 2, &mut tp)
-                    .ok()
-                    .unwrap();
+            let (acc, pf) = accumulate(
+                &rel,
+                &key,
+                std::slice::from_ref(&inst),
+                &[wit],
+                &[current.clone()],
+                2,
+                &mut tp,
+            )
+            .ok()
+            .unwrap();
             let mut tv = Transcript::new_default(b"chain-step");
             let res = verify_accumulation(
                 &rel,
@@ -933,26 +1009,57 @@ mod tests {
         let key = key();
         let (inst, wit) = make_satisfying_pair(&rel, &key, &xt, &wt);
         let mut t = Transcript::new_default(b"tamper");
-        let base = create_base_accumulator_at(&rel, &key, 2, &mut t).ok().unwrap();
-        let mut tp = Transcript::new_default(b"tamper2");
-        let (acc, pf) = accumulate(&rel, &key, std::slice::from_ref(&inst), &[wit], std::slice::from_ref(&base), num_vars_for(3), &mut tp)
+        let base = create_base_accumulator_at(&rel, &key, 2, &mut t)
             .ok()
             .unwrap();
+        let mut tp = Transcript::new_default(b"tamper2");
+        let (acc, pf) = accumulate(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst),
+            &[wit],
+            std::slice::from_ref(&base),
+            num_vars_for(3),
+            &mut tp,
+        )
+        .ok()
+        .unwrap();
 
         // (a) Tampered new instance x → tuple mismatch.
         let mut bad_inst = acc.instance.clone();
         bad_inst.x[0] = bad_inst.x[0].add(&Fp256::from_canonical_u64(1));
         let mut tv = Transcript::new_default(b"tamper2");
-        assert!(verify_accumulation(&rel, &key, std::slice::from_ref(&inst), std::slice::from_ref(&base.instance), &bad_inst, &pf, num_vars_for(3), &mut tv)
-            .is_err());
+        assert!(verify_accumulation(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst),
+            std::slice::from_ref(&base.instance),
+            &bad_inst,
+            &pf,
+            num_vars_for(3),
+            &mut tv
+        )
+        .is_err());
 
         // (b) Tampered E → E-check mismatch.
         let mut bad_e = acc.instance.clone();
-        bad_e.error_commitment = bad_e.error_commitment
-            .add(&key.commit(&[Fp256::from_canonical_u64(7)], &Fp256::ZERO).ok().unwrap());
+        bad_e.error_commitment = bad_e.error_commitment.add(
+            &key.commit(&[Fp256::from_canonical_u64(7)], &Fp256::ZERO)
+                .ok()
+                .unwrap(),
+        );
         let mut tv2 = Transcript::new_default(b"tamper2");
-        assert!(verify_accumulation(&rel, &key, std::slice::from_ref(&inst), std::slice::from_ref(&base.instance), &bad_e, &pf, num_vars_for(3), &mut tv2)
-            .is_err());
+        assert!(verify_accumulation(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst),
+            std::slice::from_ref(&base.instance),
+            &bad_e,
+            &pf,
+            num_vars_for(3),
+            &mut tv2
+        )
+        .is_err());
 
         // (c) Tampered sumcheck (round coefficient) → sumcheck rejection.
         let mut bad_pf = pf.clone();
@@ -964,15 +1071,33 @@ mod tests {
             }
         }
         let mut tv3 = Transcript::new_default(b"tamper2");
-        assert!(verify_accumulation(&rel, &key, std::slice::from_ref(&inst), std::slice::from_ref(&base.instance), &acc.instance, &bad_pf, num_vars_for(3), &mut tv3)
-            .is_err());
+        assert!(verify_accumulation(
+            &rel,
+            &key,
+            std::slice::from_ref(&inst),
+            std::slice::from_ref(&base.instance),
+            &acc.instance,
+            &bad_pf,
+            num_vars_for(3),
+            &mut tv3
+        )
+        .is_err());
 
         // (d) Tampered v_g → tuple mismatch.
         let mut bad_vg = acc.instance.clone();
         bad_vg.v_g[0] = bad_vg.v_g[0].add(&Fp256::from_canonical_u64(1));
         let mut tv4 = Transcript::new_default(b"tamper2");
-        assert!(verify_accumulation(&rel, &key, &[inst], std::slice::from_ref(&base.instance), &bad_vg, &pf, num_vars_for(3), &mut tv4)
-            .is_err());
+        assert!(verify_accumulation(
+            &rel,
+            &key,
+            &[inst],
+            std::slice::from_ref(&base.instance),
+            &bad_vg,
+            &pf,
+            num_vars_for(3),
+            &mut tv4
+        )
+        .is_err());
 
         // (e) Decider tamper: a wrong witness message → reject.
         let mut bad_acc = acc.clone();

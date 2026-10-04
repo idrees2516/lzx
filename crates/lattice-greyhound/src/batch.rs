@@ -108,7 +108,12 @@ pub fn batch_prove(
     // the t̂: the A-images per point (the identity gadget for the test scale)
     let t_hat: Vec<Poly> = wit.t_hat.concat();
     let _ = a_key;
-    Ok(BatchProof { v, w_hats, z, t_hat })
+    Ok(BatchProof {
+        v,
+        w_hats,
+        z,
+        t_hat,
+    })
 }
 
 /// Verify the batched proof (the (8)/(9) checks with the clear openings).
@@ -184,17 +189,33 @@ mod tests {
         let s = vec![vec![small_vec(m, 3), small_vec(m, 4)]];
         let b = small_vec(r, 5);
         // y = Σ_i ⟨a_i, s_i⟩·b_i
-        let w: Vec<Poly> = s[0].iter().zip(a.iter()).map(|(si, ai)| sprod(ai, si)).collect();
+        let w: Vec<Poly> = s[0]
+            .iter()
+            .zip(a.iter())
+            .map(|(si, ai)| sprod(ai, si))
+            .collect();
         let y = sprod(&b, &w);
-        let pt = BatchPoint { a: vec![a], b: b.clone(), y: vec![y] };
+        let pt = BatchPoint {
+            a: vec![a],
+            b: b.clone(),
+            y: vec![y],
+        };
         // keys: random rows via almost_uniform
         let key_rows: Vec<Vec<Poly>> = (0..8)
-            .map(|i| (0..2).map(|j| Poly::almost_uniform(&[9u8; 32], (i * 2 + j) as u64)).collect())
+            .map(|i| {
+                (0..2)
+                    .map(|j| Poly::almost_uniform(&[9u8; 32], (i * 2 + j) as u64))
+                    .collect()
+            })
             .collect();
         let d_key = |rho: usize| -> Vec<Poly> { key_rows[rho].clone() };
         let a_key = |rho: usize| -> Vec<Poly> { key_rows[rho + 4].clone() };
-        let wit = BatchWitness { s: vec![s], t_hat: vec![vec![Poly::zero(); 2]] };
-        let proof = batch_prove(std::slice::from_ref(&pt), &wit, &a_key, &d_key, 4, b"batch").unwrap();
+        let wit = BatchWitness {
+            s: vec![s],
+            t_hat: vec![vec![Poly::zero(); 2]],
+        };
+        let proof =
+            batch_prove(std::slice::from_ref(&pt), &wit, &a_key, &d_key, 4, b"batch").unwrap();
         batch_verify(&[pt], &proof, &a_key, &d_key, 4, b"batch").unwrap();
     }
 }

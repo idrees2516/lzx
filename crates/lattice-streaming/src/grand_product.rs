@@ -308,7 +308,10 @@ struct OpenBucket {
 
 impl OpenBucket {
     fn free() -> Self {
-        OpenBucket { m: u64::MAX, acc: [[Goldilocks::ZERO; 4]; 4] }
+        OpenBucket {
+            m: u64::MAX,
+            acc: [[Goldilocks::ZERO; 4]; 4],
+        }
     }
 }
 
@@ -404,7 +407,11 @@ pub fn prove_grand_product_bucketed(
         stream.reset();
         for x in 0..len {
             let v = stream.next();
-            stack.push(Block { value: v, size: 1, offset: x });
+            stack.push(Block {
+                value: v,
+                size: 1,
+                offset: x,
+            });
             while stack.len() >= 2 {
                 let (left, right) = {
                     let l = stack.len();
@@ -420,7 +427,11 @@ pub fn prove_grand_product_bucketed(
                     let g0 = eq_point_lsb(&u, z, n);
                     let slot = bucket_slot(&mut open, z >> i, i, n);
                     add_term(
-                        &mut open[slot], i, &bound_r, z, mask,
+                        &mut open[slot],
+                        i,
+                        &bound_r,
+                        z,
+                        mask,
                         [g0, prod, left.value, right.value],
                     );
                     if z & mask == mask {
@@ -457,8 +468,14 @@ pub fn prove_grand_product_bucketed(
             debug_assert_eq!(z & mask, mask);
             let g0 = eq_point_lsb(&u, z, n);
             let slot = bucket_slot(&mut open, z >> i, i, n);
-            add_term(&mut open[slot], i, &bound_r, z, mask,
-                [g0, Goldilocks::ZERO, p, Goldilocks::ZERO]);
+            add_term(
+                &mut open[slot],
+                i,
+                &bound_r,
+                z,
+                mask,
+                [g0, Goldilocks::ZERO, p, Goldilocks::ZERO],
+            );
             let acc = flush_bucket(&mut open[slot], &mut accumulator);
             if i == n {
                 last_flush = Some(acc);
@@ -501,13 +518,14 @@ pub fn prove_grand_product_bucketed(
         interp2(&lf[2][0], &lf[2][1]),
         interp2(&lf[3][0], &lf[3][1]),
     ];
-    
+
     // Terminal identity: current_claim = eq(u, r)·(g1(r) − g2(r)·g3(r)).
     let eq_ur = {
         let mut acc = Goldilocks::ONE;
         for (ub, rb) in u.iter().zip(challenges.iter()) {
             acc = acc.mul(
-                &ub.mul(rb).add(&Goldilocks::ONE.sub(ub).mul(&Goldilocks::ONE.sub(rb))),
+                &ub.mul(rb)
+                    .add(&Goldilocks::ONE.sub(ub).mul(&Goldilocks::ONE.sub(rb))),
             );
         }
         acc
@@ -530,7 +548,10 @@ fn bucket_slot(open: &mut Vec<OpenBucket>, m: u64, i: usize, n: usize) -> usize 
     if let Some(pos) = open.iter().position(|b| b.m == m) {
         return pos;
     }
-    open.push(OpenBucket { m, acc: [[Goldilocks::ZERO; 4]; 4] });
+    open.push(OpenBucket {
+        m,
+        acc: [[Goldilocks::ZERO; 4]; 4],
+    });
     let cap = n + 2 - i;
     debug_assert!(
         open.iter().filter(|b| b.m != u64::MAX).count() <= cap,
@@ -553,7 +574,11 @@ fn add_term(
     // eq over the bound prefix: r_{b+1} vs y's LSB-position-b bit, b < i−1.
     let mut eq_prefix = Goldilocks::ONE;
     for (b, rb) in bound_r.iter().take(i.saturating_sub(1)).enumerate() {
-        let f = if (y >> b) & 1 == 1 { *rb } else { Goldilocks::ONE.sub(rb) };
+        let f = if (y >> b) & 1 == 1 {
+            *rb
+        } else {
+            Goldilocks::ONE.sub(rb)
+        };
         eq_prefix = eq_prefix.mul(&f);
     }
     let y_top = (y >> (i - 1)) & 1 == 1;
@@ -564,7 +589,11 @@ fn add_term(
         Goldilocks::from_u64(3),
     ];
     for (s, alpha) in alphas.iter().enumerate() {
-        let node_w = if y_top { *alpha } else { Goldilocks::ONE.sub(alpha) };
+        let node_w = if y_top {
+            *alpha
+        } else {
+            Goldilocks::ONE.sub(alpha)
+        };
         let w = eq_prefix.mul(&node_w);
         for (acc_k, gk) in bucket.acc.iter_mut().zip(gs.iter()) {
             acc_k[s] = acc_k[s].add(&w.mul(gk));
@@ -574,10 +603,13 @@ fn add_term(
 
 /// Flush a completed bucket into the round accumulator; returns the
 /// bucket's accumulated values (the bound g-evaluations at the α nodes).
-fn flush_bucket(bucket: &mut OpenBucket, accumulator: &mut [Goldilocks; 4]) -> [[Goldilocks; 4]; 4] {
+fn flush_bucket(
+    bucket: &mut OpenBucket,
+    accumulator: &mut [Goldilocks; 4],
+) -> [[Goldilocks; 4]; 4] {
     for (s, acc_s) in accumulator.iter_mut().enumerate() {
-        let t = bucket.acc[0][s]
-            .mul(&bucket.acc[1][s].sub(&bucket.acc[2][s].mul(&bucket.acc[3][s])));
+        let t =
+            bucket.acc[0][s].mul(&bucket.acc[1][s].sub(&bucket.acc[2][s].mul(&bucket.acc[3][s])));
         *acc_s = acc_s.add(&t);
     }
     let out = bucket.acc;
@@ -589,7 +621,11 @@ fn flush_bucket(bucket: &mut OpenBucket, accumulator: &mut [Goldilocks; 4]) -> [
 fn eq_point_lsb(u: &[Goldilocks], z: u64, n: usize) -> Goldilocks {
     let mut acc = Goldilocks::ONE;
     for (b, ub) in u.iter().take(n).enumerate() {
-        let f = if (z >> b) & 1 == 1 { *ub } else { Goldilocks::ONE.sub(ub) };
+        let f = if (z >> b) & 1 == 1 {
+            *ub
+        } else {
+            Goldilocks::ONE.sub(ub)
+        };
         acc = acc.mul(&f);
     }
     acc
@@ -645,7 +681,10 @@ pub fn verify_grand_product(
     let eq_ur = {
         let mut acc = Goldilocks::ONE;
         for (ui, ri) in u.iter().zip(point.iter()) {
-            acc = acc.mul(&ui.mul(ri).add(&Goldilocks::ONE.sub(ui).mul(&Goldilocks::ONE.sub(ri))));
+            acc = acc.mul(
+                &ui.mul(ri)
+                    .add(&Goldilocks::ONE.sub(ui).mul(&Goldilocks::ONE.sub(ri))),
+            );
         }
         acc
     };
@@ -674,7 +713,10 @@ mod tests {
             let proof = prove_grand_product_bucketed(&mut stream, None, &mut ts).unwrap();
             assert_eq!(proof.product, true_p, "derived product n={n}");
             let mut ts2 = Transcript::new_default(b"gp-b");
-            assert!(verify_grand_product(&proof, &mut ts2).unwrap(), "verify n={n}");
+            assert!(
+                verify_grand_product(&proof, &mut ts2).unwrap(),
+                "verify n={n}"
+            );
             // Caller-claim mode (same seed: the protocol is identical
             // given the same claim input).
             let mut stream2 = OwnedOracle::new(data);
@@ -774,7 +816,11 @@ mod tests {
                 let z1 = 2 * m + 1;
                 let mut eq_rest = Goldilocks::ONE;
                 for (b, &ub) in u.iter().enumerate().skip(1) {
-                    let f = if (z0 >> b) & 1 == 1 { ub } else { Goldilocks::ONE.sub(&ub) };
+                    let f = if (z0 >> b) & 1 == 1 {
+                        ub
+                    } else {
+                        Goldilocks::ONE.sub(&ub)
+                    };
                     eq_rest = eq_rest.mul(&f);
                 }
                 let lin = |t0: &Goldilocks, t1: &Goldilocks| -> Goldilocks {
@@ -802,7 +848,12 @@ mod tests {
         let true_p = data.iter().fold(Goldilocks::ONE, |acc, v| acc.mul(v));
         let mut stream = OwnedOracle::new(data);
         let mut ts = Transcript::new_default(b"gp-bw");
-        assert!(prove_grand_product_bucketed(&mut stream, Some(true_p.add(&Goldilocks::ONE)), &mut ts).is_err());
+        assert!(prove_grand_product_bucketed(
+            &mut stream,
+            Some(true_p.add(&Goldilocks::ONE)),
+            &mut ts
+        )
+        .is_err());
     }
 
     /// Tampered proofs fail verification.
@@ -841,9 +892,7 @@ mod tests {
                 .collect();
             let mut stream = OwnedOracle::new(data.clone());
             let p = dfs_grand_product(&mut stream, None).unwrap();
-            let naive = data
-                .iter()
-                .fold(Goldilocks::ONE, |acc, v| acc.mul(v));
+            let naive = data.iter().fold(Goldilocks::ONE, |acc, v| acc.mul(v));
             assert_eq!(p, naive, "n={n}");
         }
     }

@@ -52,9 +52,7 @@
 //!   replays exactly the accepted attempt.
 
 use crate::cores::{sample_cores, CoreTensor, TtrpParams};
-use crate::projection::{
-    cf_vec, centered, coefficient_chain, conj, ct, spatial_matrix,
-};
+use crate::projection::{centered, cf_vec, coefficient_chain, conj, ct, spatial_matrix};
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_ring::{RingConfig, RingElement, RingError};
 
@@ -64,15 +62,22 @@ pub enum TtrpError {
     Ring(RingError),
     Transcript(TranscriptError),
     /// Witness length != m̄r.
-    WitnessLength { expected: usize, got: usize },
+    WitnessLength {
+        expected: usize,
+        got: usize,
+    },
     /// Completeness retries exhausted (probability <= 2^-attempts).
     CompletenessRetries,
     /// Verifier-side norm check failed.
     NormCheckFailed,
     /// Verifier-side constant-term identity failed for row i.
-    ConstantTermCheck { row: usize },
+    ConstantTermCheck {
+        row: usize,
+    },
     /// Sumcheck round identity failed.
-    RoundCheck { round: usize },
+    RoundCheck {
+        round: usize,
+    },
     /// Terminal identity failed.
     TerminalCheck,
 }
@@ -140,9 +145,7 @@ impl TtrpStatement {
             )
             .saturating_mul((self.bound_b as u128).pow(2));
         // ceil(numer / 2^mu) — conservative for the honest prover.
-        numer
-            .saturating_add((1u128 << mu.min(127)).saturating_sub(1))
-            >> mu.min(127)
+        numer.saturating_add((1u128 << mu.min(127)).saturating_sub(1)) >> mu.min(127)
     }
 }
 
@@ -209,11 +212,16 @@ fn challenge_zq_u32(transcript: &mut Transcript, q: u32, label: &[u8]) -> Result
             return Ok(v);
         }
     }
-    Err(TtrpError::Transcript(TranscriptError::RejectionBudgetExceeded))
+    Err(TtrpError::Transcript(
+        TranscriptError::RejectionBudgetExceeded,
+    ))
 }
 
 /// Uniform ring element (unbiased per coefficient).
-fn challenge_ring(transcript: &mut Transcript, ring: &RingConfig) -> Result<RingElement, TtrpError> {
+fn challenge_ring(
+    transcript: &mut Transcript,
+    ring: &RingConfig,
+) -> Result<RingElement, TtrpError> {
     let phi = ring.n();
     let q = ring.modulus.q;
     let mut coeffs = Vec::with_capacity(phi);
@@ -289,10 +297,7 @@ fn bind_scalar(
 
 /// Bind the first variable to a ring challenge:
 /// `out[z'] = lo[z'] + r·(hi[z'] − lo[z'])`.
-fn bind_ring(
-    arr: &[RingElement],
-    r: &RingElement,
-) -> Result<Vec<RingElement>, TtrpError> {
+fn bind_ring(arr: &[RingElement], r: &RingElement) -> Result<Vec<RingElement>, TtrpError> {
     let half = arr.len() / 2;
     let mut out = Vec::with_capacity(half);
     for z in 0..half {

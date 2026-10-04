@@ -76,9 +76,15 @@ use lattice_sumcheck::virtual_poly::VirtualPolynomial;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TtrpError {
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// The projected norm exceeded the completeness bound.
-    NormExceeded { norm2: u64, bound: u64 },
+    NormExceeded {
+        norm2: u64,
+        bound: u64,
+    },
     /// The sum-check layer rejected.
     Sumcheck(String),
     /// The final claim check failed.
@@ -202,7 +208,10 @@ impl TtCores {
             }
             cores.push(row);
         }
-        Ok(TtCores { params: params.clone(), cores })
+        Ok(TtCores {
+            params: params.clone(),
+            cores,
+        })
     }
 
     /// The right-to-left tensor contraction (the prover's projection):
@@ -295,10 +304,7 @@ impl TtCores {
             state_rank = r_out;
         }
         debug_assert_eq!(state_rank, 1);
-        state
-            .iter()
-            .map(|&v| to_goldilocks(v))
-            .collect()
+        state.iter().map(|&v| to_goldilocks(v)).collect()
     }
 
     /// The verifier's TT-structured evaluation of `mler_{TT_j}` at the
@@ -308,7 +314,10 @@ impl TtCores {
         let p = &self.params;
         let d = p.d();
         if point.len() != p.num_vars() {
-            return Err(TtrpError::Shape { expected: p.num_vars(), got: point.len() });
+            return Err(TtrpError::Shape {
+                expected: p.num_vars(),
+                got: point.len(),
+            });
         }
         let row = &self.cores[j];
         // state: rank r_i vector after folding the first i chunks.
@@ -317,7 +326,10 @@ impl TtCores {
         for i in 0..p.mu {
             let (r_in, r_out) = Self::layer_ranks(p, i);
             if state_rank != r_in {
-                return Err(TtrpError::Shape { expected: r_in, got: state_rank });
+                return Err(TtrpError::Shape {
+                    expected: r_in,
+                    got: state_rank,
+                });
             }
             let core = &row[i];
             // The eq weights of chunk i: variables [i·log_d, (i+1)·log_d).
@@ -404,10 +416,7 @@ pub fn prove_ttrp(
     // The projection (integer, exact).
     let y = cores.project(x);
     // Absorb the projection into the transcript (the y message).
-    let y_bytes: Vec<u8> = y
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
+    let y_bytes: Vec<u8> = y.iter().flat_map(|&v| v.to_le_bytes()).collect();
     transcript
         .append_bytes(b"ttrp-y", &y_bytes)
         .map_err(TtrpError::Transcript)?;
@@ -459,7 +468,12 @@ pub fn prove_ttrp(
     transcript
         .append_field_slice(b"ttrp-wr", &[w_r])
         .map_err(TtrpError::Transcript)?;
-    Ok(TtrpProof { y, sumcheck: out.proof, w_r, point: out.challenges })
+    Ok(TtrpProof {
+        y,
+        sumcheck: out.proof,
+        w_r,
+        point: out.challenges,
+    })
 }
 
 /// Verify the TTRP proof. On success returns the eval-claim binding for
@@ -472,7 +486,10 @@ pub fn verify_ttrp(
 ) -> Result<TtrpBinding, TtrpError> {
     let cores = TtCores::sample(params, transcript)?;
     if proof.y.len() != params.k {
-        return Err(TtrpError::Shape { expected: params.k, got: proof.y.len() });
+        return Err(TtrpError::Shape {
+            expected: params.k,
+            got: proof.y.len(),
+        });
     }
     // The norm gate (fail-closed).
     let norm2: u64 = proof
@@ -486,11 +503,7 @@ pub fn verify_ttrp(
     if norm2 > bound.saturating_mul(bound) {
         return Err(TtrpError::NormExceeded { norm2, bound });
     }
-    let y_bytes: Vec<u8> = proof
-        .y
-        .iter()
-        .flat_map(|&v| v.to_le_bytes())
-        .collect();
+    let y_bytes: Vec<u8> = proof.y.iter().flat_map(|&v| v.to_le_bytes()).collect();
     transcript
         .append_bytes(b"ttrp-y", &y_bytes)
         .map_err(TtrpError::Transcript)?;
@@ -519,7 +532,10 @@ pub fn verify_ttrp(
     if expected != verifier.final_claim {
         return Err(TtrpError::FinalCheckFailed);
     }
-    Ok(TtrpBinding { point: verifier.point, w_r: proof.w_r })
+    Ok(TtrpBinding {
+        point: verifier.point,
+        w_r: proof.w_r,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +555,11 @@ pub struct BridgeParams {
 impl BridgeParams {
     pub fn new(r: usize, amplitude: u32, ring_q: u64) -> Self {
         let gate = (r as u64) * (amplitude as u64) * 255;
-        BridgeParams { r, amplitude, gate: gate.min(ring_q / 2 - 1) as u32 }
+        BridgeParams {
+            r,
+            amplitude,
+            gate: gate.min(ring_q / 2 - 1) as u32,
+        }
     }
 }
 
@@ -561,7 +581,10 @@ pub struct BridgeLayout {
 impl BridgeLayout {
     pub fn derive(flat_len: usize, width: usize, params: BridgeParams) -> Result<Self, TtrpError> {
         if !params.r.is_power_of_two() || flat_len % params.r != 0 || flat_len == 0 {
-            return Err(TtrpError::Shape { expected: params.r, got: flat_len });
+            return Err(TtrpError::Shape {
+                expected: params.r,
+                got: flat_len,
+            });
         }
         let log_flat = flat_len.trailing_zeros() as usize;
         let log_r = params.r.trailing_zeros() as usize;
@@ -641,7 +664,10 @@ pub fn open_eval_functional(
 ) -> Result<FunctionalOpening, TtrpError> {
     let r = layout.params.r;
     if columns.len() != r || commitments.len() != r {
-        return Err(TtrpError::Shape { expected: r, got: columns.len() });
+        return Err(TtrpError::Shape {
+            expected: r,
+            got: columns.len(),
+        });
     }
     let (r_head, _r_tail) = point.split_at(layout.log_head);
     // 1. The per-column values ũ_j = Σ_m Ψ(m)·byte(m, j).
@@ -688,10 +714,10 @@ pub fn open_eval_functional(
     // 3. The response v = Σ_j d_j·w_j (the integer fold over the byte
     //    coefficients — the gate keeps |v| < r·A·255 < q/2).
     let ring_n = pk.params.ring.n();
-    let per_col = columns
-        .first()
-        .map(|c| c.len())
-        .ok_or(TtrpError::Shape { expected: 1, got: 0 })?;
+    let per_col = columns.first().map(|c| c.len()).ok_or(TtrpError::Shape {
+        expected: 1,
+        got: 0,
+    })?;
     let mut response = vec![0i32; per_col * ring_n];
     for (j, col) in columns.iter().enumerate() {
         let dj = d[j];
@@ -715,7 +741,11 @@ pub fn open_eval_functional(
     transcript
         .append_bytes(b"bridge-v", &resp_bytes)
         .map_err(TtrpError::Transcript)?;
-    Ok(FunctionalOpening { params: layout.params.clone(), u_tilde, response })
+    Ok(FunctionalOpening {
+        params: layout.params.clone(),
+        u_tilde,
+        response,
+    })
 }
 
 /// The verifier side: the three checks (a) functional commutation,
@@ -732,7 +762,10 @@ pub fn verify_eval_functional(
 ) -> Result<(), TtrpError> {
     let r = layout.params.r;
     if commitments.len() != r || opening.u_tilde.len() != r {
-        return Err(TtrpError::Shape { expected: r, got: commitments.len() });
+        return Err(TtrpError::Shape {
+            expected: r,
+            got: commitments.len(),
+        });
     }
     let (r_head, r_tail) = point.split_at(layout.log_head);
     // Replay the transcript: the ũ's, then the challenges, then v.
@@ -796,8 +829,10 @@ pub fn verify_eval_functional(
         .chunks(ring_n)
         .filter(|c| c.len() == ring_n)
         .map(|c| {
-            let coeffs: Vec<u32> =
-                c.iter().map(|&b| ring.modulus.reduce_i64(b as i64)).collect();
+            let coeffs: Vec<u32> = c
+                .iter()
+                .map(|&b| ring.modulus.reduce_i64(b as i64))
+                .collect();
             RingElement::from_coeffs(ring, coeffs)
         })
         .collect();
@@ -811,7 +846,10 @@ pub fn verify_eval_functional(
     let k_rows = commitments
         .first()
         .map(|c| c.rows.len())
-        .ok_or(TtrpError::Shape { expected: 1, got: 0 })?;
+        .ok_or(TtrpError::Shape {
+            expected: 1,
+            got: 0,
+        })?;
     let zero = RingElement::from_coeffs(ring, vec![0u32; ring.n()]);
     let mut folded = vec![zero; k_rows];
     for (j, c) in commitments.iter().enumerate() {
@@ -915,8 +953,7 @@ impl TtrpNormCheck {
         proof: &TtrpNormProof,
         transcript: &mut Transcript,
     ) -> Result<TtrpBinding, TtrpError> {
-        let binding =
-            verify_ttrp(&self.ttrp_params, self.bound, &proof.ttrp, transcript)?;
+        let binding = verify_ttrp(&self.ttrp_params, self.bound, &proof.ttrp, transcript)?;
         let layout = self.bridge_layout(columns_shape)?;
         verify_eval_functional(
             pk,
@@ -939,7 +976,12 @@ mod tests {
 
     fn setup(log_n: u32, m_slots: usize) -> AjtaiPublicKey {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring, k: 2, m: m_slots, norm_bound: 1 << 20 };
+        let params = AjtaiParams {
+            ring,
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 20,
+        };
         AjtaiPublicKey::from_seed(params, [41u8; 32]).ok().unwrap()
     }
 
@@ -962,7 +1004,12 @@ mod tests {
     fn projection_matches_direct_computation() {
         // y_j = ⟨TT_j, x⟩ — cross-check the contraction against the
         // direct truth-table dot product.
-        let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 3 };
+        let params = TtrpParams {
+            mu: 3,
+            log_d: 1,
+            rank: 2,
+            k: 3,
+        };
         let mut t = Transcript::new_default(b"ttrp-test");
         let cores = TtCores::sample(&params, &mut t).ok().unwrap();
         let x = small_coeff_vector(params.padded_len(), 7);
@@ -980,7 +1027,12 @@ mod tests {
     #[test]
     fn row_eval_matches_the_table() {
         // The verifier's TT contraction == the table's MLE evaluation.
-        let params = TtrpParams { mu: 3, log_d: 2, rank: 2, k: 2 };
+        let params = TtrpParams {
+            mu: 3,
+            log_d: 2,
+            rank: 2,
+            k: 2,
+        };
         let mut t = Transcript::new_default(b"ttrp-test");
         let cores = TtCores::sample(&params, &mut t).ok().unwrap();
         let point: Vec<Goldilocks> = (1..=params.num_vars() as u64)
@@ -1004,10 +1056,7 @@ mod tests {
         ] {
             let params = TtrpParams { mu, log_d, rank, k };
             let x = small_coeff_vector(n, 11);
-            let b2: u64 = x
-                .iter()
-                .map(|&v| v.unsigned_abs().pow(2))
-                .sum();
+            let b2: u64 = x.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
             let bound = completeness_bound(&params, b2).max(b2 * 4);
             let mut pt = Transcript::new_default(b"ttrp-prove");
             let proof = prove_ttrp(&params, &x, &mut pt).ok().unwrap();
@@ -1020,7 +1069,12 @@ mod tests {
 
     #[test]
     fn ttrp_rejects_tampered_y() {
-        let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 2 };
+        let params = TtrpParams {
+            mu: 3,
+            log_d: 1,
+            rank: 2,
+            k: 2,
+        };
         let x = small_coeff_vector(8, 13);
         let b2: u64 = x.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&params, b2).max(b2 * 4);
@@ -1033,7 +1087,12 @@ mod tests {
 
     #[test]
     fn ttrp_rejects_tampered_wr() {
-        let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 2 };
+        let params = TtrpParams {
+            mu: 3,
+            log_d: 1,
+            rank: 2,
+            k: 2,
+        };
         let x = small_coeff_vector(8, 17);
         let b2: u64 = x.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&params, b2).max(b2 * 4);
@@ -1047,7 +1106,12 @@ mod tests {
     #[test]
     fn ttrp_rejects_norm_violation() {
         // An out-of-bound witness: the projection blows past the gate.
-        let params = TtrpParams { mu: 3, log_d: 1, rank: 2, k: 2 };
+        let params = TtrpParams {
+            mu: 3,
+            log_d: 1,
+            rank: 2,
+            k: 2,
+        };
         let mut x = small_coeff_vector(8, 19);
         for v in x.iter_mut() {
             *v = 1 << 20; // fat coefficients
@@ -1086,10 +1150,7 @@ mod tests {
                 let coeffs: Vec<u32> = (0..(1 << log_n))
                     .map(|_| {
                         seed += 1;
-                        let h = Transcript::hash_domain(
-                            b"bridge-byte",
-                            &seed.to_le_bytes(),
-                        );
+                        let h = Transcript::hash_domain(b"bridge-byte", &seed.to_le_bytes());
                         (h[0] % 251) as u32
                     })
                     .collect();
@@ -1107,7 +1168,11 @@ mod tests {
         let b2: u64 = flat.iter().map(|&v| v.unsigned_abs().pow(2)).sum();
         let bound = completeness_bound(&ttrp_params, b2).max(b2 * 4);
 
-        let check = TtrpNormCheck { ttrp_params, bridge_params, bound };
+        let check = TtrpNormCheck {
+            ttrp_params,
+            bridge_params,
+            bound,
+        };
         let mut pt = Transcript::new_default(b"ttrp-ledger");
         let proof = check
             .prove(&pk, &columns, &commitments, &mut pt)
@@ -1124,12 +1189,16 @@ mod tests {
         let mut bad = proof.clone();
         bad.ttrp.w_r = bad.ttrp.w_r.add(&Goldilocks::ONE);
         let mut vt2 = Transcript::new_default(b"ttrp-ledger");
-        assert!(check.verify(&pk, flat.len(), &commitments, &bad, &mut vt2).is_err());
+        assert!(check
+            .verify(&pk, flat.len(), &commitments, &bad, &mut vt2)
+            .is_err());
 
         // Tamper: a swapped column commitment breaks the Ajtai binding.
         let mut swapped = commitments.clone();
         swapped.swap(0, 1);
         let mut vt3 = Transcript::new_default(b"ttrp-ledger");
-        assert!(check.verify(&pk, flat.len(), &swapped, &proof, &mut vt3).is_err());
+        assert!(check
+            .verify(&pk, flat.len(), &swapped, &proof, &mut vt3)
+            .is_err());
     }
 }

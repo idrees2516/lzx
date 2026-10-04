@@ -241,8 +241,8 @@ pub fn project_integer(
         for i in (0..params.mu()).rev() {
             let core = &cores[i];
             let dd = d.pow(i as u32); // d^i: current length divisor
-            // v has length dd * core.r1 (d^i * c_i).
-            // v^(i-1)[blk * r0 + a] = Σ_{s,b} Mat(core)[a][s*r1+b] * v[blk*d*r1 + s*r1 + b]
+                                      // v has length dd * core.r1 (d^i * c_i).
+                                      // v^(i-1)[blk * r0 + a] = Σ_{s,b} Mat(core)[a][s*r1+b] * v[blk*d*r1 + s*r1 + b]
             let r1 = core.r1;
             let r0 = core.r0;
             let block = d * r1;
@@ -310,10 +310,7 @@ pub fn project_ring(
         let mut y = ring.zero();
         for i in 0..c {
             let t_elt = {
-                let coeffs: Vec<u32> = t[i]
-                    .iter()
-                    .map(|&x| (x.rem_euclid(q)) as u32)
-                    .collect();
+                let coeffs: Vec<u32> = t[i].iter().map(|&x| (x.rem_euclid(q)) as u32).collect();
                 RingElement::from_coeffs(ring, coeffs)
             };
             let prod = w_chain[i].mul(&t_elt)?;

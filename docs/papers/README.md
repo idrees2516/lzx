@@ -47,6 +47,28 @@ files in status order (implemented → partial), then `NEXT_STEPS.md`
 (the full 831-line gap analysis with per-paper tables and the Wave 6–8
 roadmap), `PERFORMANCE.md`, `SECURITY.md`, `AUDIT_CHECKLIST.md`.
 
+## Session updates (2026-10-04, evening — the follow-ups wave)
+
+- **the multi-stage LaBRADOR extraction** (the degree-law unwind —
+  the honest residual of the staging wave): CLOSED as an executable
+  ledger — `lattice-widthfold/src/extraction.rs` (laws E1–E5,
+  enforced in the chain gate) + `docs/analysis/MULTISTAGE_EXTRACTION.md`
+  + `--example extraction_table`. The SALSAA/Akita rows below gain
+  their formal security narrative.
+- **SALSAA D4 — the binding closure** (the authenticated opening at
+  the challenge): `lattice-akita/src/salsa_binding.rs` — the
+  byte-witness↔commitment binding via the width-collapse chain,
+  composed into the v2 pipeline (`Stage5Mode::Bound`);
+  `docs/analysis/D4_BINDING_CLOSURE.md` + BENCHMARKS §2l.
+- **the D4 capacity split** (the r-column discipline):
+  `byte_capacity` (the exact Lemma-4 cap: 2,048 values/commitment at
+  dim 16/Q_32) + `prove/verify_grouped_salsa_split` (the μ-weighted
+  ψ-decomposition across r columns).
+- The navigation layer: `docs/PAPERS_MAP.md` (the papers' inner
+  connections — the lineages and the edge-by-edge flows) and
+  `docs/INDEX.md` (the concept/keyword index); the Akita row in the
+  matrix above now carries the bound/split response modes.
+
 ## Session updates (2026-10-03)
 
 - **SALSAA D3 + D6** (2025/2124 Theorem 4 + the engine pass):

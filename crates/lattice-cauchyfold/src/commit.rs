@@ -190,7 +190,10 @@ impl Level2Encoding {
     }
 
     pub fn norm_squared(&self) -> u64 {
-        self.digits.iter().map(|&d| (d as i64 * d as i64) as u64).sum()
+        self.digits
+            .iter()
+            .map(|&d| (d as i64 * d as i64) as u64)
+            .sum()
     }
 
     /// All digits in the range set `{−8..7}`.

@@ -34,7 +34,7 @@ use crate::challenge::challenge_vec;
 use crate::recursion::{prove, verify, LabradorProof};
 use crate::relation::{DotCnst, PrincipalStatement, PrincipalWitness, Term, VectorSpec};
 use crate::ring::{cmod, pow_mod, Poly, LOGQ, N};
-use crate::sis::{ComKey, ComParams, T, SLACK};
+use crate::sis::{ComKey, ComParams, SLACK, T};
 use crate::transcript::Transcript;
 
 /// The Greyhound commitment parameters for one polynomial length (the
@@ -66,15 +66,19 @@ impl PcsParams {
                 let varz = 2f64.powi(2 * b as i32) / 12.0 * n as f64 * (32.0 + 4.0 * 8.0);
                 let bu = (0.25 * (12.0 * varz).log2()).round().max(1.0) as u32;
                 let fu = ((LOGQ as f64) / bu as f64).round().max(1.0) as usize;
-                let mut normsq =
-                    (2f64.powi(2 * bu as i32) / 12.0 + varz / 2f64.powi(2 * bu as i32)) * (m * f) as f64;
+                let mut normsq = (2f64.powi(2 * bu as i32) / 12.0
+                    + varz / 2f64.powi(2 * bu as i32))
+                    * (m * f) as f64;
                 normsq += (2f64.powi(2 * bu as i32) * (fu - 1) as f64
                     + 2f64.powi(2 * (LOGQ as i32 - (fu as i32 - 1) * bu as i32)))
                     / 12.0
                     * (kappa + 1) as f64
                     * n as f64;
                 normsq *= N as f64;
-                if crate::sis::sis_secure(kappa, 6.0 * T * SLACK * 2f64.powi(bu as i32) * normsq.sqrt()) {
+                if crate::sis::sis_secure(
+                    kappa,
+                    6.0 * T * SLACK * 2f64.powi(bu as i32) * normsq.sqrt(),
+                ) {
                     // kappa1
                     let mut kappa1 = 33usize;
                     for k1 in 1..=32usize {
@@ -141,7 +145,12 @@ fn pcs_windows(cpp: &ComParams, n: usize, m: usize, f: usize) -> PcsWindows {
     let a_len = cpp.kappa * m * f;
     let b_len = cpp.kappa1 * cpp.fu * cpp.kappa * n;
     let d_len = cpp.kappa1 * cpp.fu * n;
-    PcsWindows { a_off: 0, b_off: a_len, d_off: a_len + b_len, total: a_len + b_len + d_len }
+    PcsWindows {
+        a_off: 0,
+        b_off: a_len,
+        d_off: a_len + b_len,
+        total: a_len + b_len + d_len,
+    }
 }
 
 /// Evaluate the polynomial at the scalar x ∈ Z_q (Horner over all coefficients
@@ -161,7 +170,10 @@ pub fn commit(s: &[Poly], key: &ComKey) -> Result<Committed, String> {
     let params = PcsParams::new(s.len())?;
     let win = pcs_windows(&params.cpp, params.n, params.m, params.cpp.f);
     if win.total > key.len {
-        return Err(format!("key too short: need {}, have {}", win.total, key.len));
+        return Err(format!(
+            "key too short: need {}, have {}",
+            win.total, key.len
+        ));
     }
     let cpp = &params.cpp;
     let (m, n) = (params.m, params.n);
@@ -211,7 +223,15 @@ pub fn commit(s: &[Poly], key: &ComKey) -> Result<Committed, String> {
     tr.absorb_polys(&u1);
     let h = tr.h;
 
-    Ok(Committed { params, s: s.to_vec(), sx, t, t_digits, u1, h })
+    Ok(Committed {
+        params,
+        s: s.to_vec(),
+        sx,
+        t,
+        t_digits,
+        u1,
+        h,
+    })
 }
 
 impl PcsParams {
@@ -242,12 +262,7 @@ pub struct EvalProof {
 
 /// Produce an evaluation proof for `f(x) = y` (Greyhound Figure 4's Eval.P,
 /// with the LaBRADOR sub-proof attached).
-pub fn eval_prove(
-    com: &Committed,
-    key: &ComKey,
-    x: i64,
-    y: i64,
-) -> Result<EvalProof, String> {
+pub fn eval_prove(com: &Committed, key: &ComKey, x: i64, y: i64) -> Result<EvalProof, String> {
     let params = &com.params;
     let cpp = &params.cpp;
     let (m, n) = (params.m, params.n);
@@ -310,9 +325,15 @@ pub fn eval_prove(
 
     // E1 (κ1): B·t̃ = u1
     for j in 0..cpp.kappa1 {
-        let phi = (0..t_len).map(|k| key.rows[win.b_off + j * t_len + k]).collect();
+        let phi = (0..t_len)
+            .map(|k| key.rows[win.b_off + j * t_len + k])
+            .collect();
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_t, off: 0, phi }],
+            terms: vec![Term {
+                idx: v_t,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(com.u1[j]),
             ct_only: false,
@@ -320,9 +341,15 @@ pub fn eval_prove(
     }
     // E2 (κ1): D·ŵ = u2
     for j in 0..cpp.kappa1 {
-        let phi = (0..w_len).map(|k| key.rows[win.d_off + j * w_len + k]).collect();
+        let phi = (0..w_len)
+            .map(|k| key.rows[win.d_off + j * w_len + k])
+            .collect();
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_w, off: 0, phi }],
+            terms: vec![Term {
+                idx: v_w,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(u2[j]),
             ct_only: false,
@@ -335,7 +362,8 @@ pub fn eval_prove(
         let mut phi_z = vec![Poly::zero(); m * cpp.f];
         for d in 0..cpp.f {
             for j in 0..m {
-                phi_z[d * m + j] = Poly::constant(pow_mod(xd, j as u64)).scale(1i64 << (d as u32 * cpp.b));
+                phi_z[d * m + j] =
+                    Poly::constant(pow_mod(xd, j as u64)).scale(1i64 << (d as u32 * cpp.b));
             }
         }
         let mut phi_w = vec![Poly::zero(); w_len];
@@ -345,22 +373,40 @@ pub fn eval_prove(
             }
         }
         cnst.push(DotCnst::homogeneous(vec![
-            Term { idx: 0, off: 0, phi: phi_z },
-            Term { idx: v_w, off: 0, phi: phi_w },
+            Term {
+                idx: 0,
+                off: 0,
+                phi: phi_z,
+            },
+            Term {
+                idx: v_w,
+                off: 0,
+                phi: phi_w,
+            },
         ]));
     }
     // E4 (κ): A·z = Σ_i c_i t_i
     for rho in 0..cpp.kappa {
-        let phi = key.rows[win.a_off + rho * (m * cpp.f)..win.a_off + (rho + 1) * (m * cpp.f)].to_vec();
+        let phi =
+            key.rows[win.a_off + rho * (m * cpp.f)..win.a_off + (rho + 1) * (m * cpp.f)].to_vec();
         let mut phi_t = vec![Poly::zero(); t_len];
         for i in 0..n {
             for j in 0..cpp.fu {
-                phi_t[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] = c[i].neg().scale(1i64 << (j as u32 * cpp.bu));
+                phi_t[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] =
+                    c[i].neg().scale(1i64 << (j as u32 * cpp.bu));
             }
         }
         cnst.push(DotCnst::homogeneous(vec![
-            Term { idx: 0, off: 0, phi },
-            Term { idx: v_t, off: 0, phi: phi_t },
+            Term {
+                idx: 0,
+                off: 0,
+                phi,
+            },
+            Term {
+                idx: v_t,
+                off: 0,
+                phi: phi_t,
+            },
         ]));
     }
     // E5: ⟨ŵ, σ^{-1}(x)·(x^{64m})^i·2^{j·bu}⟩ = y — the evaluation claim.
@@ -386,7 +432,11 @@ pub fn eval_prove(
         }
         // the evaluation claim is an F'-type constraint (the paper's ct(ȳ) = y)
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_w, off: 0, phi: phi_w }],
+            terms: vec![Term {
+                idx: v_w,
+                off: 0,
+                phi: phi_w,
+            }],
             a: vec![],
             b: Some(Poly::constant(y)),
             ct_only: true,
@@ -410,12 +460,7 @@ pub fn eval_prove(
     // may be off at toy scale; the announced bound is what the verifier checks)
     let actual_norm: u64 = wit.iter().flat_map(|v| v.iter().map(|p| p.normsq())).sum();
     let bound = params.normsq.max(actual_norm);
-    let stmt = PrincipalStatement::new(
-        stmt.vectors.clone(),
-        stmt.cnst.clone(),
-        ct_cnst,
-        bound,
-    );
+    let stmt = PrincipalStatement::new(stmt.vectors.clone(), stmt.cnst.clone(), ct_cnst, bound);
     if let Err(e) = stmt.check_all(&wit) {
         return Err(format!("PCS statement incomplete: {e}"));
     }
@@ -451,7 +496,10 @@ pub fn eval_verify(
     }
 
     // SIS security at the announced norm (the reference's reduce checks)
-    if !crate::sis::sis_secure(cpp.kappa, 6.0 * T * SLACK * 2f64.powi(cpp.bu as i32) * (params.normsq as f64).sqrt()) {
+    if !crate::sis::sis_secure(
+        cpp.kappa,
+        6.0 * T * SLACK * 2f64.powi(cpp.bu as i32) * (params.normsq as f64).sqrt(),
+    ) {
         return Err("inner commitments not secure".into());
     }
     if !crate::sis::sis_secure(cpp.kappa1, 2.0 * SLACK * (params.normsq as f64).sqrt()) {
@@ -477,18 +525,30 @@ pub fn eval_verify(
     let v_t = 1;
     let v_w = 2;
     for j in 0..cpp.kappa1 {
-        let phi = (0..t_len).map(|k| key.rows[win.b_off + j * t_len + k]).collect();
+        let phi = (0..t_len)
+            .map(|k| key.rows[win.b_off + j * t_len + k])
+            .collect();
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_t, off: 0, phi }],
+            terms: vec![Term {
+                idx: v_t,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(u1[j]),
             ct_only: false,
         });
     }
     for j in 0..cpp.kappa1 {
-        let phi = (0..w_len).map(|k| key.rows[win.d_off + j * w_len + k]).collect();
+        let phi = (0..w_len)
+            .map(|k| key.rows[win.d_off + j * w_len + k])
+            .collect();
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_w, off: 0, phi }],
+            terms: vec![Term {
+                idx: v_w,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(proof.u2[j]),
             ct_only: false,
@@ -500,7 +560,8 @@ pub fn eval_verify(
         let mut phi_z = vec![Poly::zero(); m * cpp.f];
         for d in 0..cpp.f {
             for j in 0..m {
-                phi_z[d * m + j] = Poly::constant(pow_mod(xd, j as u64)).scale(1i64 << (d as u32 * cpp.b));
+                phi_z[d * m + j] =
+                    Poly::constant(pow_mod(xd, j as u64)).scale(1i64 << (d as u32 * cpp.b));
             }
         }
         let mut phi_w = vec![Poly::zero(); w_len];
@@ -510,21 +571,39 @@ pub fn eval_verify(
             }
         }
         cnst.push(DotCnst::homogeneous(vec![
-            Term { idx: 0, off: 0, phi: phi_z },
-            Term { idx: v_w, off: 0, phi: phi_w },
+            Term {
+                idx: 0,
+                off: 0,
+                phi: phi_z,
+            },
+            Term {
+                idx: v_w,
+                off: 0,
+                phi: phi_w,
+            },
         ]));
     }
     for rho in 0..cpp.kappa {
-        let phi = key.rows[win.a_off + rho * (m * cpp.f)..win.a_off + (rho + 1) * (m * cpp.f)].to_vec();
+        let phi =
+            key.rows[win.a_off + rho * (m * cpp.f)..win.a_off + (rho + 1) * (m * cpp.f)].to_vec();
         let mut phi_t = vec![Poly::zero(); t_len];
         for i in 0..n {
             for j in 0..cpp.fu {
-                phi_t[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] = c[i].neg().scale(1i64 << (j as u32 * cpp.bu));
+                phi_t[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] =
+                    c[i].neg().scale(1i64 << (j as u32 * cpp.bu));
             }
         }
         cnst.push(DotCnst::homogeneous(vec![
-            Term { idx: 0, off: 0, phi },
-            Term { idx: v_t, off: 0, phi: phi_t },
+            Term {
+                idx: 0,
+                off: 0,
+                phi,
+            },
+            Term {
+                idx: v_t,
+                off: 0,
+                phi: phi_t,
+            },
         ]));
     }
     {
@@ -547,7 +626,11 @@ pub fn eval_verify(
         }
         // the evaluation claim is an F'-type constraint (the paper's ct(ȳ) = y)
         cnst.push(DotCnst {
-            terms: vec![Term { idx: v_w, off: 0, phi: phi_w }],
+            terms: vec![Term {
+                idx: v_w,
+                off: 0,
+                phi: phi_w,
+            }],
             a: vec![],
             b: Some(Poly::constant(y)),
             ct_only: true,
@@ -564,7 +647,14 @@ pub fn eval_verify(
     // normsq is the bound the prover actually used (§5.4's dynamic remedy);
     // the digest binds the constraints and the levels check the SIS security
     // at the announced norm
-    let bound = params.normsq.max(proof.labrador.levels.first().map(|l| l.normsq).unwrap_or(params.normsq));
+    let bound = params.normsq.max(
+        proof
+            .labrador
+            .levels
+            .first()
+            .map(|l| l.normsq)
+            .unwrap_or(params.normsq),
+    );
     let stmt = PrincipalStatement::new(vectors, cnst, ct_cnst, bound);
     verify(&stmt, &proof.labrador, key)
 }

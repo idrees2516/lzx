@@ -84,11 +84,7 @@ pub struct ReduceProof {
 impl ReduceProof {
     /// Serialized proof size in bytes (communication accounting).
     pub fn size_bytes(&self) -> usize {
-        self.msgs
-            .iter()
-            .map(|m| m.to_bytes().len())
-            .sum::<usize>()
-            + 8
+        self.msgs.iter().map(|m| m.to_bytes().len()).sum::<usize>() + 8
     }
 }
 
@@ -235,10 +231,7 @@ impl AccumulateProof {
 pub type Instance = (Vec<Fq>, ModulePoint);
 
 /// Absorb an instance into a transcript.
-fn absorb_instance(
-    transcript: &mut Transcript,
-    inst: &Instance,
-) -> Result<(), PcsError> {
+fn absorb_instance(transcript: &mut Transcript, inst: &Instance) -> Result<(), PcsError> {
     transcript
         .append_message(b"acc-inst-r", &{
             let mut b = Vec::new();
@@ -408,7 +401,9 @@ mod tests {
         let n = 1usize << k;
         (0..n)
             .map(|i| {
-                let x = (i as u64).wrapping_mul(6364136223846793005).wrapping_add(seed);
+                let x = (i as u64)
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(seed);
                 Fq::from_u64(x)
             })
             .collect()
@@ -422,7 +417,9 @@ mod tests {
         let f = values(4, 42);
         let w = cube.digit_layers(&f);
         let cm = srs.commit_scalars(&w);
-        let u: Vec<Fq> = (0..4).map(|i| Fq::from_u64(1000 + i as u64 * 137)).collect();
+        let u: Vec<Fq> = (0..4)
+            .map(|i| Fq::from_u64(1000 + i as u64 * 137))
+            .collect();
         let v = eval_claim(&cube, &w, &u);
         assert_eq!(v, eval_direct(&f, &u));
 
@@ -444,7 +441,9 @@ mod tests {
             let f = values(3, 7 + s);
             let w = cube.digit_layers(&f);
             let cm = srs.commit_scalars(&w);
-            let u: Vec<Fq> = (0..3).map(|i| Fq::from_u64(50 + i as u64 * (s + 1))).collect();
+            let u: Vec<Fq> = (0..3)
+                .map(|i| Fq::from_u64(50 + i as u64 * (s + 1)))
+                .collect();
             let v = eval_claim(&cube, &w, &u);
             let mut pt = Transcript::new_default(b"t-acc2");
             let proof = reduce(&srs, &cube, &cm, &u, &v, &w, &mut pt).expect("reduce");
@@ -512,7 +511,10 @@ mod tests {
         proof.terminal_a = proof.terminal_a.add(&Fq::ONE);
         let mut vt = Transcript::new_default(b"t-term");
         let instance = reduce_verify(&srs, &cube, &cm, &u, &v, &proof, &mut vt).expect("verify");
-        assert!(!decide(&srs, &instance), "tampered terminal must fail decide");
+        assert!(
+            !decide(&srs, &instance),
+            "tampered terminal must fail decide"
+        );
     }
 
     #[test]

@@ -99,12 +99,7 @@ impl AjtaiL {
         let c1 = self.commit(z1);
         let c2 = self.commit(z2);
         if c1 == c && c2 == c && z1 != z2 {
-            return Some(
-                z1.iter()
-                    .zip(z2.iter())
-                    .map(|(a, b)| a.sub(b))
-                    .collect(),
-            );
+            return Some(z1.iter().zip(z2.iter()).map(|(a, b)| a.sub(b)).collect());
         }
         None
     }
@@ -176,7 +171,11 @@ impl BlindedStructure {
     /// M2°/M3°: m_circ × nf_circ. The padded M2/M3: m × nf with
     /// circuit rows carrying the original support (zero on the blinding
     /// columns — clause 4) and blinding rows per clause (3).
-    pub fn build_matrices(&self, m2_circ: &[Vec<i64>], m3_circ: &[Vec<i64>]) -> (Vec<Vec<i64>>, Vec<Vec<i64>>) {
+    pub fn build_matrices(
+        &self,
+        m2_circ: &[Vec<i64>],
+        m3_circ: &[Vec<i64>],
+    ) -> (Vec<Vec<i64>>, Vec<Vec<i64>>) {
         let m = self.m();
         let nf = self.nf();
         let bl_start = nf - self.nf_bl;
@@ -202,10 +201,12 @@ impl BlindedStructure {
     /// Sample the blinding block e ← χ_b^{nR,bl} (uniform ∥e∥∞ ≤ b−1).
     pub fn sample_blinding_block(&self, b: i64, rng: &mut Rng) -> Vec<Poly> {
         let nr_bl = self.nr_bl();
-        (0..nr_bl).map(|_| {
-            let c: Vec<Fq> = (0..self.d).map(|_| Fq::from_i64(rng.small_b(b))).collect();
-            Poly(c)
-        }).collect()
+        (0..nr_bl)
+            .map(|_| {
+                let c: Vec<Fq> = (0..self.d).map(|_| Fq::from_i64(rng.small_b(b))).collect();
+                Poly(c)
+            })
+            .collect()
     }
 
     /// Check the padded-satisfaction equivalence of Lemma 3.29:
@@ -253,8 +254,12 @@ mod tests {
         let nr = 16;
         let l = AjtaiL::setup_d(4, nr, 0, d, &mut rng);
         let mut ctr = 0u64;
-        let z1: Vec<Poly> = (0..nr).map(|_| Poly::small_b(d, 2, b"z1", &mut ctr)).collect();
-        let z2: Vec<Poly> = (0..nr).map(|_| Poly::small_b(d, 2, b"z2", &mut ctr)).collect();
+        let z1: Vec<Poly> = (0..nr)
+            .map(|_| Poly::small_b(d, 2, b"z1", &mut ctr))
+            .collect();
+        let z2: Vec<Poly> = (0..nr)
+            .map(|_| Poly::small_b(d, 2, b"z2", &mut ctr))
+            .collect();
         let rho = Poly::small_b(d, 2, b"rho", &mut ctr);
         let c1 = l.commit(&z1);
         let c2 = l.commit(&z2);
@@ -324,7 +329,9 @@ mod tests {
             d,
             iota1: 0,
         };
-        let m2c: Vec<Vec<i64>> = (0..8).map(|r| (0..8).map(|c| if r == c { 1 } else { 0 }).collect()).collect();
+        let m2c: Vec<Vec<i64>> = (0..8)
+            .map(|r| (0..8).map(|c| if r == c { 1 } else { 0 }).collect())
+            .collect();
         let (m2, m3) = bs.build_matrices(&m2c, &m2c);
         let mut rng = Rng::new(b"fib");
         for _ in 0..8 {

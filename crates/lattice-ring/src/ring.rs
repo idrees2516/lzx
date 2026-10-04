@@ -131,11 +131,8 @@ impl RingConfig {
         // 16 us/element that dominated the verifier's key regeneration).
         // 2n windows covers every q > 2^31 with failure < 2^-100.
         let slack = n.max(16);
-        let mut stream = lattice_core::transcript::Transcript::xof(
-            b"uniform",
-            &salt,
-            8 + 4 * (n + slack),
-        );
+        let mut stream =
+            lattice_core::transcript::Transcript::xof(b"uniform", &salt, 8 + 4 * (n + slack));
         // The iterator form (chunks_exact + take(n)): the index-based
         // while-loop compiled to a reload-heavy loop in the library CGU
         // (~250 ns per window — 20 us/element at n=64); the iterator
@@ -321,12 +318,21 @@ impl RingElement {
         let q = self.config.modulus;
         let mut a = self.coeffs.clone();
         let mut b = other.coeffs.clone();
-        self.config.tables.forward_fast(&mut a).map_err(RingError::Ntt)?;
-        self.config.tables.forward_fast(&mut b).map_err(RingError::Ntt)?;
+        self.config
+            .tables
+            .forward_fast(&mut a)
+            .map_err(RingError::Ntt)?;
+        self.config
+            .tables
+            .forward_fast(&mut b)
+            .map_err(RingError::Ntt)?;
         for i in 0..a.len() {
             a[i] = q.mul(a[i], b[i]);
         }
-        self.config.tables.inverse_fast(&mut a).map_err(RingError::Ntt)?;
+        self.config
+            .tables
+            .inverse_fast(&mut a)
+            .map_err(RingError::Ntt)?;
         Ok(RingElement {
             config: self.config.clone(),
             coeffs: a,
@@ -337,7 +343,10 @@ impl RingElement {
     /// bit-reversed order).
     pub fn to_ntt(&self) -> Result<Vec<u32>, RingError> {
         let mut a = self.coeffs.clone();
-        self.config.tables.forward_fast(&mut a).map_err(RingError::Ntt)?;
+        self.config
+            .tables
+            .forward_fast(&mut a)
+            .map_err(RingError::Ntt)?;
         Ok(a)
     }
 

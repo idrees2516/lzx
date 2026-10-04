@@ -18,10 +18,10 @@
 use lattice_labinius::binfield::{lift_elem, random_elems, F162};
 use lattice_labinius::params::QS_LARGE;
 use lattice_labinius::scalar::{ntt, Coeffs};
+use lattice_labinius::simd::ntt_large;
 use lattice_labinius::simd::ntt_large::{
     bar_kind, bar_levels, bin_model, is_large, output_bound, BlockSink, RED_LUT, RED_NONE,
 };
-use lattice_labinius::simd::ntt_large;
 use lattice_labinius::simd::transpose::{slice_f162_into, BinaryIndex32};
 use lattice_labinius::simd::Batch32;
 use std::time::Instant;
@@ -156,7 +156,11 @@ fn schedule_model_fits_i16() {
         for (l, &b) in lm.iter().enumerate() {
             assert!(b <= 32767, "q={q}: level {l} bound {b} leaves i16");
         }
-        assert_eq!(output_bound(q), lm[4], "q={q}: declared bound != model output");
+        assert_eq!(
+            output_bound(q),
+            lm[4],
+            "q={q}: declared bound != model output"
+        );
         println!(
             "q={q}: schedule {code}, per-level bounds {lm:?} (x1000/q: {:?}), peak {peak}",
             lm.map(|b| b as i64 * 1000 / q as i64)
@@ -242,7 +246,11 @@ fn sink_delivers_the_same_transform() {
                 _ => ntt_large::ntt_bin_batch32_sink::<19441, _>(&idx, &mut sink),
             }
         }
-        assert_eq!(sink.order, (0..24).collect::<Vec<_>>(), "q={q}: block order");
+        assert_eq!(
+            sink.order,
+            (0..24).collect::<Vec<_>>(),
+            "q={q}: block order"
+        );
         assert_eq!(sink.dsts.len(), 24, "q={q}: one dst per block");
         assert_eq!(sunk.v, plain.v, "q={q}: sink output != plain output");
         check_output(&sunk, &reference, q, output_bound(q));

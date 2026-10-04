@@ -5,7 +5,9 @@
 use lattice_core::transcript::Transcript;
 use lattice_ring::{Modulus32, RingConfig, RingElement};
 use lattice_ttrp::cores::{sample_cores, TtrpParams};
-use lattice_ttrp::projection::{cf_vec, conj, ct, materialize_row_q, project_integer, project_ring};
+use lattice_ttrp::projection::{
+    cf_vec, conj, ct, materialize_row_q, project_integer, project_ring,
+};
 use lattice_ttrp::protocol::{mle_eval_ring, prove, verify, TtrpStatement};
 use std::time::Instant;
 
@@ -20,7 +22,9 @@ fn cen(c: i64, q: u32) -> i64 {
 }
 
 fn bench(params: &TtrpParams, tag: &str) {
-    let ring = RingConfig::new(Modulus32::Q_32, params.phi_log).ok().unwrap();
+    let ring = RingConfig::new(Modulus32::Q_32, params.phi_log)
+        .ok()
+        .unwrap();
     // Deterministic small witness.
     let mut st = 0x1234_5678_u64 | 1;
     let mut coeffs_all = Vec::new();
@@ -59,7 +63,10 @@ fn bench(params: &TtrpParams, tag: &str) {
     let proof = match prove(&stmt, &v, &mut tp) {
         Ok(p) => p,
         Err(e) => {
-            println!("{tag}: prove error {e:?}; b_hat_sq={}", stmt.b_hat_squared());
+            println!(
+                "{tag}: prove error {e:?}; b_hat_sq={}",
+                stmt.b_hat_squared()
+            );
             return;
         }
     };
@@ -111,17 +118,44 @@ fn bench(params: &TtrpParams, tag: &str) {
 fn main() {
     // Small: phi=16, m_bar=2^8, d=4, mu=6.
     bench(
-        &TtrpParams { phi_log: 4, nu: 8, ell: 2, mu1: 4, mu2: 2, c: 4, k: 16, k1: 2 },
+        &TtrpParams {
+            phi_log: 4,
+            nu: 8,
+            ell: 2,
+            mu1: 4,
+            mu2: 2,
+            c: 4,
+            k: 16,
+            k1: 2,
+        },
         "small",
     );
     // Mid: phi=64, m_bar=2^12, d=4, mu=9.
     bench(
-        &TtrpParams { phi_log: 6, nu: 12, ell: 2, mu1: 6, mu2: 3, c: 8, k: 32, k1: 4 },
+        &TtrpParams {
+            phi_log: 6,
+            nu: 12,
+            ell: 2,
+            mu1: 6,
+            mu2: 3,
+            c: 8,
+            k: 32,
+            k1: 4,
+        },
         "mid",
     );
     // Large-ish: phi=64, m_bar=2^14, d=4, mu=11 (k' at 32-bit-q lambda/128->4).
     bench(
-        &TtrpParams { phi_log: 6, nu: 14, ell: 2, mu1: 7, mu2: 3, c: 8, k: 48, k1: 4 },
+        &TtrpParams {
+            phi_log: 6,
+            nu: 14,
+            ell: 2,
+            mu1: 7,
+            mu2: 3,
+            c: 8,
+            k: 48,
+            k1: 4,
+        },
         "large",
     );
 }

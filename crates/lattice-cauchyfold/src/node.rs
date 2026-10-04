@@ -129,7 +129,9 @@ pub fn honest_witness(params: &NodeParams, seed: u64) -> NodeWitness {
     let s = params.relation.s;
     let mut nxt = seed;
     let mut rnd = move || {
-        nxt = nxt.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        nxt = nxt
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         nxt >> 33
     };
     let sources: Vec<Vec<K4>> = (0..k + 1)
@@ -140,7 +142,12 @@ pub fn honest_witness(params: &NodeParams, seed: u64) -> NodeWitness {
                         // Boolean payload coefficient: the low digit of
                         // coefficient 0 is 0/1.
                         let bit = rnd() % 2;
-                        K4::from_coeffs([(rnd() % (Q48 >> 8)) << 8 | bit, rnd() % Q48, rnd() % Q48, rnd() % Q48])
+                        K4::from_coeffs([
+                            (rnd() % (Q48 >> 8)) << 8 | bit,
+                            rnd() % Q48,
+                            rnd() % Q48,
+                            rnd() % Q48,
+                        ])
                     } else {
                         K4::from_coeffs([rnd() % Q48, rnd() % Q48, rnd() % Q48, rnd() % Q48])
                     }
@@ -149,10 +156,7 @@ pub fn honest_witness(params: &NodeParams, seed: u64) -> NodeWitness {
         })
         .collect();
     let residuals: Vec<Vec<K4>> = sources.iter().map(|z| params.relation.eval(z)).collect();
-    NodeWitness {
-        sources,
-        residuals,
-    }
+    NodeWitness { sources, residuals }
 }
 
 /// The prover-to-verifier node proof (everything before the chain).
@@ -313,7 +317,7 @@ pub fn prove(
         g: Box::new(g),
     };
     let field_msgs = sc.prove(&challenges).map_err(NodeError::Sumcheck)?;
-            let tau = challenges;
+    let tau = challenges;
 
     // ---- The evaluation claims at τ (the 19 tables).
     let eval_claims: Vec<K4> = tables
@@ -410,11 +414,7 @@ pub fn prove(
     );
 
     // The fingerprint sum-check over the W cube.
-        let w_cube_vars = level2
-        .digits
-        .len()
-        .next_power_of_two()
-        .trailing_zeros() as usize;
+    let w_cube_vars = level2.digits.len().next_power_of_two().trailing_zeros() as usize;
     let w_cube_len = 1usize << w_cube_vars;
     let mut w_table = vec![K4::ZERO; w_cube_len];
     for (i, &d) in level2.digits.iter().enumerate() {
@@ -462,8 +462,9 @@ pub fn prove(
 
     // ---- Stage 4: the chain over the committed linear relation
     // (C_W, W, the 4 Fq-scalar equations of the terminal evaluation).
-    let chain = crate::reduce_chain::prove_chain(&w_ring, &sigma, &w_sigma, w_cube_vars, &mut transcript)
-        .map_err(|e| NodeError::Chain(e.to_string()))?;
+    let chain =
+        crate::reduce_chain::prove_chain(&w_ring, &sigma, &w_sigma, w_cube_vars, &mut transcript)
+            .map_err(|e| NodeError::Chain(e.to_string()))?;
 
     Ok((
         instance,
@@ -517,17 +518,11 @@ pub fn verify(
 
     // The residual update: E* = E_0 + Σ a_i² E_i + H(c)/D(c) — public.
     {
-        let a_s: Vec<Option<K4>> = (0..k)
-            .map(|i| params.cauchy.a_i(i, &c))
-            .collect();
+        let a_s: Vec<Option<K4>> = (0..k).map(|i| params.cauchy.a_i(i, &c)).collect();
         if a_s.iter().any(|a| a.is_none()) {
             return Err(NodeError::PoleHit);
         }
-        let d_inv = params
-            .cauchy
-            .d_eval(&c)
-            .inv()
-            .ok_or(NodeError::PoleHit)?;
+        let d_inv = params.cauchy.d_eval(&c).inv().ok_or(NodeError::PoleHit)?;
         let mut expect = instance.residuals[0].clone();
         for i in 0..k {
             let a = a_s[i].unwrap();
@@ -563,18 +558,22 @@ pub fn verify(
     // The field-check sum-check: rebuild the weight tables and the claim.
     let cube_vars = params.cube_vars();
     let weights = FieldWeights::build(params, &c, &rho, cube_vars);
-    let total = field_check_total(params, &weights, &alphas, &rho, &proof.az, &proof.bz, &proof.cz, &proof.claimed_hc, &proof.folded_residual);
+    let total = field_check_total(
+        params,
+        &weights,
+        &alphas,
+        &rho,
+        &proof.az,
+        &proof.bz,
+        &proof.cz,
+        &proof.claimed_hc,
+        &proof.folded_residual,
+    );
     let challenges: Vec<K4> = (0..cube_vars)
         .map(|_| draw_k(&mut transcript).map_err(NodeError::Transcript))
         .collect::<Result<Vec<_>, _>>()?;
-    let (_, terminal) = KSumcheck::verify(
-        cube_vars,
-        3,
-        &total,
-        &proof.field_msgs,
-        &challenges,
-    )
-    .map_err(|e| NodeError::Sumcheck(format!("field: {e}")))?;
+    let (_, terminal) = KSumcheck::verify(cube_vars, 3, &total, &proof.field_msgs, &challenges)
+        .map_err(|e| NodeError::Sumcheck(format!("field: {e}")))?;
     // The terminal must equal the pointwise g at the claimed table values.
     {
         // Restrict the weight tables to τ.
@@ -594,14 +593,7 @@ pub fn verify(
         let v_out = vals[0];
         let v_srcs = &vals[1..k + 2];
         let v_carrier = vals[k + 2];
-        let g_point = field_g_pointwise(
-            &wt,
-            &alphas,
-            &v_out,
-            v_srcs,
-            &v_carrier,
-            cube_vars,
-        );
+        let g_point = field_g_pointwise(&wt, &alphas, &v_out, v_srcs, &v_carrier, cube_vars);
         if g_point != terminal {
             return Err(NodeError::Sumcheck("terminal consistency".into()));
         }
@@ -656,8 +648,15 @@ pub fn verify(
     // — verified through the Γ/fingerprint machinery + the chain.
     let w_len = proof.level2.digits.len();
     let gammas: Vec<K4> = (0..k + 3).map(|i| gamma.pow(i as u64)).collect();
-    let gamma_system =
-        GammaSystem::build_checked(&key, &gammas, &combined_c, &f_weights, v_combined, &proof.level2, k + 3)?;
+    let gamma_system = GammaSystem::build_checked(
+        &key,
+        &gammas,
+        &combined_c,
+        &f_weights,
+        v_combined,
+        &proof.level2,
+        k + 3,
+    )?;
 
     // C_W binding: re-derive the W key and check the commitment.
     let w_ring = proof.level2.to_ring_vector();
@@ -678,7 +677,7 @@ pub fn verify(
     let fp_challenges: Vec<K4> = (0..w_cube_vars)
         .map(|_| draw_k(&mut transcript).map_err(NodeError::Transcript))
         .collect::<Result<Vec<_>, _>>()?;
-        let (_, fp_terminal) = KSumcheck::verify(
+    let (_, fp_terminal) = KSumcheck::verify(
         w_cube_vars,
         17,
         &fp_total,
@@ -694,9 +693,11 @@ pub fn verify(
             ha = restrict_table(&ha, x);
             za = restrict_table(&za, x);
         }
-        let expect = ha[0]
-            .mul(&proof.w_sigma)
-            .add(&r16.eval(&proof.w_sigma).mul(&za[0]).scale(&fp_alpha.pow(gamma_system.rows as u64)));
+        let expect = ha[0].mul(&proof.w_sigma).add(
+            &r16.eval(&proof.w_sigma)
+                .mul(&za[0])
+                .scale(&fp_alpha.pow(gamma_system.rows as u64)),
+        );
         if expect != fp_terminal {
             return Err(NodeError::Sumcheck("fingerprint terminal".into()));
         }
@@ -739,9 +740,7 @@ impl FieldWeights {
         let s = params.relation.s;
         let y = params.relation.y;
         let cube_len = 1usize << cube_vars;
-        let mk = |f: &dyn Fn(usize) -> K4| -> Vec<K4> {
-            (0..cube_len).map(f).collect()
-        };
+        let mk = |f: &dyn Fn(usize) -> K4| -> Vec<K4> { (0..cube_len).map(f).collect() };
         // The digit-position packing weights: position i maps to
         // (value l, coefficient cc, digit j) with j = i % 6,
         // cc = (i/6) % 4, l = i/24; weight 2^{8(5−j)}.

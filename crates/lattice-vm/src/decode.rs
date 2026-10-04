@@ -8,86 +8,368 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Instr {
     // RV64I integer register-immediate.
-    Addi { rd: u8, rs1: u8, imm: i64 },
-    Slti { rd: u8, rs1: u8, imm: i64 },
-    Sltiu { rd: u8, rs1: u8, imm: u64 },
-    Xori { rd: u8, rs1: u8, imm: i64 },
-    Ori { rd: u8, rs1: u8, imm: i64 },
-    Andi { rd: u8, rs1: u8, imm: i64 },
-    Slli { rd: u8, rs1: u8, shamt: u8 },
-    Srli { rd: u8, rs1: u8, shamt: u8 },
-    Srai { rd: u8, rs1: u8, shamt: u8 },
+    Addi {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Slti {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Sltiu {
+        rd: u8,
+        rs1: u8,
+        imm: u64,
+    },
+    Xori {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Ori {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Andi {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Slli {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
+    Srli {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
+    Srai {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
     // RV64I register-register.
-    Addiw { rd: u8, rs1: u8, imm: i64 },
+    Addiw {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
     // RV64I word-width shift-immediates (wave 3 conformance fix: the
     // decoder previously folded SLLIW/SRLIW/SRAIW into the 64-bit
     // variants, producing wrong result widths).
-    Slliw { rd: u8, rs1: u8, shamt: u8 },
-    Srliw { rd: u8, rs1: u8, shamt: u8 },
-    Sraiw { rd: u8, rs1: u8, shamt: u8 },
-    Add { rd: u8, rs1: u8, rs2: u8 },
-    Sub { rd: u8, rs1: u8, rs2: u8 },
-    Sll { rd: u8, rs1: u8, rs2: u8 },
-    Slt { rd: u8, rs1: u8, rs2: u8 },
-    Sltu { rd: u8, rs1: u8, rs2: u8 },
-    Xor { rd: u8, rs1: u8, rs2: u8 },
-    Srl { rd: u8, rs1: u8, rs2: u8 },
-    Sra { rd: u8, rs1: u8, rs2: u8 },
-    Or { rd: u8, rs1: u8, rs2: u8 },
-    And { rd: u8, rs1: u8, rs2: u8 },
-    Addw { rd: u8, rs1: u8, rs2: u8 },
-    Subw { rd: u8, rs1: u8, rs2: u8 },
-    Sllw { rd: u8, rs1: u8, rs2: u8 },
-    Srlw { rd: u8, rs1: u8, rs2: u8 },
-    Sraw { rd: u8, rs1: u8, rs2: u8 },
+    Slliw {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
+    Srliw {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
+    Sraiw {
+        rd: u8,
+        rs1: u8,
+        shamt: u8,
+    },
+    Add {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sub {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sll {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Slt {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sltu {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Xor {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Srl {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sra {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Or {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    And {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Addw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Subw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sllw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Srlw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Sraw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
     // RV64I upper-immediate / PC-relative.
-    Lui { rd: u8, imm: i64 },
-    Auipc { rd: u8, imm: i64 },
+    Lui {
+        rd: u8,
+        imm: i64,
+    },
+    Auipc {
+        rd: u8,
+        imm: i64,
+    },
     // RV64I loads/stores (word-granular kernel; the memory layer owns
     // subword expansion semantics).
-    Lw { rd: u8, rs1: u8, imm: i64 },
-    Lwu { rd: u8, rs1: u8, imm: i64 },
-    Ld { rd: u8, rs1: u8, imm: i64 },
-    Sw { rs1: u8, rs2: u8, imm: i64 },
-    Sd { rs1: u8, rs2: u8, imm: i64 },
+    Lw {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Lwu {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Ld {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Sw {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Sd {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
     // Branches.
-    Beq { rs1: u8, rs2: u8, imm: i64 },
-    Bne { rs1: u8, rs2: u8, imm: i64 },
-    Blt { rs1: u8, rs2: u8, imm: i64 },
-    Bge { rs1: u8, rs2: u8, imm: i64 },
-    Bltu { rs1: u8, rs2: u8, imm: i64 },
-    Bgeu { rs1: u8, rs2: u8, imm: i64 },
+    Beq {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Bne {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Blt {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Bge {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Bltu {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Bgeu {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
     // Jump and link.
-    Jal { rd: u8, imm: i64 },
-    Jalr { rd: u8, rs1: u8, imm: i64 },
+    Jal {
+        rd: u8,
+        imm: i64,
+    },
+    Jalr {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
     // System.
     Ecall,
     Ebreak,
     // RV64M multiply-divide.
-    Mul { rd: u8, rs1: u8, rs2: u8 },
-    Mulh { rd: u8, rs1: u8, rs2: u8 },
-    Mulhu { rd: u8, rs1: u8, rs2: u8 },
-    Div { rd: u8, rs1: u8, rs2: u8 },
-    Divu { rd: u8, rs1: u8, rs2: u8 },
-    Rem { rd: u8, rs1: u8, rs2: u8 },
-    Remu { rd: u8, rs1: u8, rs2: u8 },
-    Divw { rd: u8, rs1: u8, rs2: u8 },
-    Divuw { rd: u8, rs1: u8, rs2: u8 },
-    Remw { rd: u8, rs1: u8, rs2: u8 },
-    Remuw { rd: u8, rs1: u8, rs2: u8 },
-    Mulw { rd: u8, rs1: u8, rs2: u8 },
+    Mul {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Mulh {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Mulhu {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Div {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Divu {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Rem {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Remu {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Divw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Divuw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Remw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Remuw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
+    Mulw {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+    },
     // RV64A atomics (word-granular kernel).
-    LrW { rd: u8, rs1: u8, aq: bool, rl: bool },
-    ScW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoSwapW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoAddW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoXorW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoAndW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoOrW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoMinW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoMaxW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoMinuW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
-    AmoMaxuW { rd: u8, rs1: u8, rs2: u8, aq: bool, rl: bool },
+    LrW {
+        rd: u8,
+        rs1: u8,
+        aq: bool,
+        rl: bool,
+    },
+    ScW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoSwapW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoAddW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoXorW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoAndW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoOrW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoMinW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoMaxW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoMinuW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
+    AmoMaxuW {
+        rd: u8,
+        rs1: u8,
+        rs2: u8,
+        aq: bool,
+        rl: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -198,7 +480,11 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
             Ok(match funct3 {
                 0 => Instr::Addi { rd, rs1, imm },
                 2 => Instr::Slti { rd, rs1, imm },
-                3 => Instr::Sltiu { rd, rs1, imm: imm as u64 },
+                3 => Instr::Sltiu {
+                    rd,
+                    rs1,
+                    imm: imm as u64,
+                },
                 4 => Instr::Xori { rd, rs1, imm },
                 6 => Instr::Ori { rd, rs1, imm },
                 7 => Instr::Andi { rd, rs1, imm },
@@ -304,16 +590,76 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
             let rl = (word >> 25) & 0x1 == 1;
             match funct5 {
                 0x02 => Ok(Instr::LrW { rd, rs1, aq, rl }),
-                0x03 => Ok(Instr::ScW { rd, rs1, rs2, aq, rl }),
-                0x01 => Ok(Instr::AmoSwapW { rd, rs1, rs2, aq, rl }),
-                0x00 => Ok(Instr::AmoAddW { rd, rs1, rs2, aq, rl }),
-                0x04 => Ok(Instr::AmoXorW { rd, rs1, rs2, aq, rl }),
-                0x0c => Ok(Instr::AmoAndW { rd, rs1, rs2, aq, rl }),
-                0x08 => Ok(Instr::AmoOrW { rd, rs1, rs2, aq, rl }),
-                0x10 => Ok(Instr::AmoMinW { rd, rs1, rs2, aq, rl }),
-                0x14 => Ok(Instr::AmoMaxW { rd, rs1, rs2, aq, rl }),
-                0x18 => Ok(Instr::AmoMinuW { rd, rs1, rs2, aq, rl }),
-                0x1c => Ok(Instr::AmoMaxuW { rd, rs1, rs2, aq, rl }),
+                0x03 => Ok(Instr::ScW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x01 => Ok(Instr::AmoSwapW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x00 => Ok(Instr::AmoAddW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x04 => Ok(Instr::AmoXorW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x0c => Ok(Instr::AmoAndW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x08 => Ok(Instr::AmoOrW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x10 => Ok(Instr::AmoMinW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x14 => Ok(Instr::AmoMaxW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x18 => Ok(Instr::AmoMinuW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
+                0x1c => Ok(Instr::AmoMaxuW {
+                    rd,
+                    rs1,
+                    rs2,
+                    aq,
+                    rl,
+                }),
                 _ => Err(DecodeError::UnsupportedFunct { pc, word }),
             }
         }
@@ -336,17 +682,19 @@ pub fn decode_compressed(pc: u64, half: u16) -> Result<(Instr, u64), DecodeError
     match (quadrant, funct3) {
         // C.ADDI: addi rd, rd, nzimm.
         (0, 0) => {
-            let imm = ((((half >> 12) & 0x1) as u64) << 5)
-                | (((half >> 2) & 0x1f) as u64);
+            let imm = ((((half >> 12) & 0x1) as u64) << 5) | (((half >> 2) & 0x1f) as u64);
             let rd = ((half >> 7) & 0x1f) as u8;
             if rd == 0 && imm == 0 {
                 Ok((Instr::Ebreak, pc + 2))
             } else {
-                Ok((Instr::Addi {
-                    rd,
-                    rs1: rd,
-                    imm: sign_extend(imm, 6),
-                }, pc + 2))
+                Ok((
+                    Instr::Addi {
+                        rd,
+                        rs1: rd,
+                        imm: sign_extend(imm, 6),
+                    },
+                    pc + 2,
+                ))
             }
         }
         // C.ADDI4SPN.
@@ -462,13 +810,27 @@ pub fn decode_compressed(pc: u64, half: u16) -> Result<(Instr, u64), DecodeError
             let rs1 = expand(rs1c);
             let rs2 = expand(((half >> 2) & 0x7) as u8);
             let imm = ((((half >> 10) & 0x7) as u64) << 3) | ((((half >> 5) & 0x3) as u64) << 1);
-            Ok((Instr::Sw { rs1, rs2, imm: imm as i64 }, pc + 2))
+            Ok((
+                Instr::Sw {
+                    rs1,
+                    rs2,
+                    imm: imm as i64,
+                },
+                pc + 2,
+            ))
         }
         (2, 3) => {
             let rs1 = expand(rs1c);
             let rs2 = expand(((half >> 2) & 0x7) as u8);
             let imm = ((((half >> 10) & 0x7) as u64) << 3) | ((((half >> 5) & 0x3) as u64) << 1);
-            Ok((Instr::Sd { rs1, rs2, imm: imm as i64 }, pc + 2))
+            Ok((
+                Instr::Sd {
+                    rs1,
+                    rs2,
+                    imm: imm as i64,
+                },
+                pc + 2,
+            ))
         }
         // C.BEQZ.
         (1, 6) => {

@@ -53,15 +53,13 @@
 //!   exactly as the paper's extraction argument requires (the carries
 //!   the digit embedding introduces do not survive the projection).
 
-use crate::cyclo_r1cs::{
-    eq_table_q2, Fq2Q32, PrincipalLinearClaim, R1csQ32, ThetaK,
-};
+use crate::cyclo_r1cs::{eq_table_q2, Fq2Q32, PrincipalLinearClaim, R1csQ32, ThetaK};
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
 use lattice_ring::ring::{RingConfig, RingElement};
 use lattice_widthfold::fold::WidthFoldParams;
 use lattice_widthfold::ring_fold::{
-    prove_ring_fold, ring_fold_functional_sum, verify_ring_fold, RingFunctional, RingFoldProof,
+    prove_ring_fold, ring_fold_functional_sum, verify_ring_fold, RingFoldProof, RingFunctional,
 };
 
 /// The compact terminal: the ring-functional width fold over the lift
@@ -96,10 +94,13 @@ fn bridge_functionals(
                 .map(|bp| {
                     let mut m_bp = Fq2Q32::ZERO;
                     for (r, eu) in eq_u.iter().enumerate() {
-                        m_bp = m_bp
-                            .add(&eu.mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
+                        m_bp = m_bp.add(&eu.mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
                     }
-                    if b == 0 { m_bp.c0 } else { m_bp.c1 }
+                    if b == 0 {
+                        m_bp.c0
+                    } else {
+                        m_bp.c1
+                    }
                 })
                 .collect();
             out.push(RingFunctional { weights });
@@ -124,10 +125,7 @@ fn bridge_functionals(
 /// The (D2) family's public targets: the claim's ring lifts `d'_i^{(b)}`
 /// (the EXACT checks); the (D3) family carries `None` (the projected
 /// `θ_k` checks are the decider's own).
-fn bridge_targets(
-    ring: &RingConfig,
-    claim: &PrincipalLinearClaim,
-) -> Vec<Option<RingElement>> {
+fn bridge_targets(ring: &RingConfig, claim: &PrincipalLinearClaim) -> Vec<Option<RingElement>> {
     let mut out: Vec<Option<RingElement>> = Vec::with_capacity(8);
     for i in 0..3usize {
         for b in 0..2usize {
@@ -143,11 +141,7 @@ fn bridge_targets(
 }
 
 /// The bridge key's column blocks (both sides regenerate from the pk).
-fn pk_blocks(
-    ring: &RingConfig,
-    pk: &AjtaiPublicKey,
-    m: usize,
-) -> Vec<Vec<RingElement>> {
+fn pk_blocks(ring: &RingConfig, pk: &AjtaiPublicKey, m: usize) -> Vec<Vec<RingElement>> {
     let k = pk.params.k;
     (0..m)
         .map(|c| {
@@ -218,11 +212,7 @@ pub fn prove_compact_terminal(
     transcript: &mut Transcript,
 ) -> Result<CompactTerminal, String> {
     if z_lift.len() != shape.m {
-        return Err(format!(
-            "lift length {} vs m {}",
-            z_lift.len(),
-            shape.m
-        ));
+        return Err(format!("lift length {} vs m {}", z_lift.len(), shape.m));
     }
     let functionals = bridge_functionals(shape, claim)?;
     let targets = bridge_targets(ring, claim);
@@ -342,11 +332,7 @@ mod tests {
 
     /// The test shape from cyclo_r1cs's own suite: a random sparse R1CS
     /// with a satisfying witness.
-    fn shape_with_witness(
-        m: usize,
-        ell: usize,
-        seed: u64,
-    ) -> (R1csQ32, Vec<u64>, Vec<u64>) {
+    fn shape_with_witness(m: usize, ell: usize, seed: u64) -> (R1csQ32, Vec<u64>, Vec<u64>) {
         // A diagonal-dominant shape with a known satisfying witness: A·z = z (identity rows on the wire
         // segment), B·z = 1 (the prefix constant), C·z = z∘z —
         // satisfied by z with z_i ∈ {0, 1} on the wire.
@@ -362,7 +348,9 @@ mod tests {
         }
         let mut z_next = seed;
         let mut step = || {
-            z_next = z_next.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            z_next = z_next
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             z_next
         };
         let mut z = vec![0u64; m];
@@ -374,7 +362,11 @@ mod tests {
             *v = step() % 100;
         }
         let w = z[ell + 1..].to_vec();
-        let shape = R1csQ32 { ell, m, mats: [mats[0].clone(), mats[1].clone(), mats[2].clone()] };
+        let shape = R1csQ32 {
+            ell,
+            m,
+            mats: [mats[0].clone(), mats[1].clone(), mats[2].clone()],
+        };
         (shape, z[..ell].to_vec(), w)
     }
 
@@ -421,29 +413,42 @@ mod tests {
         let z_lift_wrong: Vec<RingElement> =
             z_wrong.iter().map(|&c| theta.embed(&ring, c)).collect();
         let mut tt2 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            prove_compact_terminal(&ring, &pk, &shape, &x, &claim, &theta, &z_lift_wrong, &mut tt2)
-                .is_err()
-        );
+        assert!(prove_compact_terminal(
+            &ring,
+            &pk,
+            &shape,
+            &x,
+            &claim,
+            &theta,
+            &z_lift_wrong,
+            &mut tt2
+        )
+        .is_err());
 
         // (b) A corrupted claim (the d_lift bytes): (W0R) rejects.
         let mut claim_bad = claim.clone();
         claim_bad.d_lift[0][0][3] ^= 0x40;
         let mut dt3 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            decide_principal_linear_compact(&ring, &pk, &shape, &x, &claim_bad, &terminal, &mut dt3)
-                .is_err()
-        );
+        assert!(decide_principal_linear_compact(
+            &ring, &pk, &shape, &x, &claim_bad, &terminal, &mut dt3
+        )
+        .is_err());
 
         // (c) A corrupted prefix evaluation e: the (D3) projected check
         //     rejects.
         let mut claim_bad2 = claim.clone();
         claim_bad2.e = claim_bad2.e.add(&Fq2Q32::ONE);
         let mut dt4 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            decide_principal_linear_compact(&ring, &pk, &shape, &x, &claim_bad2, &terminal, &mut dt4)
-                .is_err()
-        );
+        assert!(decide_principal_linear_compact(
+            &ring,
+            &pk,
+            &shape,
+            &x,
+            &claim_bad2,
+            &terminal,
+            &mut dt4
+        )
+        .is_err());
 
         // (d) A swapped commitment: the (W0) binding rejects.
         let mut claim_bad3 = claim.clone();
@@ -451,25 +456,31 @@ mod tests {
             claim_bad3.commitment[4] ^= 0x80;
         }
         let mut dt5 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            decide_principal_linear_compact(&ring, &pk, &shape, &x, &claim_bad3, &terminal, &mut dt5)
-                .is_err()
-        );
+        assert!(decide_principal_linear_compact(
+            &ring,
+            &pk,
+            &shape,
+            &x,
+            &claim_bad3,
+            &terminal,
+            &mut dt5
+        )
+        .is_err());
 
         // (e) A tampered fold response (the folded z): (W1)/(W2) reject.
         let mut term_bad = terminal.clone();
         {
-            let mut coeffs = lattice_widthfold::codec::decode_response(&term_bad.fold.response)
-                .unwrap();
+            let mut coeffs =
+                lattice_widthfold::codec::decode_response(&term_bad.fold.response).unwrap();
             assert!(!coeffs.is_empty());
             coeffs[0] = coeffs[0].wrapping_add(1);
             term_bad.fold.response = lattice_widthfold::codec::encode_response(&coeffs).unwrap();
         }
         let mut dt6 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            decide_principal_linear_compact(&ring, &pk, &shape, &x, &claim, &term_bad, &mut dt6)
-                .is_err()
-        );
+        assert!(decide_principal_linear_compact(
+            &ring, &pk, &shape, &x, &claim, &term_bad, &mut dt6
+        )
+        .is_err());
 
         // (f) Tampered functional values (the per-part U's): (W3R) or
         //     the derived checks reject.
@@ -477,9 +488,9 @@ mod tests {
         assert!(!term_bad2.fold.func_values.is_empty());
         term_bad2.fold.func_values[3] ^= 0x20;
         let mut dt7 = Transcript::new_default(b"cyclo-terminal");
-        assert!(
-            decide_principal_linear_compact(&ring, &pk, &shape, &x, &claim, &term_bad2, &mut dt7)
-                .is_err()
-        );
+        assert!(decide_principal_linear_compact(
+            &ring, &pk, &shape, &x, &claim, &term_bad2, &mut dt7
+        )
+        .is_err());
     }
 }

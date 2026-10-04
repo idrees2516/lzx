@@ -24,7 +24,9 @@ fn main() {
             return;
         }
     };
-    println!("| program | cycles | prove (ms) | verify (ms) | clear (KB) | compact (KB) | proved |");
+    println!(
+        "| program | cycles | prove (ms) | verify (ms) | clear (KB) | compact (KB) | proved |"
+    );
     println!("|---|---|---|---|---|---|---|");
     for prog in &programs {
         let asm_prog = AssembledProgram {

@@ -14,3 +14,4 @@ lattice-commitment = { workspace = true }
 lattice-sumcheck = { workspace = true }
 lattice-embeddings = { workspace = true }
 lattice-salsa = { workspace = true }
+lattice-widthfold = { workspace = true }

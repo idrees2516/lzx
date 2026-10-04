@@ -141,10 +141,7 @@ mod tests {
         let c = K::from_fp2(Fq::new(31337), Fq::new(1));
         assert_eq!(a.mul(&b), b.mul(&a));
         assert_eq!(a.mul(&b).mul(&c), a.mul(&b.mul(&c)));
-        assert_eq!(
-            a.mul(&b.add(&c)),
-            a.mul(&b).add(&a.mul(&c))
-        );
+        assert_eq!(a.mul(&b.add(&c)), a.mul(&b).add(&a.mul(&c)));
         let ai = a.inverse().unwrap();
         assert_eq!(a.mul(&ai), K::ONE);
         assert!(K::ZERO.inverse().is_none());

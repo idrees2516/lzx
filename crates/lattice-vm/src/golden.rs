@@ -4,7 +4,6 @@
 //! expected memory words)` — the expectations are computed from the
 //! RISC-V specification, NOT from either interpreter.
 
-
 /// One golden vector.
 pub struct Golden {
     pub name: &'static str,
@@ -19,13 +18,19 @@ pub struct Golden {
 }
 
 fn enc_r(opcode: u32, rd: u8, funct3: u32, rs1: u8, rs2: u8, funct7: u32) -> u32 {
-    (funct7 << 25) | ((rs2 as u32) << 20) | ((rs1 as u32) << 15) | (funct3 << 12)
+    (funct7 << 25)
+        | ((rs2 as u32) << 20)
+        | ((rs1 as u32) << 15)
+        | (funct3 << 12)
         | ((rd as u32) << 7)
         | opcode
 }
 
 fn enc_i(opcode: u32, rd: u8, funct3: u32, rs1: u8, imm: i32) -> u32 {
-    (((imm as u32) & 0xFFF) << 20) | ((rs1 as u32) << 15) | (funct3 << 12) | ((rd as u32) << 7)
+    (((imm as u32) & 0xFFF) << 20)
+        | ((rs1 as u32) << 15)
+        | (funct3 << 12)
+        | ((rd as u32) << 7)
         | opcode
 }
 
@@ -70,10 +75,10 @@ pub fn corpus() -> Vec<Golden> {
     let mut v = vec![Golden {
         name: "add-overflow-wraps",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, -1),      // x1 = MAX
-            enc_i(OPIMM, 2, 0, 0, 1),       // x2 = 1
-            enc_r(OP, 3, 0, 1, 2, 0),       // x3 = MAX + 1 = 0 (mod 2^64)
-            enc_r(OP, 4, 0, 1, 0, 0),       // x4 = MAX + 0 = MAX
+            enc_i(OPIMM, 1, 0, 0, -1), // x1 = MAX
+            enc_i(OPIMM, 2, 0, 0, 1),  // x2 = 1
+            enc_r(OP, 3, 0, 1, 2, 0),  // x3 = MAX + 1 = 0 (mod 2^64)
+            enc_r(OP, 4, 0, 1, 0, 0),  // x4 = MAX + 0 = MAX
             SYSTEM,
         ],
         memory: vec![],
@@ -83,9 +88,9 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "sub-underflow-wraps",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0),       // x1 = 0
-            enc_i(OPIMM, 2, 0, 0, 1),       // x2 = 1
-            enc_r(OP, 3, 0, 1, 2, 0x20),    // x3 = 0 - 1 = MAX
+            enc_i(OPIMM, 1, 0, 0, 0),    // x1 = 0
+            enc_i(OPIMM, 2, 0, 0, 1),    // x2 = 1
+            enc_r(OP, 3, 0, 1, 2, 0x20), // x3 = 0 - 1 = MAX
             SYSTEM,
         ],
         memory: vec![],
@@ -95,11 +100,11 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "slt-sltu-negative-boundary",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, -1),      // x1 = MAX (as i64: -1)
-            enc_r(OP, 2, 2, 1, 0, 0),       // x2 = (-1 < 0) = 1
-            enc_r(OP, 3, 3, 1, 0, 0),       // x3 = (MAX < 0 unsigned) = 0
-            enc_i(OPIMM, 4, 2, 0, 0),       // x4 = (0 < 0) = 0
-            enc_i(OPIMM, 5, 3, 0, -1),      // x5 = (0 < MAX) = 1
+            enc_i(OPIMM, 1, 0, 0, -1), // x1 = MAX (as i64: -1)
+            enc_r(OP, 2, 2, 1, 0, 0),  // x2 = (-1 < 0) = 1
+            enc_r(OP, 3, 3, 1, 0, 0),  // x3 = (MAX < 0 unsigned) = 0
+            enc_i(OPIMM, 4, 2, 0, 0),  // x4 = (0 < 0) = 0
+            enc_i(OPIMM, 5, 3, 0, -1), // x5 = (0 < MAX) = 1
             SYSTEM,
         ],
         memory: vec![],
@@ -109,23 +114,29 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "shifts-63-and-masked-register-shift",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 1),       // x1 = 1
-            enc_i(OPIMM, 2, 1, 1, 63),       // x2 = 1 << 63
-            enc_i(OPIMM, 3, 0, 0, 64),       // x3 = 64 (shift amount reg)
-            enc_r(OP, 4, 1, 2, 3, 0),       // x4 = x2 << (64 & 63) = x2 << 0 = x2
-            enc_r(OP, 5, 5, 2, 3, 0),       // x5 = x2 >> 0 = x2
-            enc_r(OP, 6, 5, 2, 3, 0x20),    // x6 = x2 >>a 0 = x2
+            enc_i(OPIMM, 1, 0, 0, 1),          // x1 = 1
+            enc_i(OPIMM, 2, 1, 1, 63),         // x2 = 1 << 63
+            enc_i(OPIMM, 3, 0, 0, 64),         // x3 = 64 (shift amount reg)
+            enc_r(OP, 4, 1, 2, 3, 0),          // x4 = x2 << (64 & 63) = x2 << 0 = x2
+            enc_r(OP, 5, 5, 2, 3, 0),          // x5 = x2 >> 0 = x2
+            enc_r(OP, 6, 5, 2, 3, 0x20),       // x6 = x2 >>a 0 = x2
             enc_i(OPIMM, 7, 5, 2, 0x400 | 63), // x7 = x2 >>a 63 = MAX (SRAI: bit30|shamt)
             SYSTEM,
         ],
         memory: vec![],
-        expect_regs: vec![(2, 1u64 << 63), (4, 1u64 << 63), (5, 1u64 << 63), (6, 1u64 << 63), (7, MAX)],
+        expect_regs: vec![
+            (2, 1u64 << 63),
+            (4, 1u64 << 63),
+            (5, 1u64 << 63),
+            (6, 1u64 << 63),
+            (7, MAX),
+        ],
         expect_mem32: vec![],
     });
     v.push(Golden {
         name: "addw-sign-extends",
         program: vec![
-            enc_i(LUI, 1, 0, 0, 0),         // x1 = 0 (placeholder setup below)
+            enc_i(LUI, 1, 0, 0, 0), // x1 = 0 (placeholder setup below)
             SYSTEM,
         ],
         memory: vec![],
@@ -137,14 +148,14 @@ pub fn corpus() -> Vec<Golden> {
         program: vec![
             // x1 = 0x1234: LUI 0x1 -> 0x1000; addi 0x234.
             (0x1 << 12) | (1 << 7) | LUI,
-            enc_i(OPIMM, 1, 0, 1, 0x234),   // x1 = 0x1234
-            enc_i(OPIMM, 2, 0, 0, 1),       // x2 = 1
-            enc_i(OPIMM, 5, 0, 0, -8),      // x5 = -8 (0xFFFF..F8)
-            enc_r(OP32, 3, 0, 1, 2, 0),     // x3 = addw(0x1234+1) = 0x1235
-            enc_r(OP32, 4, 1, 1, 2, 0),     // x4 = sllw(0x1234<<1) = 0x2468
-            enc_r(OP32, 6, 5, 5, 2, 0x20),  // x6 = sraw(-8 >> 1) = -4
-            enc_r(OP32, 7, 5, 5, 2, 0),     // x7 = srlw(0xFFFFFFF8 >> 1) = 0x7FFFFFFC
-            enc_r(OP32, 8, 0, 1, 2, 0x20),  // x8 = subw(0x1234-1) = 0x1233
+            enc_i(OPIMM, 1, 0, 1, 0x234),  // x1 = 0x1234
+            enc_i(OPIMM, 2, 0, 0, 1),      // x2 = 1
+            enc_i(OPIMM, 5, 0, 0, -8),     // x5 = -8 (0xFFFF..F8)
+            enc_r(OP32, 3, 0, 1, 2, 0),    // x3 = addw(0x1234+1) = 0x1235
+            enc_r(OP32, 4, 1, 1, 2, 0),    // x4 = sllw(0x1234<<1) = 0x2468
+            enc_r(OP32, 6, 5, 5, 2, 0x20), // x6 = sraw(-8 >> 1) = -4
+            enc_r(OP32, 7, 5, 5, 2, 0),    // x7 = srlw(0xFFFFFFF8 >> 1) = 0x7FFFFFFC
+            enc_r(OP32, 8, 0, 1, 2, 0x20), // x8 = subw(0x1234-1) = 0x1233
             SYSTEM,
         ],
         memory: vec![],
@@ -174,12 +185,12 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "mul-family-highs",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, -1),      // x1 = -1 (MAX)
-            enc_i(OPIMM, 2, 0, 0, -2),      // x2 = -2
-            enc_r(OP, 3, 0, 1, 2, 0),       // x3 = add(-1 + -2) = -3 (sanity)
-            enc_r(OP, 4, 0, 1, 2, 1),       // x4 = mul(-1 * -2) = 2
-            enc_r(OP, 5, 1, 1, 2, 1),       // x5 = mulh(-1 * -2 >> 64) = 0
-            enc_r(OP, 6, 3, 1, 2, 1),       // x6 = mulhu(MAX * (MAX-1) >> 64)
+            enc_i(OPIMM, 1, 0, 0, -1), // x1 = -1 (MAX)
+            enc_i(OPIMM, 2, 0, 0, -2), // x2 = -2
+            enc_r(OP, 3, 0, 1, 2, 0),  // x3 = add(-1 + -2) = -3 (sanity)
+            enc_r(OP, 4, 0, 1, 2, 1),  // x4 = mul(-1 * -2) = 2
+            enc_r(OP, 5, 1, 1, 2, 1),  // x5 = mulh(-1 * -2 >> 64) = 0
+            enc_r(OP, 6, 3, 1, 2, 1),  // x6 = mulhu(MAX * (MAX-1) >> 64)
             SYSTEM,
         ],
         memory: vec![],
@@ -195,16 +206,16 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "div-rem-signed-edges",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, -1),      // x1 = -1 (divisor 0 case uses x0)
+            enc_i(OPIMM, 1, 0, 0, -1), // x1 = -1 (divisor 0 case uses x0)
             // x2 = i64::MIN: lui 0x80000 (sign-extends to
             // 0xFFFFFFFF80000000) then slli 32 -> 0x8000000000000000.
             (0x80000 << 12) | (2 << 7) | LUI,
-            enc_i(OPIMM, 2, 1, 2, 32),      // slli x2, x2, 32
-            enc_r(OP, 3, 4, 2, 0, 1),       // x3 = div(MIN / 0) = -1
-            enc_r(OP, 4, 6, 2, 0, 1),       // x4 = rem(MIN % 0) = MIN
-            enc_r(OP, 5, 4, 2, 1, 1),       // x5 = div(MIN / -1) = MIN
-            enc_r(OP, 6, 6, 2, 1, 1),       // x6 = rem(MIN % -1) = 0
-            enc_r(OP, 7, 4, 1, 1, 1),       // x7 = div(-1 / -1) = 1
+            enc_i(OPIMM, 2, 1, 2, 32), // slli x2, x2, 32
+            enc_r(OP, 3, 4, 2, 0, 1),  // x3 = div(MIN / 0) = -1
+            enc_r(OP, 4, 6, 2, 0, 1),  // x4 = rem(MIN % 0) = MIN
+            enc_r(OP, 5, 4, 2, 1, 1),  // x5 = div(MIN / -1) = MIN
+            enc_r(OP, 6, 6, 2, 1, 1),  // x6 = rem(MIN % -1) = 0
+            enc_r(OP, 7, 4, 1, 1, 1),  // x7 = div(-1 / -1) = 1
             SYSTEM,
         ],
         memory: vec![],
@@ -221,9 +232,9 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "divu-remu-unsigned-edges",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, -1),      // x1 = MAX
-            enc_r(OP, 2, 5, 1, 0, 1),       // x2 = divu(MAX / 0) = MAX
-            enc_r(OP, 3, 7, 1, 0, 1),       // x3 = remu(MAX % 0) = MAX
+            enc_i(OPIMM, 1, 0, 0, -1), // x1 = MAX
+            enc_r(OP, 2, 5, 1, 0, 1),  // x2 = divu(MAX / 0) = MAX
+            enc_r(OP, 3, 7, 1, 0, 1),  // x3 = remu(MAX % 0) = MAX
             SYSTEM,
         ],
         memory: vec![],
@@ -235,13 +246,13 @@ pub fn corpus() -> Vec<Golden> {
         program: vec![
             // x1 = 0xFFFFFFFF80000000 (i32::MIN as i64) via LUI 0x80000 + addiw 0.
             (0x80000 << 12) | (1 << 7) | LUI,
-            enc_i(OPIMM, 2, 0, 0, -1),      // x2 = -1
-            enc_r(OP32, 3, 4, 1, 2, 1),     // x3 = divw(i32MIN / -1) = i32MIN
-            enc_r(OP32, 4, 6, 1, 2, 1),     // x4 = remw(i32MIN % -1) = 0
-            enc_r(OP32, 5, 4, 1, 0, 1),     // x5 = divw(i32MIN / 0) = -1
-            enc_r(OP32, 6, 5, 1, 0, 1),     // x6 = divuw(i32MIN / 0) = 0xFFFFFFFF
-            enc_r(OP32, 7, 7, 1, 0, 1),     // x7 = remuw(i32MIN % 0) = 0x80000000
-            enc_r(OP32, 8, 0, 1, 2, 1),     // x8 = mulw(i32MIN * -1) = i32MIN
+            enc_i(OPIMM, 2, 0, 0, -1),  // x2 = -1
+            enc_r(OP32, 3, 4, 1, 2, 1), // x3 = divw(i32MIN / -1) = i32MIN
+            enc_r(OP32, 4, 6, 1, 2, 1), // x4 = remw(i32MIN % -1) = 0
+            enc_r(OP32, 5, 4, 1, 0, 1), // x5 = divw(i32MIN / 0) = -1
+            enc_r(OP32, 6, 5, 1, 0, 1), // x6 = divuw(i32MIN / 0) = 0xFFFFFFFF
+            enc_r(OP32, 7, 7, 1, 0, 1), // x7 = remuw(i32MIN % 0) = 0x80000000
+            enc_r(OP32, 8, 0, 1, 2, 1), // x8 = mulw(i32MIN * -1) = i32MIN
             SYSTEM,
         ],
         memory: vec![],
@@ -264,11 +275,11 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "lw-sign-extends-lwu-does-not",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0x40),    // x1 = 0x40 (address)
-            enc_i(LOAD, 2, 2, 1, 0),        // x2 = lw [x1] (funct3=2)
-            enc_i(LOAD, 3, 6, 1, 0),        // x3 = lwu [x1] (funct3=6)
-            enc_i(LOAD, 4, 3, 1, 8),        // x4 = ld [x1+8] (funct3=3, aligned)
-            enc_i(LOAD, 5, 3, 1, 1),        // x5 = ld [x1+1] (unaligned, straddles)
+            enc_i(OPIMM, 1, 0, 0, 0x40), // x1 = 0x40 (address)
+            enc_i(LOAD, 2, 2, 1, 0),     // x2 = lw [x1] (funct3=2)
+            enc_i(LOAD, 3, 6, 1, 0),     // x3 = lwu [x1] (funct3=6)
+            enc_i(LOAD, 4, 3, 1, 8),     // x4 = ld [x1+8] (funct3=3, aligned)
+            enc_i(LOAD, 5, 3, 1, 1),     // x5 = ld [x1+1] (unaligned, straddles)
             SYSTEM,
         ],
         memory: vec![(0x40, 0x8000_0000), (0x48, 0x1234_5678)],
@@ -286,9 +297,9 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "unaligned-lw-straddles-words",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0x40),    // x1 = 0x40
-            enc_i(LOAD, 2, 2, 1, 5),        // x2 = lw [0x45] (unaligned)
-            enc_i(LOAD, 3, 2, 1, 7),        // x3 = lw [0x47] (last byte + next word)
+            enc_i(OPIMM, 1, 0, 0, 0x40), // x1 = 0x40
+            enc_i(LOAD, 2, 2, 1, 5),     // x2 = lw [0x45] (unaligned)
+            enc_i(LOAD, 3, 2, 1, 7),     // x3 = lw [0x47] (last byte + next word)
             SYSTEM,
         ],
         memory: vec![(0x40, 0xAABB_CCDD), (0x48, 0xEEFF_0011)],
@@ -307,27 +318,31 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "sw-sd-store-values",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0x80),    // x1 = 0x80
-            enc_i(OPIMM, 2, 0, 0, -1),      // x2 = MAX
-            enc_s(STORE, 2, 1, 2, 0),       // sw [x1] = 0xFFFFFFFF
-            enc_s(STORE, 3, 1, 2, 8),       // sd [x1+8] = MAX
+            enc_i(OPIMM, 1, 0, 0, 0x80), // x1 = 0x80
+            enc_i(OPIMM, 2, 0, 0, -1),   // x2 = MAX
+            enc_s(STORE, 2, 1, 2, 0),    // sw [x1] = 0xFFFFFFFF
+            enc_s(STORE, 3, 1, 2, 8),    // sd [x1+8] = MAX
             SYSTEM,
         ],
         memory: vec![],
         expect_regs: vec![(2, MAX)],
-        expect_mem32: vec![(0x80, 0xFFFF_FFFF), (0x88, 0xFFFF_FFFF), (0x8C, 0xFFFF_FFFF)],
+        expect_mem32: vec![
+            (0x80, 0xFFFF_FFFF),
+            (0x88, 0xFFFF_FFFF),
+            (0x8C, 0xFFFF_FFFF),
+        ],
     });
 
     // --- Branches and jumps ---
     v.push(Golden {
         name: "branch-taken-and-not",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 5),       // x1 = 5
-            enc_i(OPIMM, 2, 0, 0, 5),       // x2 = 5
+            enc_i(OPIMM, 1, 0, 0, 5), // x1 = 5
+            enc_i(OPIMM, 2, 0, 0, 5), // x2 = 5
             // beq x1, x2, +8 (skip the x3 = 1): imm[4:1] = 4 -> bits 11:8.
             (4u32 << 8) | (1 << 15) | (2 << 20) | BRANCH,
-            enc_i(OPIMM, 3, 0, 0, 1),       // x3 = 1 (skipped)
-            enc_i(OPIMM, 4, 0, 0, 2),       // x4 = 2 (executed)
+            enc_i(OPIMM, 3, 0, 0, 1), // x3 = 1 (skipped)
+            enc_i(OPIMM, 4, 0, 0, 2), // x4 = 2 (executed)
             SYSTEM,
         ],
         memory: vec![],
@@ -339,14 +354,14 @@ pub fn corpus() -> Vec<Golden> {
         program: vec![
             // jal x1, +8 (skip next): imm[3:1] = 4 -> bits 30:21.
             (4u32 << 21) | (1 << 7) | JAL,
-            enc_i(OPIMM, 5, 0, 0, 99),      // skipped
-            enc_i(OPIMM, 2, 0, 0, 16),      // x2 = 16 (target addr for jalr)
+            enc_i(OPIMM, 5, 0, 0, 99), // skipped
+            enc_i(OPIMM, 2, 0, 0, 16), // x2 = 16 (target addr for jalr)
             // jalr x3, x2, 0 -> jumps to 16, link = pc+4 = 16
             enc_i(JALR, 3, 0, 2, 0),
-            enc_i(OPIMM, 6, 0, 0, 1),       // x6 = 1 (executed after jump to 16)
-            SYSTEM,                          // at 12..15 padding
-            enc_i(OPIMM, 7, 0, 0, 0),       // filler
-            SYSTEM,                          // 16: the jalr target
+            enc_i(OPIMM, 6, 0, 0, 1), // x6 = 1 (executed after jump to 16)
+            SYSTEM,                   // at 12..15 padding
+            enc_i(OPIMM, 7, 0, 0, 0), // filler
+            SYSTEM,                   // 16: the jalr target
         ],
         memory: vec![],
         expect_regs: vec![(1, 4), (3, 16)],
@@ -357,9 +372,9 @@ pub fn corpus() -> Vec<Golden> {
     v.push(Golden {
         name: "lr-sc-success-and-failure",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0x100),   // x1 = 0x100
-            enc_i(OPIMM, 7, 0, 0, 0x180),   // x7 = 0x180 (different address)
-            enc_i(OPIMM, 5, 0, 0, 0xAB),    // x5 = 0xAB
+            enc_i(OPIMM, 1, 0, 0, 0x100), // x1 = 0x100
+            enc_i(OPIMM, 7, 0, 0, 0x180), // x7 = 0x180 (different address)
+            enc_i(OPIMM, 5, 0, 0, 0xAB),  // x5 = 0xAB
             // lr.w x2, [x1]
             enc_amo(0x02, 2, 0, 1, 2),
             // sc.w x3, x5, [x1] — succeeds (reservation live)
@@ -373,17 +388,17 @@ pub fn corpus() -> Vec<Golden> {
         memory: vec![(0x100, 0x11)],
         expect_regs: vec![
             (2, 0x11),
-            (3, 0),  // SC success
+            (3, 0), // SC success
             (4, 0xAB),
-            (6, 1),  // SC failure
+            (6, 1), // SC failure
         ],
         expect_mem32: vec![(0x100, 0xAB)],
     });
     v.push(Golden {
         name: "amo-add-and-swap",
         program: vec![
-            enc_i(OPIMM, 1, 0, 0, 0x120),   // x1 = 0x120
-            enc_i(OPIMM, 2, 0, 0, 5),       // x2 = 5
+            enc_i(OPIMM, 1, 0, 0, 0x120), // x1 = 0x120
+            enc_i(OPIMM, 2, 0, 0, 5),     // x2 = 5
             // amoadd.w x3, x2, [x1]: mem = 0x37 + 5 = 0x3C, x3 = 0x37
             enc_amo(0x00, 3, 2, 1, 2),
             // amoswap.w x4, x2, [x1]: mem = 5, x4 = 0x3C
@@ -426,10 +441,7 @@ mod tests {
             for (idx, want) in &g.expect_regs {
                 let got = state.reg(*idx);
                 if got != *want {
-                    failures.push(format!(
-                        "{}: x{idx} = {got:#x}, want {want:#x}",
-                        g.name
-                    ));
+                    failures.push(format!("{}: x{idx} = {got:#x}, want {want:#x}", g.name));
                 }
             }
             for (addr, want) in &g.expect_mem32 {
@@ -442,6 +454,10 @@ mod tests {
                 }
             }
         }
-        assert!(failures.is_empty(), "golden failures:\n{}", failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "golden failures:\n{}",
+            failures.join("\n")
+        );
     }
 }

@@ -222,7 +222,9 @@ mod tests {
     fn program_load_and_digest_deterministic() {
         let mut s1 = MachineState::new();
         let mut s2 = MachineState::new();
-        let program = [0x13u8, 0x05, 0x50, 0x01, 0x93, 0x05, 0x50, 0x02, 0x73, 0x00, 0x00, 0x00];
+        let program = [
+            0x13u8, 0x05, 0x50, 0x01, 0x93, 0x05, 0x50, 0x02, 0x73, 0x00, 0x00, 0x00,
+        ];
         s1.load_program(0x1000, &program);
         s2.load_program(0x1000, &program);
         assert_eq!(s1.memory.digest(), s2.memory.digest());

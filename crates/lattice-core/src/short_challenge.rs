@@ -85,7 +85,11 @@ pub enum ShortChallengeError {
     /// Malformed spec (weight > n, empty value set, bad bias).
     InvalidParameters,
     /// Op-norm rejection exhausted its retries.
-    GammaCapExceeded { gamma: u64, cap: u64, retries: usize },
+    GammaCapExceeded {
+        gamma: u64,
+        cap: u64,
+        retries: usize,
+    },
 }
 
 impl ShortChallengeSpec {
@@ -139,9 +143,7 @@ impl ShortChallengeSpec {
         let b = self.amplitude_max().max(1) as u64;
         let k = match &self.family {
             ShortChallengeFamily::FixedWeight { weight, .. }
-            | ShortChallengeFamily::FixedWeightSmallSet { weight, .. } => {
-                (*weight).min(self.n)
-            }
+            | ShortChallengeFamily::FixedWeightSmallSet { weight, .. } => (*weight).min(self.n),
             _ => self.n,
         };
         b.saturating_mul(ceil_sqrt(k as u64))
@@ -152,17 +154,14 @@ impl ShortChallengeSpec {
         let n = self.n as f64;
         match &self.family {
             ShortChallengeFamily::FixedWeight { weight, .. } => {
-                ln_binom(n, *weight as f64) / std::f64::consts::LN_2
-                    + *weight as f64
+                ln_binom(n, *weight as f64) / std::f64::consts::LN_2 + *weight as f64
             }
             ShortChallengeFamily::BiasedTernary { p_nonzero_permille } => {
                 let p = f64::from(*p_nonzero_permille) / 1000.0;
                 // Binary entropy of {0, ±1} with P(nonzero) = p, split evenly.
                 n * binary_entropy(p)
             }
-            ShortChallengeFamily::SmallSet { values } => {
-                n * (values.len() as f64).log2()
-            }
+            ShortChallengeFamily::SmallSet { values } => n * (values.len() as f64).log2(),
             ShortChallengeFamily::FixedWeightSmallSet { weight, values } => {
                 ln_binom(n, *weight as f64) / std::f64::consts::LN_2
                     + *weight as f64 * (values.len() as f64).log2()
@@ -190,9 +189,7 @@ impl ShortChallengeSpec {
             ShortChallengeFamily::BiasedTernary { p_nonzero_permille } => {
                 sample_biased_ternary(*p_nonzero_permille, self.n, seed)?
             }
-            ShortChallengeFamily::SmallSet { values } => {
-                sample_small_set(values, self.n, seed)?
-            }
+            ShortChallengeFamily::SmallSet { values } => sample_small_set(values, self.n, seed)?,
             ShortChallengeFamily::FixedWeightSmallSet { weight, values } => {
                 sample_fixed_weight_set(*weight, values, self.n, seed)?
             }
@@ -273,7 +270,10 @@ impl ShortChallenge {
 /// Schwarz: `|Σ c_i ζ^i| ≤ ‖c‖₂` for unit-modulus `ζ^i`). The `√N` factor
 /// of the full growth law lives in [`crate::norm_budget::NormBudget::fold`].
 fn certified_gamma(coefficients: &[i64]) -> u64 {
-    let l2sq: u128 = coefficients.iter().map(|c| (*c as i128 * *c as i128) as u128).sum();
+    let l2sq: u128 = coefficients
+        .iter()
+        .map(|c| (*c as i128 * *c as i128) as u128)
+        .sum();
     ceil_sqrt_u128(l2sq)
 }
 
@@ -386,11 +386,7 @@ impl<'a> UniformCursor<'a> {
         if self.pos + 4 > self.stream.len() {
             return None;
         }
-        let v = u32::from_le_bytes(
-            self.stream[self.pos..self.pos + 4]
-                .try_into()
-                .ok()?,
-        );
+        let v = u32::from_le_bytes(self.stream[self.pos..self.pos + 4].try_into().ok()?);
         self.pos += 4;
         Some(v)
     }
@@ -399,11 +395,7 @@ impl<'a> UniformCursor<'a> {
         if self.pos + 8 > self.stream.len() {
             return None;
         }
-        let v = u64::from_le_bytes(
-            self.stream[self.pos..self.pos + 8]
-                .try_into()
-                .ok()?,
-        );
+        let v = u64::from_le_bytes(self.stream[self.pos..self.pos + 8].try_into().ok()?);
         self.pos += 8;
         Some(v)
     }
@@ -538,7 +530,13 @@ fn ln_factorial(x: f64) -> f64 {
 /// Binary entropy H(p) (bits) for a ternary split {0: 1-p, ±1: p/2 each}.
 fn binary_entropy(p: f64) -> f64 {
     let q = 1.0 - p;
-    let h2 = |a: f64| if a <= 0.0 || a >= 1.0 { 0.0 } else { -a * a.log2() };
+    let h2 = |a: f64| {
+        if a <= 0.0 || a >= 1.0 {
+            0.0
+        } else {
+            -a * a.log2()
+        }
+    };
     // Entropy of the three-outcome distribution.
     let mut h = 0.0;
     if p / 2.0 > 0.0 && p / 2.0 < 1.0 {
@@ -754,11 +752,15 @@ mod tests {
     #[test]
     fn gamma_cap_rejection_fails_closed() {
         let spec = pikkufold_spec(); // per-sample Γ = 5 exactly (weight 23)
-        // Fixed-weight ±1 at weight 23 always gives Γ = 5, so a cap of 4
-        // must exhaust retries and fail closed.
+                                     // Fixed-weight ±1 at weight 23 always gives Γ = 5, so a cap of 4
+                                     // must exhaust retries and fail closed.
         assert!(matches!(
             spec.sample_with_gamma_cap(b"x", 4, 4),
-            Err(ShortChallengeError::GammaCapExceeded { gamma: 5, cap: 4, .. })
+            Err(ShortChallengeError::GammaCapExceeded {
+                gamma: 5,
+                cap: 4,
+                ..
+            })
         ));
         // A comfortable cap accepts immediately.
         assert!(spec.sample_with_gamma_cap(b"x", 5, 4).is_ok());
@@ -806,7 +808,7 @@ mod tests {
         assert_eq!(ceil_sqrt(25), 5);
         assert_eq!(ceil_sqrt(26), 6);
         assert_eq!(ceil_sqrt_u128(u128::MAX), u64::MAX); // saturating ceiling of √(2^128-1) = 2^64
-        // Exactly representable boundary values:
+                                                         // Exactly representable boundary values:
         let sq = (u64::MAX as u128) * (u64::MAX as u128); // (2^64-1)²
         assert_eq!(ceil_sqrt_u128(sq), u64::MAX);
         // True ceiling 2^64 saturates to u64::MAX — still a valid bound.
@@ -821,13 +823,19 @@ mod tests {
     fn spec_validation_rejects_bad_parameters() {
         assert!(ShortChallengeSpec {
             n: 0,
-            family: ShortChallengeFamily::FixedWeight { weight: 1, amplitude: 1 }
+            family: ShortChallengeFamily::FixedWeight {
+                weight: 1,
+                amplitude: 1
+            }
         }
         .validate()
         .is_err());
         assert!(ShortChallengeSpec {
             n: 8,
-            family: ShortChallengeFamily::FixedWeight { weight: 9, amplitude: 1 }
+            family: ShortChallengeFamily::FixedWeight {
+                weight: 9,
+                amplitude: 1
+            }
         }
         .validate()
         .is_err());
@@ -839,7 +847,9 @@ mod tests {
         .is_err());
         assert!(ShortChallengeSpec {
             n: 8,
-            family: ShortChallengeFamily::BiasedTernary { p_nonzero_permille: 1001 }
+            family: ShortChallengeFamily::BiasedTernary {
+                p_nonzero_permille: 1001
+            }
         }
         .validate()
         .is_err());
@@ -854,7 +864,10 @@ mod tests {
         // weight 4 over n = 16, each position expects 50 hits.
         let spec = ShortChallengeSpec {
             n: 16,
-            family: ShortChallengeFamily::FixedWeight { weight: 4, amplitude: 1 },
+            family: ShortChallengeFamily::FixedWeight {
+                weight: 4,
+                amplitude: 1,
+            },
         };
         let mut counts = [0usize; 16];
         let draws = 200;

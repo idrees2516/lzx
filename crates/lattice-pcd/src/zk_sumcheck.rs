@@ -43,8 +43,15 @@ use lattice_core::transcript::Transcript;
 pub enum ZkScError {
     Shape(&'static str),
     Transcript(lattice_core::transcript::TranscriptError),
-    RoundConsistency { round: usize, coord: usize },
-    DegreeBound { round: usize, got: usize, expected: usize },
+    RoundConsistency {
+        round: usize,
+        coord: usize,
+    },
+    DegreeBound {
+        round: usize,
+        got: usize,
+        expected: usize,
+    },
 }
 
 impl core::fmt::Display for ZkScError {
@@ -55,7 +62,11 @@ impl core::fmt::Display for ZkScError {
             ZkScError::RoundConsistency { round, coord } => {
                 write!(f, "round {round} inconsistent at coordinate {coord}")
             }
-            ZkScError::DegreeBound { round, got, expected } => write!(
+            ZkScError::DegreeBound {
+                round,
+                got,
+                expected,
+            } => write!(
                 f,
                 "round {round} degree bound: got {got} coefficients, expected {expected}"
             ),
@@ -92,12 +103,7 @@ pub struct MaskPoly {
 }
 
 impl MaskPoly {
-    fn from_coeff_slice(
-        n: usize,
-        num_vars: usize,
-        degree: usize,
-        coeffs: &[Fp256],
-    ) -> MaskPoly {
+    fn from_coeff_slice(n: usize, num_vars: usize, degree: usize, coeffs: &[Fp256]) -> MaskPoly {
         let mut const_terms = Vec::with_capacity(n);
         let mut per_var = vec![Vec::with_capacity(n); num_vars];
         let mut idx = 0;
@@ -206,9 +212,7 @@ impl MaskPoly {
     /// `2^L·r_{c,0} + Σ_k 2^{L−1}·Σ_{j≥1} coeff_j`.
     pub fn cube_sum(&self) -> Vec<Fp256> {
         let two = Fp256::from_canonical_u64(2);
-        let inv2 = two
-            .inverse()
-            .unwrap_or(Fp256::from_canonical_u64(1));
+        let inv2 = two.inverse().unwrap_or(Fp256::from_canonical_u64(1));
         let mut scale = Fp256::from_canonical_u64(1);
         for _ in 0..self.num_vars {
             scale = scale.mul(&two);
@@ -736,7 +740,11 @@ mod tests {
         let l = 3;
         let d = 2; // map degree; statement degree d+1 = 3; masks degree 3.
         let n = 2;
-        let w = [vec![fr(5), fr(7)], vec![fr(11), fr(13)], vec![fr(17), fr(19)]];
+        let w = [
+            vec![fr(5), fr(7)],
+            vec![fr(11), fr(13)],
+            vec![fr(17), fr(19)],
+        ];
         let f_tilde = |pt: &[Fp256]| -> Vec<Fp256> {
             let mut out = vec![Fp256::ZERO; n];
             for (k, wk) in w.iter().enumerate() {
@@ -749,7 +757,9 @@ mod tests {
             out
         };
         let mut t = Transcript::new_default(b"zksc");
-        let alpha = crate::util::challenge_fp_vec(&mut t, b"alpha", l).ok().unwrap();
+        let alpha = crate::util::challenge_fp_vec(&mut t, b"alpha", l)
+            .ok()
+            .unwrap();
         let gamma = crate::util::challenge_fp(&mut t, b"gamma").ok().unwrap();
         // Old masks are prior-accumulator inputs: sample them from a
         // separate transcript (their claims enter via the header).
@@ -784,10 +794,14 @@ mod tests {
             .map(|(_, bj, vg)| (bj.clone(), vg.clone()))
             .collect();
         let mut tver = Transcript::new_default(b"zksc");
-        let vout = match verify_masked_batched(l, d, n, &alpha, &gamma, &old_claims, &proof, &mut tver) {
-            Ok(v) => v,
-            Err(e) => { println!("VERIFIER ERROR: {e}"); panic!("verifier failed: {e}"); }
-        };
+        let vout =
+            match verify_masked_batched(l, d, n, &alpha, &gamma, &old_claims, &proof, &mut tver) {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("VERIFIER ERROR: {e}");
+                    panic!("verifier failed: {e}");
+                }
+            };
         assert_eq!(vout.beta, out.beta);
         assert_eq!(vout.first_final, out.first_final);
         assert_eq!(vout.old_kernel_evals, out.old_kernel_evals);

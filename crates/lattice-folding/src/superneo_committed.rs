@@ -45,10 +45,16 @@ pub const FOLD_CHALLENGE_BOUND: u32 = 1 << 8;
 pub enum CommittedError {
     Ajtai(AjtaiError),
     SuperNeo(SuperNeoError),
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// A value exceeded the small-field bridge bound — the fold would
     /// wrap mod q and destroy the exact homomorphism (fail-closed).
-    ValueOutOfBounds { value: u32, bound: u32 },
+    ValueOutOfBounds {
+        value: u32,
+        bound: u32,
+    },
     TranscriptFailure,
     /// The decider failed (opening, reconstruction, or π_CCS).
     DeciderFailed(&'static str),
@@ -171,7 +177,10 @@ pub fn commit_instance(
             slack: slack.to_vec(),
             packed_len,
         },
-        CcsSecret { witness: witness.to_vec(), packed: padded },
+        CcsSecret {
+            witness: witness.to_vec(),
+            packed: padded,
+        },
     ))
 }
 
@@ -205,7 +214,9 @@ pub fn cross_term(
     u2: Goldilocks,
 ) -> Result<Vec<Goldilocks>, CommittedError> {
     let n = ccs.n;
-    let to_fe = |v: &[u32]| -> Vec<Goldilocks> { v.iter().map(|&x| Goldilocks::from_u64(x as u64)).collect() };
+    let to_fe = |v: &[u32]| -> Vec<Goldilocks> {
+        v.iter().map(|&x| Goldilocks::from_u64(x as u64)).collect()
+    };
     let imgs1: Vec<Vec<Goldilocks>> = ccs
         .a_matrices
         .iter()
@@ -219,7 +230,10 @@ pub fn cross_term(
     let mut e = vec![Goldilocks::ZERO; n];
     for (t, ids) in ccs.selections.iter().enumerate() {
         if ids.len() != 2 {
-            return Err(CommittedError::Shape { expected: 2, got: ids.len() });
+            return Err(CommittedError::Shape {
+                expected: 2,
+                got: ids.len(),
+            });
         }
         let c = ccs.constants.get(t).copied().unwrap_or(Goldilocks::ONE);
         let (ia, ib) = (ids[0], ids[1]);
@@ -260,9 +274,12 @@ pub fn fold_challenge(
     d2: &[u8; 32],
 ) -> Result<u32, CommittedError> {
     let mut t = Transcript::new_default(b"lzx-superneo-committed");
-    t.append_bytes(b"ccs", ccs_digest).map_err(|_| CommittedError::TranscriptFailure)?;
-    t.append_bytes(b"d1", d1).map_err(|_| CommittedError::TranscriptFailure)?;
-    t.append_bytes(b"d2", d2).map_err(|_| CommittedError::TranscriptFailure)?;
+    t.append_bytes(b"ccs", ccs_digest)
+        .map_err(|_| CommittedError::TranscriptFailure)?;
+    t.append_bytes(b"d1", d1)
+        .map_err(|_| CommittedError::TranscriptFailure)?;
+    t.append_bytes(b"d2", d2)
+        .map_err(|_| CommittedError::TranscriptFailure)?;
     let bytes = t
         .challenge_bytes(b"fold-r", 4)
         .map_err(|_| CommittedError::TranscriptFailure)?;
@@ -283,13 +300,24 @@ pub fn fold_public(
     r: u32,
 ) -> Result<CommittedRelaxedCcsInstance, CommittedError> {
     if inst1.packed_len != inst2.packed_len || inst1.pay_per_bit != inst2.pay_per_bit {
-        return Err(CommittedError::Shape { expected: inst1.packed_len, got: inst2.packed_len });
+        return Err(CommittedError::Shape {
+            expected: inst1.packed_len,
+            got: inst2.packed_len,
+        });
     }
     if e.len() != inst1.slack.len() {
-        return Err(CommittedError::Shape { expected: inst1.slack.len(), got: e.len() });
+        return Err(CommittedError::Shape {
+            expected: inst1.slack.len(),
+            got: e.len(),
+        });
     }
     let mut rows = Vec::with_capacity(inst1.commitment.rows.len());
-    for (c1, c2) in inst1.commitment.rows.iter().zip(inst2.commitment.rows.iter()) {
+    for (c1, c2) in inst1
+        .commitment
+        .rows
+        .iter()
+        .zip(inst2.commitment.rows.iter())
+    {
         rows.push(c1.add(&c2.scale_i64(r as i64))?);
     }
     let r_f = Goldilocks::from_u64(r as u64);
@@ -395,7 +423,11 @@ pub fn decider_committed(
     pk.verify_opening(&inst.commitment, &secret.packed)
         .map_err(|_| CommittedError::DeciderFailed("commitment opening"))?;
     // Reconstruction + the exact-packing cross-check.
-    let packed_len = if inst.pay_per_bit { secret.witness.len() * 16 } else { secret.witness.len() };
+    let packed_len = if inst.pay_per_bit {
+        secret.witness.len() * 16
+    } else {
+        secret.witness.len()
+    };
     if packed_len != inst.packed_len {
         return Err(CommittedError::DeciderFailed("packed length"));
     }
@@ -426,8 +458,11 @@ pub fn decider_committed(
     }
     // π_CCS: relaxed satisfaction (Goldilocks-exact for the small
     // witnesses; the slack/u live in the full field).
-    let g_witness: Vec<Goldilocks> =
-        secret.witness.iter().map(|&x| Goldilocks::from_u64(x as u64)).collect();
+    let g_witness: Vec<Goldilocks> = secret
+        .witness
+        .iter()
+        .map(|&x| Goldilocks::from_u64(x as u64))
+        .collect();
     let relaxed = RelaxedCcsInstance {
         witness: g_witness,
         slack: inst.slack.clone(),
@@ -456,7 +491,12 @@ mod tests {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
         // Binding-only norm regime: the folded small-field values stay
         // below 2^25 but the slack accumulates — open at the bridge bound.
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m: m_slots, norm_bound: 1 << 26 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 26,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [23u8; 32]).ok().unwrap();
         (pk, ring)
     }
@@ -503,10 +543,15 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"w1");
         let w2 = bool_witness(8, b"w2");
-        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (folded, secret) =
-            fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (folded, secret) = fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2)
+            .ok()
+            .unwrap();
         // π_CCS decider: opening + reconstruction + satisfaction.
         match decider_committed(&pk, &ccs, &folded, &secret) {
             Ok(_) => {}
@@ -521,12 +566,17 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"b1");
         let w2 = bool_witness(8, b"b2");
-        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true)
+            .ok()
+            .unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, true)
+            .ok()
+            .unwrap();
         // The bit packing: 16 bits per value → 128 packed entries.
         assert_eq!(i1.packed_len, 128);
-        let (folded, secret) =
-            fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2).ok().unwrap();
+        let (folded, secret) = fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2)
+            .ok()
+            .unwrap();
         assert!(decider_committed(&pk, &ccs, &folded, &secret).is_ok());
         // The pay-per-bit cost model: nonzero bits only.
         let cost = pay_per_bit_commit_cost(&w1);
@@ -546,8 +596,12 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let wa = bool_witness(8, b"a");
         let wb = bool_witness(8, b"b");
-        let (ia, _) = commit_instance(&pk, &wa, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (ib, _) = commit_instance(&pk, &wb, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (ia, _) = commit_instance(&pk, &wa, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (ib, _) = commit_instance(&pk, &wb, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
         assert_ne!(committed_digest(&ia), committed_digest(&ib));
         let r1 = fold_challenge(&cd, &committed_digest(&ia), &committed_digest(&ib))
             .ok()
@@ -559,7 +613,9 @@ mod tests {
         assert!(r1 < FOLD_CHALLENGE_BOUND);
         // Same digests with a third instance → different challenge.
         let wc = bool_witness(8, b"c");
-        let (ic, _) = commit_instance(&pk, &wc, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (ic, _) = commit_instance(&pk, &wc, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
         let r3 = fold_challenge(&cd, &committed_digest(&ia), &committed_digest(&ic))
             .ok()
             .unwrap();
@@ -578,17 +634,25 @@ mod tests {
         let cd = ccs_digest_of(&ccs);
         let w1 = bool_witness(8, b"x1");
         let w2 = bool_witness(8, b"x2");
-        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
         let d1 = committed_digest(&i1);
         let d2 = committed_digest(&i2);
         let r = fold_challenge(&cd, &d1, &d2).ok().unwrap();
         // A WRONG cross term (zeros): slack' misses r·E → π_CCS fails.
-        let folded_bad = fold_public(&i1, &i2, &[Goldilocks::ZERO; 8], r).ok().unwrap();
+        let folded_bad = fold_public(&i1, &i2, &[Goldilocks::ZERO; 8], r)
+            .ok()
+            .unwrap();
         let secret = fold_secret(&pk, &s1, &s2, r, false).ok().unwrap();
         assert!(decider_committed(&pk, &ccs, &folded_bad, &secret).is_err());
         // The honest cross term passes.
-        let e = cross_term(&ccs, &s1.witness, &s2.witness, i1.u, i2.u).ok().unwrap();
+        let e = cross_term(&ccs, &s1.witness, &s2.witness, i1.u, i2.u)
+            .ok()
+            .unwrap();
         let folded = fold_public(&i1, &i2, &e, r).ok().unwrap();
         assert!(decider_committed(&pk, &ccs, &folded, &secret).is_ok());
     }
@@ -613,14 +677,22 @@ mod tests {
         let w1 = bool_witness(8, b"i1");
         let w2 = bool_witness(8, b"i2");
         let w3 = bool_witness(8, b"i3");
-        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (i3, s3) = commit_instance(&pk, &w3, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false).ok().unwrap();
-        let (acc_i, acc_s) =
-            fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i3, s3) = commit_instance(&pk, &w3, &[Goldilocks::ZERO; 8], Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (acc_i, acc_s) = fold_committed(&pk, &ccs, &cd, &i1, &i2, &s1, &s2)
+            .ok()
+            .unwrap();
         assert!(decider_committed(&pk, &ccs, &acc_i, &acc_s).is_ok());
-        let (acc_i2, acc_s2) =
-            fold_committed(&pk, &ccs, &cd, &acc_i, &i3, &acc_s, &s3).ok().unwrap();
+        let (acc_i2, acc_s2) = fold_committed(&pk, &ccs, &cd, &acc_i, &i3, &acc_s, &s3)
+            .ok()
+            .unwrap();
         assert!(decider_committed(&pk, &ccs, &acc_i2, &acc_s2).is_ok());
     }
 }

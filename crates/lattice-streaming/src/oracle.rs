@@ -356,7 +356,11 @@ pub fn stream_mle_eval(
         let v = stream.next();
         let mut w = Goldilocks::ONE;
         for (b, rb) in point.iter().enumerate() {
-            let f = if (z >> (n_vars - 1 - b)) & 1 == 1 { *rb } else { Goldilocks::ONE.sub(rb) };
+            let f = if (z >> (n_vars - 1 - b)) & 1 == 1 {
+                *rb
+            } else {
+                Goldilocks::ONE.sub(rb)
+            };
             w = w.mul(&f);
         }
         acc = acc.add(&w.mul(&v));
@@ -390,18 +394,17 @@ mod tests {
     #[test]
     fn chunked_regen_random_access() {
         let n = 6;
-        let (mut o, values) = ChunkedRegenOracle::build(
-            n,
-            0u64,
-            5,
-            |st: &mut u64, i: u64| {
-                *st = st.wrapping_add(i * 3 + 1);
-                g(*st)
-            },
-        );
+        let (mut o, values) = ChunkedRegenOracle::build(n, 0u64, 5, |st: &mut u64, i: u64| {
+            *st = st.wrapping_add(i * 3 + 1);
+            g(*st)
+        });
         assert_eq!(values.len(), 64);
         for idx in [0u64, 1, 5, 6, 17, 40, 63, 20, 2, 63] {
-            assert_eq!(IndexOracle::eval(&mut o, idx), values[idx as usize], "at {idx}");
+            assert_eq!(
+                IndexOracle::eval(&mut o, idx),
+                values[idx as usize],
+                "at {idx}"
+            );
         }
         // Sequential stream agrees too.
         o.reset();
@@ -414,10 +417,14 @@ mod tests {
     #[test]
     fn gen_oracle_stateful() {
         let mut counter = 100u64;
-        let mut o = GenOracle::new(4, move |_| {
-            counter = counter.wrapping_add(7);
-            g(counter)
-        }, || {});
+        let mut o = GenOracle::new(
+            4,
+            move |_| {
+                counter = counter.wrapping_add(7);
+                g(counter)
+            },
+            || {},
+        );
         let first = o.next();
         let second = o.next();
         assert_eq!(first, g(107));

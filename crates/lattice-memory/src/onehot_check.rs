@@ -159,7 +159,10 @@ pub fn prove_onehot(
     vp.add_term(Goldilocks::ONE, term)?;
     let raf_out = sumcheck::prove(&vp, y, transcript)?;
 
-    Ok(OneHotProof { booleanity, raf: raf_out.proof })
+    Ok(OneHotProof {
+        booleanity,
+        raf: raf_out.proof,
+    })
 }
 
 /// Verify the one-hot constraint PIOP for one side.
@@ -202,9 +205,7 @@ pub fn verify_onehot(
 
     // 2. Hamming weight one: the 2^-1 point trick. For each dimension,
     //    N · ra_i(2^-1,...,2^-1, r') == 1.
-    let inv2 = Goldilocks::TWO
-        .inverse()
-        .ok_or(PiopError::InverseOfTwo)?;
+    let inv2 = Goldilocks::TWO.inverse().ok_or(PiopError::InverseOfTwo)?;
     let mut weight_point = vec![inv2; log_n];
     weight_point.extend(r_prime.iter().copied());
     for i in 0..d {
@@ -263,7 +264,9 @@ mod tests {
         let log_k = 3usize;
         let log_t = 3usize;
         let addr = vec![1u64, 5, 2, 7, 0, 3, 6, 4];
-        let matrix = one_hot_dim_matrix(&hot_for(&addr), log_k, log_t).ok().unwrap();
+        let matrix = one_hot_dim_matrix(&hot_for(&addr), log_k, log_t)
+            .ok()
+            .unwrap();
         let col = bool_col(&addr, log_t);
         let resolver = WitnessResolver {
             ra: vec![Some(&matrix)],
@@ -295,7 +298,10 @@ mod tests {
         let log_t = 2usize;
         let addr = vec![0u64, 7, 15, 3];
         let layout = OneHotLayout::new(log_k, log_t, 2, usize::MAX).ok().unwrap();
-        let digits: Vec<Vec<u32>> = addr.iter().map(|&a| layout.digits(a).ok().unwrap()).collect();
+        let digits: Vec<Vec<u32>> = addr
+            .iter()
+            .map(|&a| layout.digits(a).ok().unwrap())
+            .collect();
         let hot0: Vec<u32> = digits.iter().map(|d| d[0]).collect();
         let hot1: Vec<u32> = digits.iter().map(|d| d[1]).collect();
         let m0 = one_hot_dim_matrix(&hot0, 2, log_t).ok().unwrap();
@@ -339,7 +345,15 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t
+        )
+        .is_err());
     }
 
     /// Soundness (the weight check): an all-zero row is Boolean, so the
@@ -353,7 +367,9 @@ mod tests {
         // Cycle 1's indicator row is all-zero: Boolean, but weight zero.
         // Its decoded address is 0, matching the address column — so the
         // whole proof completes and ONLY the weight check catches it.
-        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t).ok().unwrap();
+        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t)
+            .ok()
+            .unwrap();
         let mut bad = matrix.clone();
         for k in 0..4usize {
             bad.evaluations[k * 4 + 1] = Goldilocks::ZERO;
@@ -365,9 +381,16 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(std::slice::from_ref(&bad), log_k, log_t, OneHotSide::Read, &resolver, &mut t)
-            .ok()
-            .unwrap();
+        let proof = prove_onehot(
+            std::slice::from_ref(&bad),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         let mut t2 = Transcript::new_default(b"onehot-test");
         assert!(matches!(
             verify_onehot(&proof, log_k, log_t, OneHotSide::Read, &resolver, &mut t2),
@@ -381,7 +404,9 @@ mod tests {
     fn mismatched_y_refused_by_prover() {
         let log_k = 2usize;
         let log_t = 2usize;
-        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t).ok().unwrap();
+        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t)
+            .ok()
+            .unwrap();
         // Column disagrees with the matrices at cycle 3 (address 2 vs 3).
         let col = bool_col(&[1, 0, 3, 7], log_t);
         let resolver = WitnessResolver {
@@ -390,7 +415,15 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        assert!(prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t).is_err());
+        assert!(prove_onehot(
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t
+        )
+        .is_err());
     }
 
     /// Soundness: a resolver that answers with a DIFFERENT matrix than
@@ -400,8 +433,12 @@ mod tests {
     fn resolver_substitution_rejected() {
         let log_k = 2usize;
         let log_t = 2usize;
-        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t).ok().unwrap();
-        let other = one_hot_dim_matrix(&[2u32, 1, 0, 3], log_k, log_t).ok().unwrap();
+        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t)
+            .ok()
+            .unwrap();
+        let other = one_hot_dim_matrix(&[2u32, 1, 0, 3], log_k, log_t)
+            .ok()
+            .unwrap();
         let col = bool_col(&[1, 0, 3, 2], log_t);
         let prover_resolver = WitnessResolver {
             ra: vec![Some(&matrix)],
@@ -409,9 +446,16 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &prover_resolver, &mut t)
-            .ok()
-            .unwrap();
+        let proof = prove_onehot(
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &prover_resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         // Cheating resolver: different matrix at the booleanity points.
         let bad_col = bool_col(&[2, 1, 0, 3], log_t);
         let cheat = WitnessResolver {
@@ -428,7 +472,9 @@ mod tests {
     fn tampered_rounds_rejected() {
         let log_k = 2usize;
         let log_t = 2usize;
-        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t).ok().unwrap();
+        let matrix = one_hot_dim_matrix(&[1u32, 0, 3, 2], log_k, log_t)
+            .ok()
+            .unwrap();
         let col = bool_col(&[1, 0, 3, 2], log_t);
         let resolver = WitnessResolver {
             ra: vec![Some(&matrix)],
@@ -436,9 +482,16 @@ mod tests {
             ..Default::default()
         };
         let mut t = Transcript::new_default(b"onehot-test");
-        let mut proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t)
-            .ok()
-            .unwrap();
+        let mut proof = prove_onehot(
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         if let Some(round) = proof.raf.rounds.first_mut() {
             if let Some(v) = round.first_mut() {
                 *v = v.add(&fe(1));

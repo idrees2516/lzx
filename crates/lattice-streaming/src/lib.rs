@@ -52,8 +52,8 @@
 pub mod client;
 pub mod grand_product;
 pub mod hybrid;
+pub mod oracle;
 pub mod pcs_stream;
 pub mod prefix_suffix;
-pub mod oracle;
 pub mod small_space;
 pub mod window_schedule;

@@ -171,7 +171,11 @@ pub fn msm(bases: &[G1Affine], scalars: &[Fp256]) -> G1Affine {
         }
         let mut buckets: Vec<G1Point> = vec![G1Point::identity(); 16];
         for (i, sc) in scalars.iter().enumerate() {
-            let canon = sc.mul(&Fp256 { limbs: [1, 0, 0, 0] }).limbs;
+            let canon = sc
+                .mul(&Fp256 {
+                    limbs: [1, 0, 0, 0],
+                })
+                .limbs;
             // nibble w (little-endian nibbles over the 4 limbs)
             let bit_pos = w * C as usize;
             let limb = bit_pos / 64;
@@ -293,7 +297,11 @@ mod tests {
         let k = key();
         let lam = [fr(5), fr(7), fr(0xdead_beef)];
         let vs: Vec<Vec<Fp256>> = (0..3)
-            .map(|j| (0..6).map(|i| fr((i as u64 + 1) * (j as u64 + 2))).collect())
+            .map(|j| {
+                (0..6)
+                    .map(|i| fr((i as u64 + 1) * (j as u64 + 2)))
+                    .collect()
+            })
             .collect();
         let rs: Vec<Fp256> = (0..3).map(|j| fr(100 + j as u64 * 17)).collect();
         let cs: Vec<PedersenCommitment> = vs

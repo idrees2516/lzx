@@ -112,7 +112,11 @@ impl Rng {
 
     /// A ring element of independent Gaussians.
     pub fn gaussian_poly(&mut self, d: usize, s: f64, tau: f64) -> Poly {
-        Poly((0..d).map(|_| Fq::from_i64(self.gaussian(s, tau))).collect())
+        Poly(
+            (0..d)
+                .map(|_| Fq::from_i64(self.gaussian(s, tau)))
+                .collect(),
+        )
     }
 }
 
@@ -130,8 +134,7 @@ pub fn attempt_budget(lambda: f64, m: f64) -> u32 {
 
 /// τ_{λ,ξ} ≥ sqrt((λ + log2(2 nF)) ln 2 / π) (Lemma 3.19).
 pub fn tau_lambda(lambda: f64, nf: f64) -> f64 {
-    ((lambda + (2.0 * nf).log2()) * std::f64::consts::LN_2 / std::f64::consts::PI)
-        .sqrt()
+    ((lambda + (2.0 * nf).log2()) * std::f64::consts::LN_2 / std::f64::consts::PI).sqrt()
 }
 
 /// The Rej1 rejection-sampling decision (Lemma 3.20):
@@ -226,8 +229,8 @@ pub fn required_k(
     nf: usize,
 ) -> usize {
     let tau = tau_lambda(lambda, nf as f64);
-    let lhs = tau * xi * k_plus_capital_k as f64 * t_exp as f64 * (b - 1) as f64
-        * (nf as f64).sqrt();
+    let lhs =
+        tau * xi * k_plus_capital_k as f64 * t_exp as f64 * (b - 1) as f64 * (nf as f64).sqrt();
     let mut k = 1u32;
     while (b as f64).powi(k as i32) <= lhs && k < 64 {
         k += 1;

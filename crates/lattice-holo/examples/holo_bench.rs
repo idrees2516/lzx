@@ -2,6 +2,7 @@
 //! Π_GBF1/Π_GBF2 in both representations, Barebones (the SuperSpartan /
 //! SuperMarlin recovery), Π_Fold chains, and the decider.
 
+use lattice_core::transcript::Transcript;
 use lattice_holo::barebones::{barebones_prove, barebones_verify};
 use lattice_holo::decider::decide;
 use lattice_holo::fold::{fold_verify, fold_with_matrices};
@@ -12,7 +13,6 @@ use lattice_holo::pcd::{pcd_decide, pcd_prove_step, pcd_verify_step};
 use lattice_holo::poly::Domain;
 use lattice_holo::relations::{Ccs, GbfInstance, GbfLeft, GbfRight, GbfWitness};
 use lattice_holo::Fp256;
-use lattice_core::transcript::Transcript;
 
 fn now_ms() -> f64 {
     std::time::SystemTime::now()
@@ -107,8 +107,12 @@ fn bench_gbf(domain: &Domain, label: &str) {
     let mut tv = Transcript::new_default(b"bench");
     let ok2 = gbf2_verify(domain, &[inst.clone()], &p2, &mut tv).is_ok();
     // GBF1.
-    let d1 = lattice_holo::poly::mat_vec(&case.matrices[0], &wits[0].vs[0]).ok().unwrap();
-    let d2 = lattice_holo::poly::mat_vec(&case.matrices[1], &wits[0].vs[0]).ok().unwrap();
+    let d1 = lattice_holo::poly::mat_vec(&case.matrices[0], &wits[0].vs[0])
+        .ok()
+        .unwrap();
+    let d2 = lattice_holo::poly::mat_vec(&case.matrices[1], &wits[0].vs[0])
+        .ok()
+        .unwrap();
     let mut t2 = Transcript::new_default(b"bench1");
     let (dc1, dw1) = key.commit_encoding(&d1, &mut t2).ok().unwrap();
     let (dc2, _dw2) = key.commit_encoding(&d2, &mut t2).ok().unwrap();
@@ -144,29 +148,47 @@ fn bench_barebones(domain: &Domain, label: &str) {
         .collect();
     let t0 = now_ms();
     let mut t = Transcript::new_default(b"bbb");
-    let (proof, acc) = barebones_prove(&ccs, &key, &coms, &x, &w, &mut t).ok().unwrap();
+    let (proof, acc) = barebones_prove(&ccs, &key, &coms, &x, &w, &mut t)
+        .ok()
+        .unwrap();
     let t_prov = now_ms() - t0;
     let t0 = now_ms();
     let mut tv = Transcript::new_default(b"bbb");
-    let ok = barebones_verify(&ccs, &key, &coms, &x, &proof, &mut tv).ok().unwrap();
+    let ok = barebones_verify(&ccs, &key, &coms, &x, &proof, &mut tv)
+        .ok()
+        .unwrap();
     let t_ver = now_ms() - t0;
     // Fold: two accumulators.
     let mut t3 = Transcript::new_default(b"bbb3");
-    let (_p2, acc2) = barebones_prove(&ccs, &key, &coms, &x, &w, &mut t3).ok().unwrap();
-    let t0 = now_ms();
-    let mut tf = Transcript::new_default(b"bbf");
-    let (fp, facc) = fold_with_matrices(&key, &ccs.matrices, &coms, &[acc.clone(), acc2.clone()], &mut tf)
+    let (_p2, acc2) = barebones_prove(&ccs, &key, &coms, &x, &w, &mut t3)
         .ok()
         .unwrap();
+    let t0 = now_ms();
+    let mut tf = Transcript::new_default(b"bbf");
+    let (fp, facc) = fold_with_matrices(
+        &key,
+        &ccs.matrices,
+        &coms,
+        &[acc.clone(), acc2.clone()],
+        &mut tf,
+    )
+    .ok()
+    .unwrap();
     let t_fold = now_ms() - t0;
     let mut tfv = Transcript::new_default(b"bbf");
     let _ = fold_verify(&key, &coms, &[acc, acc2], &fp, &mut tfv);
     // Decider.
     let t0 = now_ms();
     let mut td = Transcript::new_default(b"bbd");
-    let okd = decide(&key, &[facc], std::slice::from_ref(&ccs.matrices), &[coms], &mut td)
-        .ok()
-        .unwrap();
+    let okd = decide(
+        &key,
+        &[facc],
+        std::slice::from_ref(&ccs.matrices),
+        &[coms],
+        &mut td,
+    )
+    .ok()
+    .unwrap();
     let t_dec = now_ms() - t0;
     println!(
         "  {label}: barebones prove {t_prov:7.1} ms | verify {t_ver:6.1} ms (ok={ok}) | fold {t_fold:6.1} ms | decide {t_dec:6.1} ms (ok={okd})"
@@ -206,14 +228,26 @@ fn bench_pcd_chain(domain: &Domain, depth: usize) {
     for step in 0..depth {
         let incoming: Vec<_> = accs[..step].to_vec();
         let mut tv = Transcript::new_default(b"pcdb");
-        tv.append_message(b"step", &(step as u64).to_le_bytes()).ok().unwrap();
-        let ok = pcd_verify_step(&ccs, &key, &coms, &incoming, &proofs[step], &accs[step], &mut tv)
+        tv.append_message(b"step", &(step as u64).to_le_bytes())
             .ok()
             .unwrap();
+        let ok = pcd_verify_step(
+            &ccs,
+            &key,
+            &coms,
+            &incoming,
+            &proofs[step],
+            &accs[step],
+            &mut tv,
+        )
+        .ok()
+        .unwrap();
         all_ok &= ok;
     }
     let mut td = Transcript::new_default(b"pcdbd");
-    let okd = pcd_decide(&key, &ccs, &coms, &accs[depth - 1], &mut td).ok().unwrap();
+    let okd = pcd_decide(&key, &ccs, &coms, &accs[depth - 1], &mut td)
+        .ok()
+        .unwrap();
     let t_ver = now_ms() - t0;
     println!(
         "  depth {depth}: chain prove {t_prov:8.1} ms | verify+decide {t_ver:7.1} ms | ok={all_ok}/{okd}"

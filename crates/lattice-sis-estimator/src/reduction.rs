@@ -39,8 +39,7 @@ pub fn delta(beta: u32) -> f64 {
     let beta_f = f64::from(beta);
     let pi = std::f64::consts::PI;
     let e = std::f64::consts::E;
-    (beta_f / (2.0 * pi * e) * (pi * beta_f).powf(1.0 / beta_f))
-        .powf(1.0 / (2.0 * (beta_f - 1.0)))
+    (beta_f / (2.0 * pi * e) * (pi * beta_f).powf(1.0 / beta_f)).powf(1.0 / (2.0 * (beta_f - 1.0)))
 }
 
 /// Invert a root-Hermite factor to the smallest supported BKZ block size

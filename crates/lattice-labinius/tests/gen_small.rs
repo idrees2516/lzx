@@ -536,9 +536,10 @@ fn run_inv<const Q: u16>() {
                 + TwI::<Q>::BAR_S5[1] as u32
                 + TwI::<Q>::BAR_S5[2] as u32)
             + 24 * TwI::<Q>::BAR_S4.iter().filter(|x| **x).count() as u32
-            + 108 * (TwI::<Q>::BAR_S2[0] as u32
-                + TwI::<Q>::BAR_S2[1] as u32
-                + TwI::<Q>::BAR_S2[2] as u32)
+            + 108
+                * (TwI::<Q>::BAR_S2[0] as u32
+                    + TwI::<Q>::BAR_S2[1] as u32
+                    + TwI::<Q>::BAR_S2[2] as u32)
             + 324 * TwI::<Q>::BAR_S1 as u32
     );
 }

@@ -135,7 +135,10 @@ pub fn commit_onehot_columns(
             }
         }
     }
-    let s: Vec<RingElement> = s.into_iter().map(|coeffs| RingElement::from_coeffs(ring, coeffs)).collect();
+    let s: Vec<RingElement> = s
+        .into_iter()
+        .map(|coeffs| RingElement::from_coeffs(ring, coeffs))
+        .collect();
     let commitment = pk.commit(&s)?;
     Ok((commitment, s))
 }
@@ -160,7 +163,14 @@ mod tests {
     #[test]
     fn pack_bits_roundtrip() {
         let ring = RingConfig::new(Modulus32::Q_32, 4).ok().unwrap();
-        for len in [1usize, 31, 32, 100, 31 * 16 /* exactly 1 elem */, 31 * 16 + 7] {
+        for len in [
+            1usize,
+            31,
+            32,
+            100,
+            31 * 16, /* exactly 1 elem */
+            31 * 16 + 7,
+        ] {
             let bits: Vec<u8> = (0..len).map(|i| ((i * 7 + 3) % 5 == 0) as u8).collect();
             let packed = pack_bits(&ring, &bits);
             let unpacked = unpack_bits(&ring, &packed, len);
@@ -235,11 +245,7 @@ mod tests {
         assert_eq!(mac_work_units(&s), 1);
         assert!(pk.verify_opening(&t, &s).is_ok());
         // The packed sum has exactly 3 one-bits (Hamming weight 3).
-        let total_bits: u32 = s[0]
-            .coeffs()
-            .iter()
-            .map(|c| c.count_ones())
-            .sum();
+        let total_bits: u32 = s[0].coeffs().iter().map(|c| c.count_ones()).sum();
         assert_eq!(total_bits, 3);
 
         // Spread across ELEMENTS: with n = 32, one element holds

@@ -220,13 +220,16 @@ mod tests {
         }
         // Fold them.
         let mut tf = Transcript::new_default(b"fold");
-        let (fproof, new_acc) = match fold_with_matrices(&key, &ccs.matrices, &matrix_comms, &accs, &mut tf) {
-            Ok(v) => v,
-            Err(e) => panic!("fold prove failed: {e}"),
-        };
+        let (fproof, new_acc) =
+            match fold_with_matrices(&key, &ccs.matrices, &matrix_comms, &accs, &mut tf) {
+                Ok(v) => v,
+                Err(e) => panic!("fold prove failed: {e}"),
+            };
         // Verify.
         let mut tv = Transcript::new_default(b"fold");
-        let vout = fold_verify(&key, &matrix_comms, &accs, &fproof, &mut tv).ok().unwrap();
+        let vout = fold_verify(&key, &matrix_comms, &accs, &fproof, &mut tv)
+            .ok()
+            .unwrap();
         assert_eq!(vout.gbf_alpha_beta, new_acc.gbf_alpha_beta);
         // The folded statement is satisfiable (implicit vectors).
         let wit = GbfWitness {
@@ -245,10 +248,15 @@ mod tests {
         assert!(fold_verify(&key, &matrix_comms, &accs, &bad, &mut tv2).is_err());
         // A folded chain of folds (depth 2).
         let mut tf2 = Transcript::new_default(b"fold2");
-        let (f2, acc2) =
-            fold_with_matrices(&key, &ccs.matrices, &matrix_comms, &[accs[0].clone(), new_acc], &mut tf2)
-                .ok()
-                .unwrap();
+        let (f2, acc2) = fold_with_matrices(
+            &key,
+            &ccs.matrices,
+            &matrix_comms,
+            &[accs[0].clone(), new_acc],
+            &mut tf2,
+        )
+        .ok()
+        .unwrap();
         let mut tv3 = Transcript::new_default(b"fold2");
         let v3 = fold_verify(&key, &matrix_comms, &accs, &f2, &mut tv3);
         assert!(v3.is_ok() || v3.is_err());

@@ -25,7 +25,7 @@
 use crate::lookup_memory::{
     prove_lookup_memory, verify_lookup_memory, LookupMemoryInstance, LookupMemoryProof,
 };
-use crate::pipeline::{build_trace, Col, PublicStateV2, PipelineError};
+use crate::pipeline::{build_trace, Col, PipelineError, PublicStateV2};
 use lattice_core::transcript::Transcript;
 use lattice_lookup_ring::ring_d::RingD;
 use lattice_vm::MachineState;
@@ -75,7 +75,11 @@ fn instr_words_of(program: &[u8]) -> Vec<u64> {
 }
 
 /// The RAM window bound and the public images (mirrors v2's layout).
-fn ram_window(program: &[u8], public_input: &[u8], rows: &[lattice_vm::TraceRow]) -> (usize, Vec<u64>, Vec<u64>) {
+fn ram_window(
+    program: &[u8],
+    public_input: &[u8],
+    rows: &[lattice_vm::TraceRow],
+) -> (usize, Vec<u64>, Vec<u64>) {
     let num_input_words = public_input.len().div_ceil(8).max(1);
     let mut max_word = 0x3000 / 8 + num_input_words as u64;
     max_word = max_word.max(0x1000 / 8 + program.len().div_ceil(8) as u64);
@@ -320,7 +324,9 @@ pub fn verify_v3(
         }
     }
     if state.final_ram.len() != k_ram {
-        return Err(PipelineError::BadShape("final RAM window arity mismatch".into()));
+        return Err(PipelineError::BadShape(
+            "final RAM window arity mismatch".into(),
+        ));
     }
     let ram_inst = LookupMemoryInstance {
         window: init_ram.clone(),
@@ -334,7 +340,9 @@ pub fn verify_v3(
     let mut reg_init = vec![0u64; 32];
     reg_init[10] = public_input.len() as u64;
     if state.final_regs.len() != 32 {
-        return Err(PipelineError::BadShape("final registers arity mismatch".into()));
+        return Err(PipelineError::BadShape(
+            "final registers arity mismatch".into(),
+        ));
     }
     let reg_inst = LookupMemoryInstance {
         window: reg_init,
@@ -373,7 +381,8 @@ mod tests {
     fn v3_prove_and_verify_happy_path() {
         let program = demo_program();
         let input = 42u64.to_le_bytes().to_vec();
-        let (state, proof) = prove_v3(&program, &input, 64).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let (state, proof) =
+            prove_v3(&program, &input, 64).unwrap_or_else(|e| panic!("prove: {e:?}"));
         assert_eq!(state.num_steps, 6);
         assert_eq!(state.final_regs[4], 15);
         assert_eq!(state.final_ram[8 / 8], 15); // the store went to absolute address 8
@@ -416,7 +425,8 @@ mod tests {
     fn v3_wrong_program_rejected() {
         let program = demo_program();
         let input = 42u64.to_le_bytes().to_vec();
-        let (state, proof) = prove_v3(&program, &input, 64).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let (state, proof) =
+            prove_v3(&program, &input, 64).unwrap_or_else(|e| panic!("prove: {e:?}"));
         // verify against a different program: the fetch table differs
         let mut other = program.clone();
         other[4] ^= 0xFF;

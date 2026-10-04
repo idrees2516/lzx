@@ -61,11 +61,20 @@ pub enum LfPlusMonError {
     Ring(lattice_ring::RingError),
     TranscriptFailure,
     /// A monomial code is out of range for the ring dimension.
-    BadMonomialCode { code: u32, ring_dim: u32 },
+    BadMonomialCode {
+        code: u32,
+        ring_dim: u32,
+    },
     /// Shape mismatch (rows/columns/digit counts).
-    ShapeMismatch { expected: usize, got: usize },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
     /// A τ entry lies outside `(−d', d')` (Lemma 2.2's range).
-    TauOutOfRange { value: i64, bound: u64 },
+    TauOutOfRange {
+        value: i64,
+        bound: u64,
+    },
     /// The Π^mon O(n)-add consistency guard failed (internal bug guard —
     /// fail closed rather than transcribe an inconsistent proof).
     OnAddConsistency,
@@ -119,10 +128,7 @@ impl MonomialMatrix {
         }
         for &c in &self.entries {
             if c > ring_dim {
-                return Err(LfPlusMonError::BadMonomialCode {
-                    code: c,
-                    ring_dim,
-                });
+                return Err(LfPlusMonError::BadMonomialCode { code: c, ring_dim });
             }
         }
         Ok(())
@@ -471,12 +477,10 @@ pub fn verify_mon_opening(
     let cols = matrix.column_ring_elements(ring)?;
     for (j, col) in cols.iter().enumerate() {
         let padded = pk.pad_to_m(col)?;
-        let commitment = commitments
-            .get(j)
-            .ok_or(LfPlusMonError::ShapeMismatch {
-                expected: statement.m_cols,
-                got: j,
-            })?;
+        let commitment = commitments.get(j).ok_or(LfPlusMonError::ShapeMismatch {
+            expected: statement.m_cols,
+            got: j,
+        })?;
         pk.verify_opening(commitment, &padded)?;
         let e = monomial_column_eval_o_n(matrix, j, statement.ring_dim, &output.r)?;
         if e != output.e[j] {
@@ -598,7 +602,12 @@ pub fn prove_psi_range(
     transcript
         .append_bytes(b"lfplus-psi-cm-mtau", &cm_mtau.to_bytes())
         .map_err(|_| LfPlusMonError::TranscriptFailure)?;
-    let mon = prove_mon(&statement, &matrix, std::slice::from_ref(cm_mtau), transcript)?;
+    let mon = prove_mon(
+        &statement,
+        &matrix,
+        std::slice::from_ref(cm_mtau),
+        transcript,
+    )?;
     // The prover's view of the challenge point r (identical to the
     // verifier's transcript-derived point — the rounds bind them).
     let r = mon.r.clone();
@@ -704,8 +713,7 @@ pub fn verify_psi_opening(
         .collect();
     let padded_tau = pk.pad_to_m(&tau_elems)?;
     pk.verify_opening(cm_tau, &padded_tau)?;
-    let mtau_elems: Vec<RingElement> =
-        mtau_codes.iter().map(|&c| monomial_ring(ring, c)).collect();
+    let mtau_elems: Vec<RingElement> = mtau_codes.iter().map(|&c| monomial_ring(ring, c)).collect();
     let padded_mtau = pk.pad_to_m(&mtau_elems)?;
     pk.verify_opening(cm_mtau, &padded_mtau)?;
     // Linear output relation at the VERIFIER-derived Π^mon point r.
@@ -853,10 +861,7 @@ pub fn dcom_commit(
     let bound = (dprime / 2) as u64;
     for &t in &tau {
         if t.unsigned_abs() > bound {
-            return Err(LfPlusMonError::TauOutOfRange {
-                value: t,
-                bound,
-            });
+            return Err(LfPlusMonError::TauOutOfRange { value: t, bound });
         }
     }
     let mut padded = tau.clone();
@@ -991,12 +996,12 @@ mod tests {
         // EXP(0) also contains 1 and X^{d'} (ct = 0 for all three).
         assert_eq!(psi_ct_of_code(&ring, 1), 0); // b = 1
         assert_eq!(psi_ct_of_code(&ring, dp as u32 + 1), 0); // b = X^{d'}
-        // Converse: monomial b ∉ EXP(a) fails — e.g. ct(ψ·X^k) = k ≠ a for
-        // a < k < d', and the negated variants.
+                                                             // Converse: monomial b ∉ EXP(a) fails — e.g. ct(ψ·X^k) = k ≠ a for
+                                                             // a < k < d', and the negated variants.
         assert_ne!(psi_ct_of_code(&ring, 5), 5); // X^4: ct(X^4·ψ)=4 ≠ a=5
         assert_ne!(psi_ct_of_code(&ring, 3), 4);
         assert_ne!(psi_ct_of_code(&ring, dp as u32 + 2), 0); // X^{d'+1}: ct = -d'+1 ≠ 0
-        // ψ itself has zero constant term.
+                                                             // ψ itself has zero constant term.
         let psi = psi_element(&ring);
         assert_eq!(psi.coeff(0), 0);
     }
@@ -1007,7 +1012,9 @@ mod tests {
     fn pi_mon_happy_path_and_opening() {
         let (pk, ring) = setup(4, 64);
         let d = ring.n();
-        let matrix = MonomialMatrix::from_seed(32, 2, d as u32, b"pi-mon-ok").ok().unwrap();
+        let matrix = MonomialMatrix::from_seed(32, 2, d as u32, b"pi-mon-ok")
+            .ok()
+            .unwrap();
         let statement = PiMonStatement {
             n_rows: 32,
             m_cols: 2,
@@ -1019,18 +1026,19 @@ mod tests {
             .map(|c| pk.commit(&pk.pad_to_m(c).ok().unwrap()).ok().unwrap())
             .collect();
         let mut t = Transcript::new_default(b"lfplus-pi-mon-test");
-        let proof = prove_mon(&statement, &matrix, &commitments, &mut t).ok().unwrap();
+        let proof = prove_mon(&statement, &matrix, &commitments, &mut t)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"lfplus-pi-mon-test");
-        let output = verify_mon(&statement, &commitments, &proof, &mut vt).ok().unwrap();
+        let output = verify_mon(&statement, &commitments, &proof, &mut vt)
+            .ok()
+            .unwrap();
         // Degree-3 communication shape: 4 values per round.
         for round in &proof.rounds {
             assert_eq!(round.len(), 4);
         }
         // Decider: openings + the R_m,out linear relation.
-        assert!(
-            verify_mon_opening(&pk, &statement, &matrix, &commitments, &output)
-                .is_ok()
-        );
+        assert!(verify_mon_opening(&pk, &statement, &matrix, &commitments, &output).is_ok());
     }
 
     #[test]
@@ -1039,7 +1047,9 @@ mod tests {
         // ev-table MLE evaluation at the same point.
         let (_, ring) = setup(4, 4);
         let d = ring.n();
-        let matrix = MonomialMatrix::from_seed(16, 1, d as u32, b"o-n-add").ok().unwrap();
+        let matrix = MonomialMatrix::from_seed(16, 1, d as u32, b"o-n-add")
+            .ok()
+            .unwrap();
         let beta = Fq2::new(
             Goldilocks::from_u64(0x1234_5678_9ABC_DEF0),
             Goldilocks::from_u64(0xFEDC_BA09_8765_4321),
@@ -1062,7 +1072,9 @@ mod tests {
     fn pi_mon_tampered_rejected() {
         let (pk, ring) = setup(4, 64);
         let d = ring.n();
-        let matrix = MonomialMatrix::from_seed(16, 1, d as u32, b"pi-mon-bad").ok().unwrap();
+        let matrix = MonomialMatrix::from_seed(16, 1, d as u32, b"pi-mon-bad")
+            .ok()
+            .unwrap();
         let statement = PiMonStatement {
             n_rows: 16,
             m_cols: 1,
@@ -1074,7 +1086,9 @@ mod tests {
             .map(|c| pk.commit(&pk.pad_to_m(c).ok().unwrap()).ok().unwrap())
             .collect();
         let mut t = Transcript::new_default(b"lfplus-pi-mon-tamper");
-        let mut proof = prove_mon(&statement, &matrix, &commitments, &mut t).ok().unwrap();
+        let mut proof = prove_mon(&statement, &matrix, &commitments, &mut t)
+            .ok()
+            .unwrap();
         // Tampered round value: the round check fails.
         let mut bad_rounds = proof.clone();
         if let Some(r0) = bad_rounds.rounds.first_mut() {
@@ -1089,14 +1103,18 @@ mod tests {
         let mut vt2 = Transcript::new_default(b"lfplus-pi-mon-tamper");
         assert!(verify_mon(&statement, &commitments, &proof, &mut vt2).is_err());
         // Wrong commitment (statement binding): challenge desync.
-        let other = MonomialMatrix::from_seed(16, 1, d as u32, b"pi-mon-other").ok().unwrap();
+        let other = MonomialMatrix::from_seed(16, 1, d as u32, b"pi-mon-other")
+            .ok()
+            .unwrap();
         let other_cols = other.column_ring_elements(&ring).ok().unwrap();
         let other_cms: Vec<AjtaiCommitment> = other_cols
             .iter()
             .map(|c| pk.commit(&pk.pad_to_m(c).ok().unwrap()).ok().unwrap())
             .collect();
         let mut t3 = Transcript::new_default(b"lfplus-pi-mon-tamper");
-        let proof3 = prove_mon(&statement, &matrix, &commitments, &mut t3).ok().unwrap();
+        let proof3 = prove_mon(&statement, &matrix, &commitments, &mut t3)
+            .ok()
+            .unwrap();
         let mut vt3 = Transcript::new_default(b"lfplus-pi-mon-tamper");
         assert!(verify_mon(&statement, &other_cms, &proof3, &mut vt3).is_err());
     }
@@ -1107,23 +1125,32 @@ mod tests {
     fn psi_range_happy_path() {
         let (pk, ring) = setup(4, 16);
         let tau: Vec<i64> = [-7i64, 6, -1, 0, 3, -5, 2, 1].to_vec();
-        let codes: Vec<u32> = tau.iter().map(|&t| exp_code(t, ring.n()).ok().unwrap()).collect();
+        let codes: Vec<u32> = tau
+            .iter()
+            .map(|&t| exp_code(t, ring.n()).ok().unwrap())
+            .collect();
         // Commit τ (constants) and m_τ (monomials).
         let tau_elems: Vec<RingElement> = tau
             .iter()
             .map(|&t| ring.constant(ring.modulus.reduce_i64(t)))
             .collect();
-        let cm_tau = pk.commit(&pk.pad_to_m(&tau_elems).ok().unwrap()).ok().unwrap();
-        let mtau_elems: Vec<RingElement> =
-            codes.iter().map(|&c| monomial_ring(&ring, c)).collect();
-        let cm_mtau = pk.commit(&pk.pad_to_m(&mtau_elems).ok().unwrap()).ok().unwrap();
+        let cm_tau = pk
+            .commit(&pk.pad_to_m(&tau_elems).ok().unwrap())
+            .ok()
+            .unwrap();
+        let mtau_elems: Vec<RingElement> = codes.iter().map(|&c| monomial_ring(&ring, c)).collect();
+        let cm_mtau = pk
+            .commit(&pk.pad_to_m(&mtau_elems).ok().unwrap())
+            .ok()
+            .unwrap();
         let mut t = Transcript::new_default(b"lfplus-psi-test");
-        let proof = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t).ok().unwrap();
+        let proof = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"lfplus-psi-test");
-        let output =
-            verify_psi_range(&ring, tau.len(), &cm_tau, &cm_mtau, &proof, &mut vt)
-                .ok()
-                .unwrap();
+        let output = verify_psi_range(&ring, tau.len(), &cm_tau, &cm_mtau, &proof, &mut vt)
+            .ok()
+            .unwrap();
         // Decider: openings + the linear output relation at the
         // verifier-derived point.
         assert!(
@@ -1138,15 +1165,23 @@ mod tests {
         // τ with an entry outside (−d', d'): the honest prover refuses.
         let bad_tau: Vec<i64> = [7i64, 8, 0, 0, 0, 0, 0, 0].to_vec(); // 8 ∉ (−8, 8)
         let tau: Vec<i64> = [1i64, -2, 3, 0, -7, 5, 0, 2].to_vec();
-        let codes: Vec<u32> = tau.iter().map(|&t| exp_code(t, ring.n()).ok().unwrap()).collect();
+        let codes: Vec<u32> = tau
+            .iter()
+            .map(|&t| exp_code(t, ring.n()).ok().unwrap())
+            .collect();
         let tau_elems: Vec<RingElement> = tau
             .iter()
             .map(|&t| ring.constant(ring.modulus.reduce_i64(t)))
             .collect();
-        let cm_tau = pk.commit(&pk.pad_to_m(&tau_elems).ok().unwrap()).ok().unwrap();
-        let mtau_elems: Vec<RingElement> =
-            codes.iter().map(|&c| monomial_ring(&ring, c)).collect();
-        let cm_mtau = pk.commit(&pk.pad_to_m(&mtau_elems).ok().unwrap()).ok().unwrap();
+        let cm_tau = pk
+            .commit(&pk.pad_to_m(&tau_elems).ok().unwrap())
+            .ok()
+            .unwrap();
+        let mtau_elems: Vec<RingElement> = codes.iter().map(|&c| monomial_ring(&ring, c)).collect();
+        let cm_mtau = pk
+            .commit(&pk.pad_to_m(&mtau_elems).ok().unwrap())
+            .ok()
+            .unwrap();
         let mut t = Transcript::new_default(b"lfplus-psi-bad");
         assert!(matches!(
             prove_psi_range(&ring, &bad_tau, &cm_tau, &cm_mtau, &mut t),
@@ -1154,7 +1189,9 @@ mod tests {
         ));
         // Honest proof, tampered a: the ct(ψ·b) = a check fails.
         let mut t2 = Transcript::new_default(b"lfplus-psi-bad");
-        let mut proof = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t2).ok().unwrap();
+        let mut proof = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t2)
+            .ok()
+            .unwrap();
         proof.a = proof.a.add(&fe(1));
         let mut vt = Transcript::new_default(b"lfplus-psi-bad");
         assert!(matches!(
@@ -1163,12 +1200,12 @@ mod tests {
         ));
         // Tampered b (the e_0 evaluation): Π^mon rejects.
         let mut t3 = Transcript::new_default(b"lfplus-psi-bad");
-        let mut proof_b = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t3).ok().unwrap();
+        let mut proof_b = prove_psi_range(&ring, &tau, &cm_tau, &cm_mtau, &mut t3)
+            .ok()
+            .unwrap();
         proof_b.mon.e[0][3] = proof_b.mon.e[0][3].add(&fe(2));
         let mut vt3 = Transcript::new_default(b"lfplus-psi-bad");
-        assert!(
-            verify_psi_range(&ring, tau.len(), &cm_tau, &cm_mtau, &proof_b, &mut vt3).is_err()
-        );
+        assert!(verify_psi_range(&ring, tau.len(), &cm_tau, &cm_mtau, &proof_b, &mut vt3).is_err());
     }
 
     // ---- Construction 4.1: split/pow double commitments ----
@@ -1180,7 +1217,9 @@ mod tests {
         let (pk, ring) = setup(4, 512);
         let (pk_dcom, _) = setup(4, 512);
         let d = ring.n();
-        let matrix = MonomialMatrix::from_seed(512, 1, d as u32, b"dcom-M").ok().unwrap();
+        let matrix = MonomialMatrix::from_seed(512, 1, d as u32, b"dcom-M")
+            .ok()
+            .unwrap();
         let cols = matrix.column_ring_elements(&ring).ok().unwrap();
         let com_m: Vec<AjtaiCommitment> = cols
             .iter()
@@ -1216,13 +1255,12 @@ mod tests {
             .iter()
             .map(|&t| ring.constant(ring.modulus.reduce_i64(t)))
             .collect();
-        assert_eq!(
-            pow(&ring, &tau_pad, 2, 1, 8, 11).ok().unwrap(),
-            rebuilt
-        );
+        assert_eq!(pow(&ring, &tau_pad, 2, 1, 8, 11).ok().unwrap(), rebuilt);
         assert!(pk_dcom.verify_opening(&dcom, &pad_elems).is_err());
         // Distinct matrices give distinct double commitments (whp).
-        let other = MonomialMatrix::from_seed(512, 1, d as u32, b"dcom-M2").ok().unwrap();
+        let other = MonomialMatrix::from_seed(512, 1, d as u32, b"dcom-M2")
+            .ok()
+            .unwrap();
         let other_cols = other.column_ring_elements(&ring).ok().unwrap();
         let com_m2: Vec<AjtaiCommitment> = other_cols
             .iter()
@@ -1244,7 +1282,18 @@ mod tests {
     fn split_covers_all_coefficients() {
         // The gadget with d' = 8, ℓ = 11 covers every balanced coefficient
         // in (−q/2, q/2] (q ≈ 2^31 < 4·(8^11−1)/7 ≈ 2^32.2).
-        for c in [0i64, 1, -1, 4, -4, 100, -1000, 1 << 20, -(1 << 29), (1 << 30) - 1] {
+        for c in [
+            0i64,
+            1,
+            -1,
+            4,
+            -4,
+            100,
+            -1000,
+            1 << 20,
+            -(1 << 29),
+            (1 << 30) - 1,
+        ] {
             let digits = split_coefficient(c, 8, 11);
             let base: i128 = 8;
             let mut acc: i128 = 0;
@@ -1263,12 +1312,8 @@ mod tests {
         let mut input = seed.to_vec();
         input.extend_from_slice(&idx.to_le_bytes());
         let bytes = Transcript::xof(b"lfplus-mon-test-chal", &input, 16);
-        let c0 = Goldilocks::from_u64(u64::from_le_bytes(
-            bytes[..8].try_into().ok().unwrap(),
-        ));
-        let c1 = Goldilocks::from_u64(u64::from_le_bytes(
-            bytes[8..16].try_into().ok().unwrap(),
-        ));
+        let c0 = Goldilocks::from_u64(u64::from_le_bytes(bytes[..8].try_into().ok().unwrap()));
+        let c1 = Goldilocks::from_u64(u64::from_le_bytes(bytes[8..16].try_into().ok().unwrap()));
         Fq2::new(c0, c1)
     }
 }

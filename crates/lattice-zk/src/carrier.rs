@@ -121,7 +121,11 @@ pub fn mask_coefficient(q: u32, lambda: &Goldilocks, limb: usize) -> u32 {
 pub fn carry_coefficient(q: u32, limb: usize) -> u32 {
     let q64 = q as u64;
     let p_mod_q = GOLDILOCKS_MODULUS % q64;
-    let shift = if limb == 0 { 1u64 } else { 1u64 << CARRY_LIMB_BITS };
+    let shift = if limb == 0 {
+        1u64
+    } else {
+        1u64 << CARRY_LIMB_BITS
+    };
     q.wrapping_sub(((p_mod_q * (shift % q64)) % q64) as u32) % q
 }
 
@@ -193,7 +197,10 @@ pub fn build_carrier(
 
     // Self-check: the exact identity must hold for the constructed
     // secret (fail loudly on any derivation bug).
-    if relation.evaluate(&secret_slots).map_err(|_| CarrierError::IdentityFailed)? != relation.target
+    if relation
+        .evaluate(&secret_slots)
+        .map_err(|_| CarrierError::IdentityFailed)?
+        != relation.target
     {
         return Err(CarrierError::IdentityFailed);
     }
@@ -244,7 +251,9 @@ mod tests {
 
     #[test]
     fn carrier_identity_exact_for_random_instances() {
-        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4).ok().unwrap();
+        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
+            .ok()
+            .unwrap();
         for trial in 0..8u64 {
             let lambdas = random_fields(6, format!("lam-{trial}").as_bytes());
             let masks = random_fields(6, format!("mu-{trial}").as_bytes());
@@ -272,7 +281,9 @@ mod tests {
 
     #[test]
     fn carrier_detects_wrong_delta() {
-        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4).ok().unwrap();
+        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
+            .ok()
+            .unwrap();
         let lambdas = random_fields(4, b"lam-w");
         let masks = random_fields(4, b"mu-w");
         let mut delta = Goldilocks::ZERO;
@@ -289,7 +300,9 @@ mod tests {
     fn secret_slots_are_norm_bounded() {
         // Mask limbs < 2^22, carry limbs < 2^16: the SIS norm budget of
         // the ZK linear proof accommodates them.
-        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4).ok().unwrap();
+        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
+            .ok()
+            .unwrap();
         let lambdas = random_fields(8, b"lam-n");
         let masks = random_fields(8, b"mu-n");
         let mut delta = Goldilocks::ZERO;

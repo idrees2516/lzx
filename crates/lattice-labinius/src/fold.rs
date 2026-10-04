@@ -23,7 +23,7 @@
 
 use crate::challenge::ShortChallenge;
 use crate::key::AuxData;
-use crate::params::{quadratic_slots, N, QUAD_CLASS_SLOT, QUAD_SLOTS, QS, QS_LARGE, QS_QUAD};
+use crate::params::{quadratic_slots, N, QS, QS_LARGE, QS_QUAD, QUAD_CLASS_SLOT, QUAD_SLOTS};
 use crate::ring::{components_of, PowerOfThreeRing, N162, SLOT_648};
 use crate::scalar::Coeffs;
 use crate::simd::commit as mac;
@@ -237,13 +237,19 @@ const fn fold_fits(q: u16, p: usize) -> bool {
 const _: () = {
     let mut i = 0;
     while i < 3 {
-        assert!(fold_fits(QS_QUAD[i], fold_period(QS_QUAD[i])) && fold_period(QS_QUAD[i]).is_multiple_of(2));
+        assert!(
+            fold_fits(QS_QUAD[i], fold_period(QS_QUAD[i]))
+                && fold_period(QS_QUAD[i]).is_multiple_of(2)
+        );
         i += 1;
     }
     let mut i = 0;
     while i < 2 {
         assert!(fold_fits(QS[i], fold_period(QS[i])) && fold_period(QS[i]).is_multiple_of(2));
-        assert!(fold_fits(QS_LARGE[i], fold_period(QS_LARGE[i])) && fold_period(QS_LARGE[i]).is_multiple_of(2));
+        assert!(
+            fold_fits(QS_LARGE[i], fold_period(QS_LARGE[i]))
+                && fold_period(QS_LARGE[i]).is_multiple_of(2)
+        );
         i += 1;
     }
 };
@@ -687,7 +693,11 @@ fn accumulate<const Q: u16>(aux: &AuxData, ch: &ChallengeNtt, bpc: usize) -> Vec
 }
 
 /// The fold over a splitting base limb: transform the challenges, accumulate, invert.
-fn fold_split<const Q: u16>(aux: &AuxData, challenges: &[ShortChallenge], bpc: usize) -> Vec<Batch32> {
+fn fold_split<const Q: u16>(
+    aux: &AuxData,
+    challenges: &[ShortChallenge],
+    bpc: usize,
+) -> Vec<Batch32> {
     let ch = challenge_ntt_v::<Q>(challenges);
     let mut vb = accumulate::<Q>(aux, &ch, bpc);
     unsafe {
@@ -699,7 +709,11 @@ fn fold_split<const Q: u16>(aux: &AuxData, challenges: &[ShortChallenge], bpc: u
 }
 
 /// The same over a quadratic-slot base limb.
-fn fold_quad<const Q: u16>(aux: &AuxData, challenges: &[ShortChallenge], bpc: usize) -> Vec<Batch32> {
+fn fold_quad<const Q: u16>(
+    aux: &AuxData,
+    challenges: &[ShortChallenge],
+    bpc: usize,
+) -> Vec<Batch32> {
     let ch = challenge_ntt_quad_base_v::<Q>(challenges);
     let mut vb = accumulate::<Q>(aux, &ch, bpc);
     unsafe {
@@ -765,7 +779,15 @@ fn pack_vertical(v: &[[i16; N]]) -> Vec<Batch32> {
 ///
 /// # Safety
 /// AVX-512 PCS feature set; `a`/`v` same length, 64-byte aligned.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 unsafe fn a_times_v_fwd<const Q: u16>(a: &[Batch32], v: &[Batch32]) -> Coeffs {
     let mut acc = mac::Acc::zero();
     let ap = acc.v.as_mut_ptr() as *mut i32;
@@ -786,7 +808,15 @@ unsafe fn a_times_v_fwd<const Q: u16>(a: &[Batch32], v: &[Batch32]) -> Coeffs {
 ///
 /// # Safety
 /// AVX-512 PCS feature set; `a`/`v` same length, 64-byte aligned.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 unsafe fn a_times_v_fwd_quad<const Q: u16>(a: &[Batch32], v: &[Batch32]) -> Coeffs {
     let mut acc = mac::QuadAcc::zero();
     let (p01, p2) = (
@@ -818,7 +848,11 @@ pub fn a_times_v_forward(q: u16, a: &[Batch32], v: &[[i16; N]]) -> Coeffs {
         return a_times_v(q, &flat, v);
     }
     let vb = pack_vertical(v);
-    assert_eq!(a.len(), vb.len(), "the key and v disagree on the chunk length");
+    assert_eq!(
+        a.len(),
+        vb.len(),
+        "the key and v disagree on the chunk length"
+    );
     unsafe {
         match q {
             3889 => a_times_v_fwd::<3889>(a, &vb),
@@ -1029,7 +1063,11 @@ fn fold_commitment_scalar(
                 acc += a * ch[j][s] as u64;
             }
             let r = (acc % q64) as i64;
-            out[row].v[s] = if r > half { (r - q as i64) as i16 } else { r as i16 };
+            out[row].v[s] = if r > half {
+                (r - q as i64) as i16
+            } else {
+                r as i16
+            };
         }
     }
     out
@@ -1074,10 +1112,17 @@ pub fn challenge_r162_slots(q: u16, c: &ShortChallenge) -> [i16; N162] {
         for k in (0..N162).rev() {
             // Barrett for every Horner step: acc < q, x < q, so acc*x + coeff < q^2 + q,
             // the range params::barrett_mod_u64 is exhaustively checked on.
-            acc = crate::params::barrett_mod_u64(acc * x + coeffs[k].rem_euclid(q64 as i64) as u64, q);
+            acc = crate::params::barrett_mod_u64(
+                acc * x + coeffs[k].rem_euclid(q64 as i64) as u64,
+                q,
+            );
         }
         let r = acc as i64;
-        out[s] = if r > half { (r - q as i64) as i16 } else { r as i16 };
+        out[s] = if r > half {
+            (r - q as i64) as i16
+        } else {
+            r as i16
+        };
     }
     out
 }

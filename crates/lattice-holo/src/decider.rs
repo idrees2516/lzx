@@ -90,7 +90,8 @@ pub fn decide(
     matrix_commitments_per_fn: &[Vec<PcCommitment>],
     transcript: &mut Transcript,
 ) -> Result<bool, DeciderError> {
-    if accs.len() != matrices_per_fn.len() || matrices_per_fn.len() != matrix_commitments_per_fn.len()
+    if accs.len() != matrices_per_fn.len()
+        || matrices_per_fn.len() != matrix_commitments_per_fn.len()
     {
         return Err(DeciderError::Shape("per-function arity"));
     }
@@ -187,7 +188,12 @@ pub fn decide(
         return Ok(false);
     }
     // M(β, α) == γ.
-    let eval = key.eval_matrix(&key.domain, &combined_matrix, &gbf2_out.beta, &gbf2_out.alpha)?;
+    let eval = key.eval_matrix(
+        &key.domain,
+        &combined_matrix,
+        &gbf2_out.beta,
+        &gbf2_out.alpha,
+    )?;
     if eval != gamma {
         return Ok(false);
     }

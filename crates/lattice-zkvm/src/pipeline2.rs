@@ -18,15 +18,16 @@
 use crate::pipeline::*;
 use crate::semantics::{prove_instruction_semantics, SemanticsProof};
 use lattice_akita::pcs::{AkitaPcs, GroupedOpening};
+use lattice_akita::salsa_binding::SalsaBoundResponse;
 use lattice_akita::salsa_response::SalsaGroupedResponse;
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
+use lattice_memory::onehot_check::OneHotSide as OHSide;
 use lattice_memory::sparse_engine::{
     build_twist_ports, prove_onehot_sparse, prove_shout_sparse, prove_twist_ports_sparse,
     verify_twist_ports_checked,
 };
 use lattice_memory::twist::TwistProof;
-use lattice_memory::onehot_check::OneHotSide as OHSide;
 use lattice_memory::{FactorId, FactorResolver, OneHotProof, PiopError, ShoutProof};
 use lattice_vm::MachineState;
 use std::cell::RefCell;
@@ -54,8 +55,17 @@ struct RecRes<'a> {
 }
 
 impl<'a> RecRes<'a> {
-    fn new(cols: &'a [Vec<Goldilocks>], log_vars: usize, map: fn(FactorId) -> Option<usize>) -> Self {
-        Self { cols, claims: RefCell::new(Vec::new()), log_vars, map }
+    fn new(
+        cols: &'a [Vec<Goldilocks>],
+        log_vars: usize,
+        map: fn(FactorId) -> Option<usize>,
+    ) -> Self {
+        Self {
+            cols,
+            claims: RefCell::new(Vec::new()),
+            log_vars,
+            map,
+        }
     }
 }
 
@@ -64,10 +74,16 @@ impl<'a> FactorResolver for RecRes<'a> {
         let col = (self.map)(factor).ok_or(PiopError::MissingFactor { factor })?;
         let log_vars = self.log_vars;
         if point.len() != log_vars {
-            return Err(PiopError::Shape { expected: log_vars, got: point.len() });
+            return Err(PiopError::Shape {
+                expected: log_vars,
+                got: point.len(),
+            });
         }
-        let v = DenseMle { num_vars: log_vars, evaluations: self.cols[col].clone() }
-            .evaluate(point)?;
+        let v = DenseMle {
+            num_vars: log_vars,
+            evaluations: self.cols[col].clone(),
+        }
+        .evaluate(point)?;
         self.claims.borrow_mut().push(ColumnClaim {
             col,
             factor: factor.discriminant(),
@@ -135,10 +151,33 @@ pub struct ProofV2 {
     /// bundles.
     pub semantics: SemanticsProof,
     pub claims: Vec<ColumnClaim>,
-    /// The Stage-5 grouped openings in the SALSAA response mode (D4:
-    /// the byte-packed D1∘D2 chain replaces the opened witness + the
-    /// digit-revealing NormProof — Θ(N) → polylog, no disclosure).
-    pub openings: Vec<SalsaGroupedResponse>,
+    /// The Stage-5 grouped openings — the response-layer mode:
+    /// `Salsa` (D4 open: the byte-packed chain, polylog, the
+    /// byte-witness-to-commitment binding the documented residual) or
+    /// `Bound` (D4 closed: the compact-fold composition — every
+    /// column's byte-witness bound to its commitment through the
+    /// width-collapse chain, estimator-gated per stage).
+    pub openings: Stage5Openings,
+}
+
+/// The Stage-5 response-layer mode.
+#[derive(Clone, Debug)]
+pub enum Stage5Openings {
+    /// The open D4 response (the original swap): three O(log N)
+    /// sumchecks, zero disclosure, the Ajtai binding the documented
+    /// outer-layer gap.
+    Salsa(Vec<SalsaGroupedResponse>),
+    /// The binding-closed D4 response: the carrier + D1 + the
+    /// width-collapse chain per column (the authenticated opening at
+    /// the challenge — the compact-fold composition at this layer).
+    Bound(Vec<SalsaBoundResponse>),
+}
+
+/// The Stage-5 mode selector for the prover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage5Mode {
+    Salsa,
+    Bound,
 }
 
 /// Column slots in the commitment list.
@@ -165,6 +204,21 @@ pub fn prove_v2(
     program: &[u8],
     public_input: &[u8],
     max_steps: u64,
+) -> Result<(PublicStateV2, ProofV2), PipelineError> {
+    prove_v2_with_stage5(pcs, program, public_input, max_steps, Stage5Mode::Salsa)
+}
+
+/// The v2 prover with the Stage-5 response-layer mode selected (the
+/// `Bound` mode = the compact-fold composition: every column's
+/// byte-witness bound to its commitment through the width-collapse
+/// chain — the D4 closure at the pipeline layer).
+#[allow(clippy::too_many_lines)]
+pub fn prove_v2_with_stage5(
+    pcs: &AkitaPcs,
+    program: &[u8],
+    public_input: &[u8],
+    max_steps: u64,
+    stage5: Stage5Mode,
 ) -> Result<(PublicStateV2, ProofV2), PipelineError> {
     // ---- 1. Execute. ----
     let mut state = MachineState::new();
@@ -212,7 +266,9 @@ pub fn prove_v2(
     // window read once, word by word, as its own read-only stream).
     let num_input_words = public_input.len().div_ceil(8).max(1);
     let log_t_in = num_input_words.next_power_of_two().max(2).trailing_zeros() as usize;
-    let input_ra: Vec<u64> = (0..(1 << log_t_in)).map(|i| i.min(num_input_words - 1) as u64).collect();
+    let input_ra: Vec<u64> = (0..(1 << log_t_in))
+        .map(|i| i.min(num_input_words - 1) as u64)
+        .collect();
     let input_rv: Vec<Goldilocks> = (0..(1 << log_t_in))
         .map(|i| {
             let idx = i.min(num_input_words - 1);
@@ -290,7 +346,10 @@ pub fn prove_v2(
     let mut commitments = Vec::with_capacity(t_cols.len());
     for (ci, col) in t_cols.iter().enumerate() {
         let lv = col_log_vars(ci, log_t, log_t_in);
-        let mle = DenseMle { num_vars: lv, evaluations: pad_to(col, lv) };
+        let mle = DenseMle {
+            num_vars: lv,
+            evaluations: pad_to(col, lv),
+        };
         // The D4 regime: the columns commit their BYTE-PACKED witnesses
         // (one byte per coefficient — the SALSAA chain's Lemma-4 gate).
         commitments.push(pcs.commit_bytes(&mle)?.commitment.to_bytes());
@@ -366,9 +425,22 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::FETCH_RA),
             _ => None,
         });
-        let (p, dim_claims) = prove_shout_sparse(&fetch_table, &fetch_ra, log_k_fetch, log_t, log_k_fetch, &res, &mut transcript)?;
+        let (p, dim_claims) = prove_shout_sparse(
+            &fetch_table,
+            &fetch_ra,
+            log_k_fetch,
+            log_t,
+            log_k_fetch,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let onehot_fetch = {
@@ -376,7 +448,15 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::FETCH_RA),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&fetch_ra, log_k_fetch, log_t, log_k_fetch, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim_claims) = prove_onehot_sparse(
+            &fetch_ra,
+            log_k_fetch,
+            log_t,
+            log_k_fetch,
+            OHSide::Read,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.claims.borrow().iter().cloned());
         claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
             col: SENTINEL_COL,
@@ -393,9 +473,22 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::INPUT_RA),
             _ => None,
         });
-        let (p, dim_claims) = prove_shout_sparse(&input_table, &input_ra, log_k_in, log_t_in, log_k_in, &res, &mut transcript)?;
+        let (p, dim_claims) = prove_shout_sparse(
+            &input_table,
+            &input_ra,
+            log_k_in,
+            log_t_in,
+            log_k_in,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     // ---- Stage 3: RAM one-hots + Twist. ----
@@ -404,9 +497,22 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::RAM_RA),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&ram_ra, log_k_ram, log_t, log_k_ram, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim_claims) = prove_onehot_sparse(
+            &ram_ra,
+            log_k_ram,
+            log_t,
+            log_k_ram,
+            OHSide::Read,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let onehot_ram_w = {
@@ -414,15 +520,36 @@ pub fn prove_v2(
             FactorId::WriteAddr => Some(slot::RAM_WA),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&ram_wa, log_k_ram, log_t, log_k_ram, OHSide::Write, &res, &mut transcript)?;
+        let (p, dim_claims) = prove_onehot_sparse(
+            &ram_wa,
+            log_k_ram,
+            log_t,
+            log_k_ram,
+            OHSide::Write,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let twist_ram = {
         // The wv column resolver supplies ReadValues/WriteValues.
-        let res = RamPortsResolver { t_cols: &t_cols, log_t };
-        let (p, cl) = prove_twist_ports_sparse(&ram_witness, &wv_mle(&t_cols[slot::RAM_WV], log_t), &res, &mut transcript)?;
+        let res = RamPortsResolver {
+            t_cols: &t_cols,
+            log_t,
+        };
+        let (p, cl) = prove_twist_ports_sparse(
+            &ram_witness,
+            &wv_mle(&t_cols[slot::RAM_WV], log_t),
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: twist_factor_slot(&ram_map(), *f),
             factor: f.discriminant(),
@@ -437,9 +564,15 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::REG_RA_A),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&reg_ra_a, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim_claims) =
+            prove_onehot_sparse(&reg_ra_a, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let onehot_reg_b = {
@@ -447,9 +580,15 @@ pub fn prove_v2(
             FactorId::ReadAddr => Some(slot::REG_RA_B),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&reg_ra_b, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim_claims) =
+            prove_onehot_sparse(&reg_ra_b, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let onehot_reg_w = {
@@ -457,14 +596,29 @@ pub fn prove_v2(
             FactorId::WriteAddr => Some(slot::REG_WA),
             _ => None,
         });
-        let (p, dim_claims) = prove_onehot_sparse(&reg_wa, 5, log_t, 5, OHSide::Write, &res, &mut transcript)?;
+        let (p, dim_claims) =
+            prove_onehot_sparse(&reg_wa, 5, log_t, 5, OHSide::Write, &res, &mut transcript)?;
         claims.extend(res.claims.borrow().iter().cloned());
-        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim { col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v }));
+        claims.extend(dim_claims.iter().map(|(f, point, v)| ColumnClaim {
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
+        }));
         p
     };
     let twist_reg_a = {
-        let res = RegPortsResolver { t_cols: &t_cols, log_t, rv_slot: slot::REG_RV_A };
-        let (p, cl) = prove_twist_ports_sparse(&rega_witness, &wv_mle(&t_cols[slot::REG_WV], log_t), &res, &mut transcript)?;
+        let res = RegPortsResolver {
+            t_cols: &t_cols,
+            log_t,
+            rv_slot: slot::REG_RV_A,
+        };
+        let (p, cl) = prove_twist_ports_sparse(
+            &rega_witness,
+            &wv_mle(&t_cols[slot::REG_WV], log_t),
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: twist_factor_slot(&reg_map_a(), *f),
             factor: f.discriminant(),
@@ -474,8 +628,17 @@ pub fn prove_v2(
         p
     };
     let twist_reg_b = {
-        let res = RegPortsResolver { t_cols: &t_cols, log_t, rv_slot: slot::REG_RV_B };
-        let (p, cl) = prove_twist_ports_sparse(&regb_witness, &wv_mle(&t_cols[slot::REG_WV], log_t), &res, &mut transcript)?;
+        let res = RegPortsResolver {
+            t_cols: &t_cols,
+            log_t,
+            rv_slot: slot::REG_RV_B,
+        };
+        let (p, cl) = prove_twist_ports_sparse(
+            &regb_witness,
+            &wv_mle(&t_cols[slot::REG_WV], log_t),
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: twist_factor_slot(&reg_map_b(), *f),
             factor: f.discriminant(),
@@ -490,31 +653,53 @@ pub fn prove_v2(
     // bits/values bundles with its own statement transcript. The
     // verifier consumes only public material (the statement's final
     // registers come from the public state).
-    let (semantics, _) = prove_instruction_semantics(
-        program,
-        public_input,
-        max_steps,
-        log_k_ram,
-        log_k_fetch,
-    )
-    .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
+    let (semantics, _) =
+        prove_instruction_semantics(program, public_input, max_steps, log_k_ram, log_k_fetch)
+            .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
     // ---- Stage 5: grouped openings (the stage-4 leg batching). ----
-    let mut openings = Vec::new();
+    let mut openings_salsa = Vec::new();
+    let mut openings_bound = Vec::new();
     for (ci, col) in t_cols.iter().enumerate() {
         let col_claims: Vec<GroupedOpening> = claims
             .iter()
             .filter(|c| c.col == ci)
-            .map(|c| GroupedOpening { point: c.point.clone(), value: c.value })
+            .map(|c| GroupedOpening {
+                point: c.point.clone(),
+                value: c.value,
+            })
             .collect();
         let lv = col_log_vars(ci, log_t, log_t_in);
         if col_claims.is_empty() {
-            openings.push(placebo_opening_salsa(pcs, col, lv)?);
+            placebo_opening_salsa(
+                pcs,
+                col,
+                lv,
+                stage5,
+                &mut openings_salsa,
+                &mut openings_bound,
+            )?;
         } else {
-            let mle = DenseMle { num_vars: lv, evaluations: pad_to(col, lv) };
-            let (resp, _packed) = pcs.prove_grouped_salsa(&mle, &col_claims, &mut transcript)?;
-            openings.push(resp);
+            let mle = DenseMle {
+                num_vars: lv,
+                evaluations: pad_to(col, lv),
+            };
+            match stage5 {
+                Stage5Mode::Salsa => {
+                    let (resp, _packed) =
+                        pcs.prove_grouped_salsa(&mle, &col_claims, &mut transcript)?;
+                    openings_salsa.push(resp);
+                }
+                Stage5Mode::Bound => {
+                    let resp = pcs.prove_grouped_salsa_bound(&mle, &col_claims, &mut transcript)?;
+                    openings_bound.push(resp);
+                }
+            }
         }
     }
+    let openings = match stage5 {
+        Stage5Mode::Salsa => Stage5Openings::Salsa(openings_salsa),
+        Stage5Mode::Bound => Stage5Openings::Bound(openings_bound),
+    };
     Ok((
         public_state.clone(),
         ProofV2 {
@@ -552,7 +737,10 @@ fn col_log_vars(ci: usize, log_t: usize, log_t_in: usize) -> usize {
 }
 
 fn wv_mle(col: &[Goldilocks], log_t: usize) -> DenseMle {
-    DenseMle { num_vars: log_t, evaluations: pad_to(col, log_t) }
+    DenseMle {
+        num_vars: log_t,
+        evaluations: pad_to(col, log_t),
+    }
 }
 
 fn pad_to(col: &[Goldilocks], log_vars: usize) -> Vec<Goldilocks> {
@@ -565,13 +753,31 @@ fn placebo_opening_salsa(
     pcs: &AkitaPcs,
     col: &[Goldilocks],
     log_vars: usize,
-) -> Result<SalsaGroupedResponse, PipelineError> {
-    let mle = DenseMle { num_vars: log_vars, evaluations: pad_to(col, log_vars) };
+    stage5: Stage5Mode,
+    openings_salsa: &mut Vec<SalsaGroupedResponse>,
+    openings_bound: &mut Vec<SalsaBoundResponse>,
+) -> Result<(), PipelineError> {
+    let mle = DenseMle {
+        num_vars: log_vars,
+        evaluations: pad_to(col, log_vars),
+    };
     let mut t = Transcript::new_default(b"lzx-placebo");
     let point: Vec<Goldilocks> = (0..log_vars).map(|i| fe(i as u64 + 1)).collect();
-    let claims = [GroupedOpening { point, value: fe(0) }];
-    let (resp, _packed) = pcs.prove_grouped_salsa(&mle, &claims, &mut t)?;
-    Ok(resp)
+    let claims = [GroupedOpening {
+        point,
+        value: fe(0),
+    }];
+    match stage5 {
+        Stage5Mode::Salsa => {
+            let (resp, _packed) = pcs.prove_grouped_salsa(&mle, &claims, &mut t)?;
+            openings_salsa.push(resp);
+        }
+        Stage5Mode::Bound => {
+            let resp = pcs.prove_grouped_salsa_bound(&mle, &claims, &mut t)?;
+            openings_bound.push(resp);
+        }
+    }
+    Ok(())
 }
 
 fn ram_map() -> fn(FactorId) -> Option<usize> {
@@ -617,9 +823,12 @@ impl<'a> FactorResolver for RamPortsResolver<'a> {
             FactorId::WriteValues => slot::RAM_WV,
             _ => return Err(PiopError::MissingFactor { factor }),
         };
-        DenseMle { num_vars: self.log_t, evaluations: self.t_cols[col].clone() }
-            .evaluate(point)
-            .map_err(PiopError::Mle)
+        DenseMle {
+            num_vars: self.log_t,
+            evaluations: self.t_cols[col].clone(),
+        }
+        .evaluate(point)
+        .map_err(PiopError::Mle)
     }
 }
 
@@ -637,9 +846,12 @@ impl<'a> FactorResolver for RegPortsResolver<'a> {
             FactorId::WriteValues => slot::REG_WV,
             _ => return Err(PiopError::MissingFactor { factor }),
         };
-        DenseMle { num_vars: self.log_t, evaluations: self.t_cols[col].clone() }
-            .evaluate(point)
-            .map_err(PiopError::Mle)
+        DenseMle {
+            num_vars: self.log_t,
+            evaluations: self.t_cols[col].clone(),
+        }
+        .evaluate(point)
+        .map_err(PiopError::Mle)
     }
 }
 
@@ -661,7 +873,13 @@ pub fn verify_v2(
         return Err(PipelineError::VerificationFailed);
     }
     let log_t = proof.log_t;
-    let log_t_in = public_input.len().div_ceil(8).max(1).next_power_of_two().max(2).trailing_zeros() as usize;
+    let log_t_in = public_input
+        .len()
+        .div_ceil(8)
+        .max(1)
+        .next_power_of_two()
+        .max(2)
+        .trailing_zeros() as usize;
     let num_input_words = public_input.len().div_ceil(8).max(1);
     let log_k_in = num_input_words.next_power_of_two().max(2).trailing_zeros() as usize;
     // Recompute the public tables.
@@ -738,40 +956,99 @@ pub fn verify_v2(
     }
     let claims = &proof.claims;
     // Stage 1: fetch.
-    let fetch_res = TableRes { claims, map: |f| match f {
-        FactorId::ReadValues => Some(slot::FETCH_RV),
-        FactorId::ReadAddr => Some(slot::FETCH_RA),
-        _ => None,
-    }};
-    lattice_memory::verify_shout(&proof.fetch, &fetch_table, proof.log_k_fetch, log_t, proof.log_k_fetch, &fetch_res, &mut transcript)?;
-    let oh_fetch_res = TableRes { claims, map: |f| match f {
-        FactorId::ReadAddr => Some(slot::FETCH_RA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_fetch, proof.log_k_fetch, log_t, OHSide::Read, &oh_fetch_res, &mut transcript)?;
+    let fetch_res = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadValues => Some(slot::FETCH_RV),
+            FactorId::ReadAddr => Some(slot::FETCH_RA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_shout(
+        &proof.fetch,
+        &fetch_table,
+        proof.log_k_fetch,
+        log_t,
+        proof.log_k_fetch,
+        &fetch_res,
+        &mut transcript,
+    )?;
+    let oh_fetch_res = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadAddr => Some(slot::FETCH_RA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_fetch,
+        proof.log_k_fetch,
+        log_t,
+        OHSide::Read,
+        &oh_fetch_res,
+        &mut transcript,
+    )?;
     // Stage 2: input.
-    let in_res = TableRes { claims, map: |f| match f {
-        FactorId::ReadValues => Some(slot::INPUT_RV),
-        FactorId::ReadAddr => Some(slot::INPUT_RA),
-        _ => None,
-    }};
-    lattice_memory::verify_shout(&proof.input_shout, &input_table, log_k_in, log_t_in, log_k_in, &in_res, &mut transcript)?;
+    let in_res = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadValues => Some(slot::INPUT_RV),
+            FactorId::ReadAddr => Some(slot::INPUT_RA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_shout(
+        &proof.input_shout,
+        &input_table,
+        log_k_in,
+        log_t_in,
+        log_k_in,
+        &in_res,
+        &mut transcript,
+    )?;
     // Stage 3: RAM.
-    let ram_oh_r = TableRes { claims, map: |f| match f {
-        FactorId::ReadAddr => Some(slot::RAM_RA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_ram_r, log_k_ram, log_t, OHSide::Read, &ram_oh_r, &mut transcript)?;
-    let ram_oh_w = TableRes { claims, map: |f| match f {
-        FactorId::WriteAddr => Some(slot::RAM_WA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_ram_w, log_k_ram, log_t, OHSide::Write, &ram_oh_w, &mut transcript)?;
-    let ram_tw = TableRes { claims, map: ram_map_pub() };
+    let ram_oh_r = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadAddr => Some(slot::RAM_RA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_ram_r,
+        log_k_ram,
+        log_t,
+        OHSide::Read,
+        &ram_oh_r,
+        &mut transcript,
+    )?;
+    let ram_oh_w = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::WriteAddr => Some(slot::RAM_WA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_ram_w,
+        log_k_ram,
+        log_t,
+        OHSide::Write,
+        &ram_oh_w,
+        &mut transcript,
+    )?;
+    let ram_tw = TableRes {
+        claims,
+        map: ram_map_pub(),
+    };
     verify_twist_ports_checked(
         &proof.twist_ram,
         &init_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
-        &public_state.final_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
+        &public_state
+            .final_ram
+            .iter()
+            .map(|&v| fe(v))
+            .collect::<Vec<_>>(),
         log_k_ram,
         log_t,
         log_k_ram,
@@ -785,40 +1062,99 @@ pub fn verify_v2(
         v
     };
     let reg_final: Vec<Goldilocks> = public_state.final_regs.iter().map(|&x| fe(x)).collect();
-    let oh_ra = TableRes { claims, map: |f| match f {
-        FactorId::ReadAddr => Some(slot::REG_RA_A),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_a, 5, log_t, OHSide::Read, &oh_ra, &mut transcript)?;
-    let oh_rb = TableRes { claims, map: |f| match f {
-        FactorId::ReadAddr => Some(slot::REG_RA_B),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_b, 5, log_t, OHSide::Read, &oh_rb, &mut transcript)?;
-    let oh_rw = TableRes { claims, map: |f| match f {
-        FactorId::WriteAddr => Some(slot::REG_WA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_w, 5, log_t, OHSide::Write, &oh_rw, &mut transcript)?;
-    let rega_tw = TableRes { claims, map: reg_map_a() };
-    verify_twist_ports_checked(&proof.twist_reg_a, &reg_init, &reg_final, 5, log_t, 5, &rega_tw, &mut transcript)?;
-    let regb_tw = TableRes { claims, map: reg_map_b() };
-    verify_twist_ports_checked(&proof.twist_reg_b, &reg_init, &reg_final, 5, log_t, 5, &regb_tw, &mut transcript)?;
+    let oh_ra = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadAddr => Some(slot::REG_RA_A),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_a,
+        5,
+        log_t,
+        OHSide::Read,
+        &oh_ra,
+        &mut transcript,
+    )?;
+    let oh_rb = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::ReadAddr => Some(slot::REG_RA_B),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_b,
+        5,
+        log_t,
+        OHSide::Read,
+        &oh_rb,
+        &mut transcript,
+    )?;
+    let oh_rw = TableRes {
+        claims,
+        map: |f| match f {
+            FactorId::WriteAddr => Some(slot::REG_WA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_w,
+        5,
+        log_t,
+        OHSide::Write,
+        &oh_rw,
+        &mut transcript,
+    )?;
+    let rega_tw = TableRes {
+        claims,
+        map: reg_map_a(),
+    };
+    verify_twist_ports_checked(
+        &proof.twist_reg_a,
+        &reg_init,
+        &reg_final,
+        5,
+        log_t,
+        5,
+        &rega_tw,
+        &mut transcript,
+    )?;
+    let regb_tw = TableRes {
+        claims,
+        map: reg_map_b(),
+    };
+    verify_twist_ports_checked(
+        &proof.twist_reg_b,
+        &reg_init,
+        &reg_final,
+        5,
+        log_t,
+        5,
+        &regb_tw,
+        &mut transcript,
+    )?;
     // Stage 4.5: the instruction semantics (no re-execution; the
     // statement's digests + the public final registers).
-    crate::semantics::verify_instruction_semantics(
-        &proof.semantics,
-        program,
-        public_input,
-    )
-    .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
-    // Stage 5: grouped openings per committed column.
+    crate::semantics::verify_instruction_semantics(&proof.semantics, program, public_input)
+        .map_err(|e| PipelineError::BadShape(format!("semantics: {e:?}")))?;
+    // Stage 5: grouped openings per committed column (the mode's own
+    // verifier — the Bound mode's chains re-derive every stage's
+    // estimator verdict against the transmitted commitments).
     let ring = &pcs.pk.params.ring;
-    for (ci, opening) in proof.openings.iter().enumerate() {
+    let n_openings = match &proof.openings {
+        Stage5Openings::Salsa(v) => v.len(),
+        Stage5Openings::Bound(v) => v.len(),
+    };
+    for ci in 0..n_openings {
         let col_claims: Vec<GroupedOpening> = claims
             .iter()
             .filter(|c| c.col == ci)
-            .map(|c| GroupedOpening { point: c.point.clone(), value: c.value })
+            .map(|c| GroupedOpening {
+                point: c.point.clone(),
+                value: c.value,
+            })
             .collect();
         if col_claims.is_empty() {
             continue; // placebo column (separate transcript at prove time)
@@ -834,7 +1170,14 @@ pub fn verify_v2(
             num_packed: 0,
             num_vars: col_log_vars(ci, log_t, log_t_in),
         };
-        pcs.verify_grouped_salsa(&comm, &col_claims, opening, &mut transcript)?;
+        match &proof.openings {
+            Stage5Openings::Salsa(v) => {
+                pcs.verify_grouped_salsa(&comm, &col_claims, &v[ci], &mut transcript)?;
+            }
+            Stage5Openings::Bound(v) => {
+                pcs.verify_grouped_salsa_bound(&comm, &col_claims, &v[ci], &mut transcript)?;
+            }
+        }
     }
     Ok(())
 }
@@ -852,7 +1195,9 @@ mod tests {
     use super::*;
 
     fn setup() -> AkitaPcs {
-        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32]).ok().unwrap()
+        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32])
+            .ok()
+            .unwrap()
     }
 
     fn demo_program() -> Vec<u8> {
@@ -883,7 +1228,10 @@ mod tests {
         assert_eq!(state.final_regs[4], 15);
         // The stored word is visible in the final RAM window.
         assert_eq!(state.final_ram[8 / 8], 15); // word at absolute address 8
-        match verify_v2(&pcs, &program, &input, &state, &proof, 64) { Ok(_) => {}, Err(e) => panic!("verify err: {e:?}") }
+        match verify_v2(&pcs, &program, &input, &state, &proof, 64) {
+            Ok(_) => {}
+            Err(e) => panic!("verify err: {e:?}"),
+        }
     }
 
     #[test]
@@ -919,32 +1267,74 @@ mod tests {
         let (state, mut proof) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
         // Tamper the first non-placebo opening's f_term: the terminal
         // binding fails.
-        if let Some(op) = proof
-            .openings
-            .iter_mut()
-            .find(|o| o.chain.num_elements > 0)
-        {
-            op.f_term = op.f_term.add(&Goldilocks::ONE);
+        if let Stage5Openings::Salsa(ops) = &mut proof.openings {
+            if let Some(op) = ops.iter_mut().find(|o| o.chain.num_elements > 0) {
+                op.f_term = op.f_term.add(&Goldilocks::ONE);
+            }
         }
         assert!(verify_v2(&pcs, &program, &input, &state, &proof, 64).is_err());
 
         // Tamper z_r on a fresh proof: the D1 reconstruction fails.
         let (state2, mut proof2) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
-        if let Some(op) = proof2
-            .openings
-            .iter_mut()
-            .find(|o| o.chain.num_elements > 0)
-        {
-            op.z_r = op.z_r.add(&Goldilocks::ONE);
+        if let Stage5Openings::Salsa(ops) = &mut proof2.openings {
+            if let Some(op) = ops.iter_mut().find(|o| o.chain.num_elements > 0) {
+                op.z_r = op.z_r.add(&Goldilocks::ONE);
+            }
         }
         assert!(verify_v2(&pcs, &program, &input, &state2, &proof2, 64).is_err());
 
         // The proof carries NO opened witness anywhere (the disclosure
         // removal): the openings' wire is two sumchecks + O(1) claims.
         let (_, proof3) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
-        for op in &proof3.openings {
-            assert!(std::mem::size_of_val(&op.chain) < 4096);
+        if let Stage5Openings::Salsa(ops) = &proof3.openings {
+            for op in ops {
+                assert!(std::mem::size_of_val(&op.chain) < 4096);
+            }
         }
+    }
+
+    /// The D4 BINDING-CLOSED composition at the pipeline layer: the
+    /// v2 pipeline with `Stage5Mode::Bound` — every committed column's
+    /// byte-witness bound through its width-collapse chain (the
+    /// authenticated opening at the challenge). Prove → verify; a
+    /// tampered COMMITMENT (the binding the open mode lacked) rejects.
+    #[test]
+    fn v2_stage5_bound_composition_honest_and_tampered() {
+        let pcs = setup();
+        let program = demo_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (state, proof) = prove_v2_with_stage5(&pcs, &program, &input, 64, Stage5Mode::Bound)
+            .ok()
+            .unwrap();
+        match verify_v2(&pcs, &program, &input, &state, &proof, 64) {
+            Ok(_) => {}
+            Err(e) => panic!("the bound-mode v2 pipeline must verify: {e:?}"),
+        }
+
+        // THE PIPELINE-LEVEL CLOSURE TEST: swap one column's commitment
+        // for another column's — the chain's (W0) part-image sum no
+        // longer matches the (re-derived) commitment, Stage 5 rejects.
+        let (state2, mut proof2) =
+            prove_v2_with_stage5(&pcs, &program, &input, 64, Stage5Mode::Bound)
+                .ok()
+                .unwrap();
+        if proof2.commitments.len() >= 2 {
+            proof2.commitments.swap(0, 1);
+            assert!(verify_v2(&pcs, &program, &input, &state2, &proof2, 64).is_err());
+        }
+
+        // A tampered bound opening's f_term: the carrier terminal AND
+        // the fold's functional thread reject.
+        let (state3, mut proof3) =
+            prove_v2_with_stage5(&pcs, &program, &input, 64, Stage5Mode::Bound)
+                .ok()
+                .unwrap();
+        if let Stage5Openings::Bound(ops) = &mut proof3.openings {
+            if let Some(op) = ops.iter_mut().find(|o| o.fold.n_bar > 0) {
+                op.f_term = op.f_term.add(&Goldilocks::ONE);
+            }
+        }
+        assert!(verify_v2(&pcs, &program, &input, &state3, &proof3, 64).is_err());
     }
 
     #[test]
@@ -964,14 +1354,21 @@ mod semantics_pipeline_tests {
     use super::*;
 
     fn setup() -> AkitaPcs {
-        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32]).ok().unwrap()
+        lattice_akita::akita_setup(4, 64, 1 << 23, [91u8; 32])
+            .ok()
+            .unwrap()
     }
 
     fn enc_addi(rd: u8, rs1: u8, imm: i64) -> u32 {
         ((imm as u32 & 0xFFF) << 20) | ((rs1 as u32) << 15) | ((rd as u32) << 7) | 0x13
     }
     fn enc_r(f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
-        (f7 << 25) | ((rs2 as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12) | ((rd as u32) << 7) | op
+        (f7 << 25)
+            | ((rs2 as u32) << 20)
+            | ((rs1 as u32) << 15)
+            | (f3 << 12)
+            | ((rd as u32) << 7)
+            | op
     }
 
     /// A full-semantics program through the COMPLETE v2 pipeline:
@@ -987,7 +1384,7 @@ mod semantics_pipeline_tests {
         p.extend_from_slice(&enc_r(1, 2, 1, 6, 6, 0x33).to_le_bytes()); // rem x6
         p.extend_from_slice(&enc_r(0, 10, 1, 1, 7, 0x33).to_le_bytes()); // sll x7
         p.extend_from_slice(&enc_r(0x20, 10, 1, 5, 8, 0x33).to_le_bytes()); // sra x8
-        // Memory: store x3 then load it back.
+                                                                            // Memory: store x3 then load it back.
         p.extend_from_slice(&enc_addi(20, 0, 64).to_le_bytes());
         let sd: u32 = (3u32 << 20) | (20 << 15) | (3 << 12) | 0x23;
         p.extend_from_slice(&sd.to_le_bytes());
@@ -1002,7 +1399,8 @@ mod semantics_pipeline_tests {
         let pcs = setup();
         let program = full_semantics_program();
         let input = 42u64.to_le_bytes().to_vec();
-        let (state, proof) = prove_v2(&pcs, &program, &input, 128).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let (state, proof) =
+            prove_v2(&pcs, &program, &input, 128).unwrap_or_else(|e| panic!("prove: {e:?}"));
         // The semantics roundtrip: mul(-7*3) = -21 (wrapping), div
         // truncating, the load returns the stored word.
         assert_eq!(state.final_regs[3], (-21i64) as u64);

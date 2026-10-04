@@ -18,12 +18,12 @@ pub const LIFTS: usize = 128usize.div_ceil(LOGQ);
 /// Commitment parameters (upstream `comparams`).
 #[derive(Clone, Copy, Debug)]
 pub struct ComParams {
-    pub f: usize,   // amortized opening decomposition parts
-    pub fu: usize,  // uniform decomposition parts
-    pub fg: usize,  // quadratic garbage decomposition parts (0: no quadratic)
-    pub b: u32,     // opening decomposition bits
-    pub bu: u32,    // uniform decomposition bits
-    pub bg: u32,    // garbage decomposition bits
+    pub f: usize,      // amortized opening decomposition parts
+    pub fu: usize,     // uniform decomposition parts
+    pub fg: usize,     // quadratic garbage decomposition parts (0: no quadratic)
+    pub b: u32,        // opening decomposition bits
+    pub bu: u32,       // uniform decomposition bits
+    pub bg: u32,       // garbage decomposition bits
     pub kappa: usize,  // inner commitment rank
     pub kappa1: usize, // outer commitment rank
 }
@@ -46,12 +46,20 @@ fn init_params(ranks: &[usize], normsq: &[u64]) -> Result<ComParams, String> {
             .map(|i| normsq[i] as f64 / (ranks[i] * N) as f64)
             .fold(0.0f64, f64::max);
         let varz = (TAU1 + 4.0 * TAU2) * vars * k as f64;
-        let decompose = !sis_secure(13, 6.0 * T * SLACK * (2.0 * (TAU1 + 4.0 * TAU2) * varz * nn as f64 * N as f64).sqrt())
-            || 64.0 * varz > (1u64 << 28) as f64;
+        let decompose = !sis_secure(
+            13,
+            6.0 * T * SLACK * (2.0 * (TAU1 + 4.0 * TAU2) * varz * nn as f64 * N as f64).sqrt(),
+        ) || 64.0 * varz > (1u64 << 28) as f64;
         let (mut f, mut b) = if decompose {
-            (2usize, (((12.0f64).log2() + varz.log2()) / 4.0).round().max(1.0) as u32)
+            (
+                2usize,
+                (((12.0f64).log2() + varz.log2()) / 4.0).round().max(1.0) as u32,
+            )
         } else {
-            (1usize, (((12.0f64).log2() + varz.log2()) / 2.0).round().max(1.0) as u32)
+            (
+                1usize,
+                (((12.0f64).log2() + varz.log2()) / 2.0).round().max(1.0) as u32,
+            )
         };
         const DIGITBITS: u32 = 14;
         if b > DIGITBITS {
@@ -85,10 +93,16 @@ fn init_params(ranks: &[usize], normsq: &[u64]) -> Result<ComParams, String> {
             * (rr + (rr * rr + rr) / 2.0); // kappa = 1 inner commitments
         norm += (2f64.powi(2 * bg as i32) / 12.0 * (fg - 1) as f64
             + varg / 2f64.powi(2 * bg as i32 * (fg as i32 - 1)))
-            * (rr * rr + rr) / 2.0;
+            * (rr * rr + rr)
+            / 2.0;
         norm *= N as f64;
         let kappa = (1..=32)
-            .find(|&kp| sis_secure(kp, 6.0 * T * SLACK * 2f64.powi((f as i32 - 1) * b as i32) * norm.sqrt()))
+            .find(|&kp| {
+                sis_secure(
+                    kp,
+                    6.0 * T * SLACK * 2f64.powi((f as i32 - 1) * b as i32) * norm.sqrt(),
+                )
+            })
             .unwrap_or(33);
         if kappa > 32 {
             continue;
@@ -132,7 +146,9 @@ impl ComKey {
     }
     /// `u = A s`: kappa outputs, each `sum_j A_t[j] s[j]`.
     pub fn commit(&self, s: &[Poly]) -> Vec<Poly> {
-        (0..self.kappa).map(|t| Poly::sprod(&self.rows[t], s)).collect()
+        (0..self.kappa)
+            .map(|t| Poly::sprod(&self.rows[t], s))
+            .collect()
     }
 }
 
@@ -142,7 +158,10 @@ struct Hash16(pub [u8; 16]);
 impl Hash16 {
     fn of(digest: &[u8; 32]) -> Self {
         let d = sha3_256(digest);
-        Hash16([d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11], d[12], d[13], d[14], d[15]])
+        Hash16([
+            d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11], d[12], d[13],
+            d[14], d[15],
+        ])
     }
     fn absorb_polys(&mut self, polys: &[Poly]) {
         let mut buf = Vec::with_capacity(16 + polys.len() * 48);
@@ -171,19 +190,36 @@ fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<ExpandedWitness, St
     let mut total = 0u64;
     for (i, v) in stmt.vectors.iter().enumerate() {
         if wit.vectors[i].len() != v.n * N {
-            return Err(format!("vector {i}: {} coefficients, rank {} wants {}", wit.vectors[i].len(), v.n, v.n * N));
+            return Err(format!(
+                "vector {i}: {} coefficients, rank {} wants {}",
+                wit.vectors[i].len(),
+                v.n,
+                v.n * N
+            ));
         }
         let src = &wit.vectors[i];
         let polys: Vec<Poly> = (0..src.len() / N)
             .map(|k| Poly::from_i16(&src[k * N..k * N + N]))
             .collect();
-        let n = polys.iter().map(|p| p.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>()).sum();
+        let n = polys
+            .iter()
+            .map(|p| {
+                p.0.iter()
+                    .map(|&x| (i128::from(x) * i128::from(x)) as u64)
+                    .sum::<u64>()
+            })
+            .sum();
         if v.binary {
             if wit.vectors[i].iter().any(|&c| c != 0 && c != 1) {
-                return Err(format!("vector {i}: binary vector has non-binary coefficient"));
+                return Err(format!(
+                    "vector {i}: binary vector has non-binary coefficient"
+                ));
             }
         } else if n > v.betasq {
-            return Err(format!("vector {i}: normsq {n} exceeds betasq {}", v.betasq));
+            return Err(format!(
+                "vector {i}: normsq {n} exceeds betasq {}",
+                v.betasq
+            ));
         }
         total = total.saturating_add(n);
         ranks.push(v.n);
@@ -209,7 +245,11 @@ fn expand_witness(stmt: &Statement, wit: &Witness) -> Result<ExpandedWitness, St
     }
     let slack_norm: u64 = slack
         .iter()
-        .map(|p| p.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>())
+        .map(|p| {
+            p.0.iter()
+                .map(|&x| (i128::from(x) * i128::from(x)) as u64)
+                .sum::<u64>()
+        })
         .sum();
     ranks.push(slack.len());
     norms.push(slack_norm);
@@ -311,7 +351,10 @@ pub fn prove(stmt: &Statement, wit: &Witness) -> Result<Proof, String> {
         commit_pool.extend(d.iter().copied());
     }
     let t0 = key.commit(&commit_pool);
-    let digits0: Vec<Poly> = t0.iter().flat_map(|p| decompose(p, cpp.fu, cpp.bu)).collect();
+    let digits0: Vec<Poly> = t0
+        .iter()
+        .flat_map(|p| decompose(p, cpp.fu, cpp.bu))
+        .collect();
     let u_outer1 = key1.commit(&digits0);
     h.absorb_polys(&u_outer1);
     let seed32 = h.squeeze32();
@@ -321,13 +364,20 @@ pub fn prove(stmt: &Statement, wit: &Witness) -> Result<Proof, String> {
         .flat_map(|i| {
             let a = alpha[i % alpha.len()];
             vecs[i].iter().map(move |p| {
-                let conj = if i == r - 1 || stmt.vectors[i].binary { p.flip() } else { p.sigma_m1() };
+                let conj = if i == r - 1 || stmt.vectors[i].binary {
+                    p.flip()
+                } else {
+                    p.sigma_m1()
+                };
                 a.mul(&conj)
             })
         })
         .collect();
     let t1 = key.commit(&s2_folded);
-    let digits1: Vec<Poly> = t1.iter().flat_map(|p| decompose(p, cpp.fu, cpp.bu)).collect();
+    let digits1: Vec<Poly> = t1
+        .iter()
+        .flat_map(|p| decompose(p, cpp.fu, cpp.bu))
+        .collect();
     let u_outer2 = key1.commit(&digits1);
     h.absorb_polys(&u_outer2);
 
@@ -353,7 +403,11 @@ pub fn prove(stmt: &Statement, wit: &Witness) -> Result<Proof, String> {
     let digits = decompose(&z, cpp.f, cpp.b);
     let znorm: u64 = digits
         .iter()
-        .map(|d| d.0.iter().map(|&x| (i128::from(x) * i128::from(x)) as u64).sum::<u64>())
+        .map(|d| {
+            d.0.iter()
+                .map(|&x| (i128::from(x) * i128::from(x)) as u64)
+                .sum::<u64>()
+        })
         .sum();
     let aux_norm = znorm; // aux vector norm accounted the same way in this encoding
 
@@ -362,7 +416,10 @@ pub fn prove(stmt: &Statement, wit: &Witness) -> Result<Proof, String> {
         u2: u_outer2,
         p: p_proj,
         jlnonce,
-        digits: digits.iter().map(|d| d.0.iter().map(|&x| x as i16).collect()).collect(),
+        digits: digits
+            .iter()
+            .map(|d| d.0.iter().map(|&x| x as i16).collect())
+            .collect(),
         aux: vec![0i16; 0],
         normsq: znorm.saturating_add(aux_norm),
         com_u: u_outer1.clone(),
@@ -396,7 +453,8 @@ fn jl_project(vecs: &[Vec<Poly>], norms: &[u64], h: &Hash16) -> ([i32; 256], u64
                 let signs = jl_signs(&mat, (vi + pi) % 256);
                 for c in 0..N {
                     let s = if (signs >> c) & 1 == 1 { 1i32 } else { -1i32 };
-                    p[(vi * 7 + pi * 13 + c) % 256] = p[(vi * 7 + pi * 13 + c) % 256].saturating_add(s * poly.0[c] as i32);
+                    p[(vi * 7 + pi * 13 + c) % 256] =
+                        p[(vi * 7 + pi * 13 + c) % 256].saturating_add(s * poly.0[c] as i32);
                 }
             }
         }

@@ -377,7 +377,10 @@ pub fn split_b(z: &[Poly], b: i64) -> Vec<Vec<Poly>> {
 pub fn split_b_k(z: &[Poly], b: i64, k: usize) -> Vec<Vec<Poly>> {
     let mut out = split_b(z, b);
     while out.len() < k {
-        out.push(vec![Poly::zero(z.first().map(|p| p.d()).unwrap_or(0)); z.len()]);
+        out.push(vec![
+            Poly::zero(z.first().map(|p| p.d()).unwrap_or(0));
+            z.len()
+        ]);
     }
     out.truncate(k);
     out
@@ -494,12 +497,11 @@ mod tests {
         let b = Poly::uniform(d, b"ipt-b", &mut ctr);
         let at = a.inner_transform();
         let ct_prod = at.mul(&b).ct();
-        let dot: i128 = a
-            .0
-            .iter()
-            .zip(b.0.iter())
-            .map(|(x, y)| x.sym() as i128 * y.sym() as i128)
-            .sum();
+        let dot: i128 =
+            a.0.iter()
+                .zip(b.0.iter())
+                .map(|(x, y)| x.sym() as i128 * y.sym() as i128)
+                .sum();
         // Compare in F_q (the integer dot can exceed q).
         let dot_mod = Fq::from_i64((dot % crate::fp::Q as i128) as i64);
         assert_eq!(ct_prod, dot_mod);
@@ -530,9 +532,15 @@ mod tests {
         assert_eq!(recompose(&pieces, 2), z_small);
         // big witness: fold 4 small ones with C-challenges then split
         let zs: Vec<Vec<Poly>> = (0..4)
-            .map(|_| (0..3).map(|_| Poly::small_b(d, 2, b"fold", &mut ctr)).collect())
+            .map(|_| {
+                (0..3)
+                    .map(|_| Poly::small_b(d, 2, b"fold", &mut ctr))
+                    .collect()
+            })
             .collect();
-        let rhos: Vec<Poly> = (0..4).map(|_| StrongSet::sample(d, b"rho", &mut ctr)).collect();
+        let rhos: Vec<Poly> = (0..4)
+            .map(|_| StrongSet::sample(d, b"rho", &mut ctr))
+            .collect();
         let folded = vec_ring_comb(&zs, &rhos);
         let pieces = split_b(&folded, 2);
         assert_eq!(recompose(&pieces, 2), folded);

@@ -58,14 +58,21 @@ pub enum RingCheckError {
     Mle(lattice_core::mle::MleError),
     /// The lifted difference is not divisible by X^n + 1 (the row is
     /// false and no valid quotient exists).
-    NotDivisible { row: usize },
+    NotDivisible {
+        row: usize,
+    },
     /// The α-evaluation check failed (Eq 148).
-    AlphaCheck { row: usize },
+    AlphaCheck {
+        row: usize,
+    },
     /// The fused sum-check failed.
     FusedCheck,
     /// Rejection sampling for α exhausted its budget.
     AlphaSampling,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 /// One ring-valued relation row in the normal form of Eq 146.
@@ -83,7 +90,11 @@ pub struct RingRow {
 impl RingRow {
     /// Evaluate the row directly in `R_q` (the oracle the reductions
     /// approximate): `Σ_c A_{r,c} ⊛ w[reads[c]] − Y_r`.
-    pub fn evaluate(&self, ring: &RingConfig, witness: &[RingElement]) -> Result<RingElement, RingCheckError> {
+    pub fn evaluate(
+        &self,
+        ring: &RingConfig,
+        witness: &[RingElement],
+    ) -> Result<RingElement, RingCheckError> {
         let mut acc = ring.zero();
         for (a, &idx) in self.multipliers.iter().zip(self.reads.iter()) {
             let w = witness.get(idx).ok_or(RingCheckError::Shape {
@@ -121,7 +132,9 @@ fn unreduced_product(q: Modulus32, a: &[u32], b: &[u32]) -> Vec<u32> {
             acc[i + j] += x as i128 * y as i128;
         }
     }
-    acc.iter().map(|&c| q.reduce_u64(c.rem_euclid(q.q as i128) as u64)).collect()
+    acc.iter()
+        .map(|&c| q.reduce_u64(c.rem_euclid(q.q as i128) as u64))
+        .collect()
 }
 
 /// Divide `d` by `X^n + 1` over F_q. Returns `(quotient, remainder)`; the
@@ -234,10 +247,19 @@ pub fn alpha_check(
                 expected: idx,
                 got: witness.len(),
             })?;
-            acc = q.add(acc, q.mul(poly_eval(q, a.coeffs(), alpha), poly_eval(q, w.coeffs(), alpha)));
+            acc = q.add(
+                acc,
+                q.mul(
+                    poly_eval(q, a.coeffs(), alpha),
+                    poly_eval(q, w.coeffs(), alpha),
+                ),
+            );
         }
         acc = q.sub(acc, poly_eval(q, row.target.coeffs(), alpha));
-        acc = q.sub(acc, q.mul(alpha_n_plus_1, poly_eval(q, &lift.quotient, alpha)));
+        acc = q.sub(
+            acc,
+            q.mul(alpha_n_plus_1, poly_eval(q, &lift.quotient, alpha)),
+        );
         if acc != 0 {
             return Err(RingCheckError::AlphaCheck { row: ri });
         }
@@ -341,7 +363,10 @@ pub fn build_fused_weights(
         }
         // Target: Y_r(α) + (α^n+1)·Q_r(α), both F_q values embedded.
         let mut t = poly_eval(q, row.target.coeffs(), alpha);
-        t = q.add(t, q.mul(alpha_n_plus_1, poly_eval(q, &lift.quotient, alpha)));
+        t = q.add(
+            t,
+            q.mul(alpha_n_plus_1, poly_eval(q, &lift.quotient, alpha)),
+        );
         target = target.add(&fe(t).mul(&theta));
     }
     Ok(FusedWeights {
@@ -424,8 +449,12 @@ pub fn prove_fused(
     };
     let eq_mle = DenseMle::eq_extension(&claim.rvirt);
     let mut vp = VirtualPolynomial::new(mu);
-    let wi = vp.add_factor(w_mle.clone()).map_err(RingCheckError::Virtual)?;
-    let mi = vp.add_factor(m_mle.clone()).map_err(RingCheckError::Virtual)?;
+    let wi = vp
+        .add_factor(w_mle.clone())
+        .map_err(RingCheckError::Virtual)?;
+    let mi = vp
+        .add_factor(m_mle.clone())
+        .map_err(RingCheckError::Virtual)?;
     let ei = vp.add_factor(eq_mle).map_err(RingCheckError::Virtual)?;
     vp.add_term(Goldilocks::ONE, vec![wi, mi])
         .map_err(RingCheckError::Virtual)?;
@@ -483,8 +512,7 @@ pub fn verify_fused(
     let gamma = transcript
         .challenge_field(b"akita-fused-gamma")
         .map_err(RingCheckError::Transcript)?;
-    let total =
-        goldilocks_target(weights, witness_flat).add(&gamma.mul(&claim.s_claim));
+    let total = goldilocks_target(weights, witness_flat).add(&gamma.mul(&claim.s_claim));
 
     let w_mle = DenseMle {
         num_vars: mu,
@@ -509,7 +537,9 @@ pub fn verify_fused(
     let er = eq_mle
         .evaluate(&verdict.point)
         .map_err(RingCheckError::Mle)?;
-    let expected_final = wr.mul(&mr).add(&gamma.mul(&er.mul(&wr.mul(&wr.add(&Goldilocks::ONE)))));
+    let expected_final = wr
+        .mul(&mr)
+        .add(&gamma.mul(&er.mul(&wr.mul(&wr.add(&Goldilocks::ONE)))));
     if verdict.final_claim != expected_final {
         return Err(RingCheckError::FusedCheck);
     }
@@ -540,7 +570,9 @@ mod tests {
                 t.push(i as u8);
                 RingElement::from_signed(
                     &ring,
-                    &(0..n).map(|j| ((i * 7 + j * 3) % 11) as i64 - 5).collect::<Vec<i64>>(),
+                    &(0..n)
+                        .map(|j| ((i * 7 + j * 3) % 11) as i64 - 5)
+                        .collect::<Vec<i64>>(),
                 )
             })
             .collect();
@@ -698,7 +730,9 @@ mod tests {
         // The repaired verifier: commitment and quotients absorbed FIRST,
         // then α — the fresh α lands outside the kernel and rejects.
         let mut t_ok = Transcript::new_default(b"lzx-akita-ring");
-        absorb_lifted(&mut t_ok, b"commitment", &lifted).ok().unwrap();
+        absorb_lifted(&mut t_ok, b"commitment", &lifted)
+            .ok()
+            .unwrap();
         let alpha1 = sample_alpha(&mut t_ok, ring.modulus).ok().unwrap();
         assert_ne!(alpha1, alpha0, "transcript order must change α");
         assert!(alpha_check(&ring, &rows, &lifted, &bad, alpha1).is_err());
@@ -712,10 +746,7 @@ mod tests {
         absorb_lifted(&mut t, b"commitment", &lifted).ok().unwrap();
         let alpha = sample_alpha(&mut t, ring.modulus).ok().unwrap();
         // Row-batching challenges ϑ (Eq 158), drawn after α.
-        let thetas = t
-            .challenge_fields(b"akita-tau1", rows.len())
-            .ok()
-            .unwrap();
+        let thetas = t.challenge_fields(b"akita-tau1", rows.len()).ok().unwrap();
         let weights = build_fused_weights(&ring, &rows, &lifted, &thetas, witness.len(), alpha)
             .ok()
             .unwrap();
@@ -765,8 +796,9 @@ mod tests {
         let lifted = quotient_lift(&ring, &rows, &witness).ok().unwrap();
         let thetas = vec![Goldilocks::from_u64(3), Goldilocks::from_u64(5)];
         let alpha = 17u32;
-        let weights =
-            build_fused_weights(&ring, &rows, &lifted, &thetas, witness.len(), alpha).ok().unwrap();
+        let weights = build_fused_weights(&ring, &rows, &lifted, &thetas, witness.len(), alpha)
+            .ok()
+            .unwrap();
         let q = ring.modulus;
         let n = ring.n();
         let alpha_n_plus_1 = q.add(q.pow(alpha, n as u64), 1);
@@ -785,7 +817,10 @@ mod tests {
             for (a, &idx) in row.multipliers.iter().zip(row.reads.iter()) {
                 rhs = q.add(
                     rhs,
-                    q.mul(poly_eval(q, a.coeffs(), alpha), poly_eval(q, witness[idx].coeffs(), alpha)),
+                    q.mul(
+                        poly_eval(q, a.coeffs(), alpha),
+                        poly_eval(q, witness[idx].coeffs(), alpha),
+                    ),
                 );
             }
             via_witness = via_witness.add(&fe(rhs).mul(&theta));

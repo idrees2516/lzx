@@ -35,9 +35,14 @@ use lattice_core::Goldilocks;
 pub enum SmallSpaceError {
     Transcript(TranscriptError),
     /// Instance/factor variable-count mismatch.
-    BadShape { expected: usize, got: usize },
+    BadShape {
+        expected: usize,
+        got: usize,
+    },
     /// Prover-side round identity failed (construction bug guard).
-    RoundCheckFailed { round: usize },
+    RoundCheckFailed {
+        round: usize,
+    },
     ClaimMismatch,
 }
 
@@ -68,7 +73,11 @@ pub struct SmallSpaceInstance<'a> {
 
 impl<'a> SmallSpaceInstance<'a> {
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 }
 
@@ -143,7 +152,9 @@ impl EqWalk {
         self.j += 1;
         let degenerate = self.ratios.iter().any(|x| x.is_none());
         if degenerate {
-            let bits: Vec<bool> = (0..self.k).map(|b| (self.j >> (self.k - 1 - b)) & 1 == 1).collect();
+            let bits: Vec<bool> = (0..self.k)
+                .map(|b| (self.j >> (self.k - 1 - b)) & 1 == 1)
+                .collect();
             self.w = eq_points(&self.r, &bits);
             return;
         }
@@ -335,7 +346,11 @@ pub fn prove_small_space(
     // Terminal: each factor's evaluation at the full point — served by a
     // final eq-weighted sweep (the point has all variables bound).
     let factor_claims = terminal_claims_sweep(
-        &mut inst.factors.iter_mut().map(|o| &mut **o as &mut dyn IndexOracle).collect::<Vec<_>>(),
+        &mut inst
+            .factors
+            .iter_mut()
+            .map(|o| &mut **o as &mut dyn IndexOracle)
+            .collect::<Vec<_>>(),
         &bound_r,
         n,
     );
@@ -385,9 +400,9 @@ pub(crate) fn interpolate_nodes(evals: &[Goldilocks], r: &Goldilocks) -> Goldilo
 mod tests {
     use super::*;
     use crate::oracle::OwnedOracle;
+    use lattice_core::DenseMle;
     use lattice_sumcheck::sumcheck::SumcheckProof;
     use lattice_sumcheck::virtual_poly::VirtualPolynomial;
-    use lattice_core::DenseMle;
 
     /// The decisive test: the small-space prover's round messages are
     /// **bit-identical** to the in-memory Boolean engine's for the same
@@ -403,9 +418,7 @@ mod tests {
             let b = vp.add_factor(dh.clone()).unwrap();
             vp.add_term(Goldilocks::from_u64(3), vec![a, b]).unwrap();
             let claim: Goldilocks = (0..(1usize << n))
-                .map(|i| {
-                    Goldilocks::from_u64(3).mul(&df.evaluations[i].mul(&dh.evaluations[i]))
-                })
+                .map(|i| Goldilocks::from_u64(3).mul(&df.evaluations[i].mul(&dh.evaluations[i])))
                 .fold(Goldilocks::ZERO, |acc, v| acc.add(&v));
 
             // In-memory reference.
@@ -430,7 +443,9 @@ mod tests {
 
             // The proof verifies with the standard Boolean verifier.
             let mut ts3 = Transcript::new_default(b"ss-seed");
-            let proof = SumcheckProof { rounds: out.rounds.clone() };
+            let proof = SumcheckProof {
+                rounds: out.rounds.clone(),
+            };
             let v = proof
                 .verify(n, 2, claim, &mut ts3, Some(out.final_claim))
                 .unwrap();
@@ -456,7 +471,11 @@ mod tests {
         let claim: Goldilocks = (0..(1usize << n))
             .map(|i| {
                 Goldilocks::from_u64(2)
-                    .mul(&df0.evaluations[i].mul(&df1.evaluations[i]).mul(&df2.evaluations[i]))
+                    .mul(
+                        &df0.evaluations[i]
+                            .mul(&df1.evaluations[i])
+                            .mul(&df2.evaluations[i]),
+                    )
                     .add(&Goldilocks::from_u64(7).mul(&df0.evaluations[i]))
             })
             .fold(Goldilocks::ZERO, |acc, v| acc.add(&v));
@@ -494,18 +513,14 @@ mod tests {
             .fold(Goldilocks::ZERO, |acc, v| acc.add(&v));
         let values_f = df.evaluations.clone();
         let values_h = dh.evaluations.clone();
-        let (mut of, _) = crate::oracle::ChunkedRegenOracle::build(
-            n,
-            0u64,
-            7,
-            |_: &mut u64, i: u64| values_f[i as usize],
-        );
-        let (mut oh, _) = crate::oracle::ChunkedRegenOracle::build(
-            n,
-            0u64,
-            7,
-            |_: &mut u64, i: u64| values_h[i as usize],
-        );
+        let (mut of, _) =
+            crate::oracle::ChunkedRegenOracle::build(n, 0u64, 7, |_: &mut u64, i: u64| {
+                values_f[i as usize]
+            });
+        let (mut oh, _) =
+            crate::oracle::ChunkedRegenOracle::build(n, 0u64, 7, |_: &mut u64, i: u64| {
+                values_h[i as usize]
+            });
         let mut inst = SmallSpaceInstance {
             num_vars: n,
             factors: vec![&mut of, &mut oh],
@@ -516,8 +531,14 @@ mod tests {
         // Terminal claims equal the MLE evaluations at the point.
         let df_ref = df.clone();
         let dh_ref = dh.clone();
-        assert_eq!(out.factor_claims[0], df_ref.evaluate(&out.challenges).unwrap());
-        assert_eq!(out.factor_claims[1], dh_ref.evaluate(&out.challenges).unwrap());
+        assert_eq!(
+            out.factor_claims[0],
+            df_ref.evaluate(&out.challenges).unwrap()
+        );
+        assert_eq!(
+            out.factor_claims[1],
+            dh_ref.evaluate(&out.challenges).unwrap()
+        );
     }
 }
 

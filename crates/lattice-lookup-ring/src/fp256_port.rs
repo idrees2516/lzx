@@ -29,7 +29,6 @@
 //! post-quantum binding stays with the ring instantiation
 //! (`carrier.rs`).
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use lattice_core::transcript::Transcript;
@@ -188,7 +187,9 @@ pub fn fp_grid_tensors(point: &[Fp256]) -> (Vec<Fp256>, Vec<Fp256>) {
 /// `x − y` over Montgomery residues (both in `[0, p)`): `x + (p − y)`
 /// — the negation is limbwise `p − y` (valid since `y < p`).
 fn sub_mont(x: &Fp256, y: &Fp256) -> Fp256 {
-    x.add(&Fp256 { limbs: ch_neg_limbs(&y.limbs) })
+    x.add(&Fp256 {
+        limbs: ch_neg_limbs(&y.limbs),
+    })
 }
 
 fn ch_neg_limbs(y: &[u64; 4]) -> [u64; 4] {
@@ -213,7 +214,11 @@ fn ch_neg_limbs(y: &[u64; 4]) -> [u64; 4] {
 /// the MLE evaluation of the reconstructed oracle vector. Works for
 /// any slot-space vector (windows of a committed oracle, a mask, or a
 /// response).
-pub fn fp_linear_image_flat(slots: &[Fp256], n: usize, point: &[Fp256]) -> Result<Fp256, FpPortError> {
+pub fn fp_linear_image_flat(
+    slots: &[Fp256],
+    n: usize,
+    point: &[Fp256],
+) -> Result<Fp256, FpPortError> {
     let log_n = n.trailing_zeros() as usize;
     if point.len() != log_n {
         return Err(FpPortError::Shape("point arity mismatch".into()));
@@ -264,7 +269,9 @@ pub struct FpBindingProof {
 
 /// Sample an upper-limb challenge off a transcript.
 fn sample_upper(tr: &mut Transcript, label: &[u8]) -> Fp256 {
-    let bytes = tr.challenge_bytes(label, 32).unwrap_or_else(|_| vec![0u8; 32]);
+    let bytes = tr
+        .challenge_bytes(label, 32)
+        .unwrap_or_else(|_| vec![0u8; 32]);
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&bytes[..32.min(bytes.len())]);
     Fp256::sample_upper_limb(&arr)
@@ -329,7 +336,12 @@ pub fn prove_fp_binding(
     for (mi, si) in mask.iter().zip(slots.mont.iter()) {
         response.push(mi.add(&si.mul_upper_limb(&challenge)));
     }
-    Ok(FpBindingProof { mask_commitment, mask_image: image, challenge, response })
+    Ok(FpBindingProof {
+        mask_commitment,
+        mask_image: image,
+        challenge,
+        response,
+    })
 }
 
 /// Verify the binding pass.
@@ -433,17 +445,22 @@ mod tests {
         let carrier = FpCarrier::from_seed(64, n * FP_WINDOWS, b"key");
         let commitment = carrier.commit(&slots.mont).ok().unwrap();
         // challenges: upper-limb points
-        let point: Vec<Fp256> = (0..3).map(|i| {
-            let bytes = Transcript::xof(b"pt", b"bp", 32);
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&bytes);
-            // vary per index
-            arr[0] = i as u8;
-            Fp256::sample_upper_limb(&arr)
-        }).collect();
+        let point: Vec<Fp256> = (0..3)
+            .map(|i| {
+                let bytes = Transcript::xof(b"pt", b"bp", 32);
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                // vary per index
+                arr[0] = i as u8;
+                Fp256::sample_upper_limb(&arr)
+            })
+            .collect();
         let y = fp_linear_image(&slots, &point).ok().unwrap();
-        let proof = prove_fp_binding(&carrier, &slots, &point, &y, &commitment, b"s").unwrap_or_else(|e| panic!("prove: {e:?}"));
-        verify_fp_binding(&carrier, n, &point, &y, &commitment, b"s", &proof).ok().unwrap();
+        let proof = prove_fp_binding(&carrier, &slots, &point, &y, &commitment, b"s")
+            .unwrap_or_else(|e| panic!("prove: {e:?}"));
+        verify_fp_binding(&carrier, n, &point, &y, &commitment, b"s", &proof)
+            .ok()
+            .unwrap();
         // wrong claim rejected at prove time
         let y_bad = y.add(&Fp256::one_mont());
         assert!(prove_fp_binding(&carrier, &slots, &point, &y_bad, &commitment, b"s").is_err());
@@ -494,7 +511,9 @@ mod tests {
         // grid tensor arities agree with the ring engine's
         let pt_ring: Vec<crate::ring_d::Elem> = {
             let mut tr = Transcript::new_default(b"pt");
-            (0..2).map(|i| ring.sample_challenge(&mut tr, format!("r{i}").as_bytes())).collect()
+            (0..2)
+                .map(|i| ring.sample_challenge(&mut tr, format!("r{i}").as_bytes()))
+                .collect()
         };
         let (ra, rb) = crate::windowed::grid_tensors(&ring, &pt_ring);
         let pt_fp: Vec<Fp256> = (0..2)

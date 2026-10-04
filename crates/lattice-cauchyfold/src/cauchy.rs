@@ -6,7 +6,7 @@
 //! (Lemma 4.5), and the fast carrier construction (product trees +
 //! multipoint evaluation + interpolation).
 
-use crate::field_k::{K4, KPoly, Q48};
+use crate::field_k::{KPoly, K4, Q48};
 
 /// The public Cauchy parameters: distinct poles `ξ_1..ξ_k` and nonzero
 /// scales `λ_1..λ_k`.
@@ -22,7 +22,9 @@ impl CauchyParams {
     /// The paper's profile: `ξ_i = i`, `λ_i = 1`, `i = 1..=k`.
     pub fn paper(k: usize) -> Self {
         CauchyParams {
-            poles: (1..=k).map(|i| K4::from_coeffs([i as u64, 0, 0, 0])).collect(),
+            poles: (1..=k)
+                .map(|i| K4::from_coeffs([i as u64, 0, 0, 0]))
+                .collect(),
             scales: (0..k).map(|_| K4::ONE).collect(),
         }
     }
@@ -223,11 +225,7 @@ pub struct Carrier {
 
 impl Carrier {
     /// The direct pair-processing construction (§4.5's reference form).
-    pub fn direct(
-        params: &CauchyParams,
-        q_map: &QuadraticMap,
-        sources: &[Vec<K4>],
-    ) -> Carrier {
+    pub fn direct(params: &CauchyParams, q_map: &QuadraticMap, sources: &[Vec<K4>]) -> Carrier {
         let k = params.k();
         let y = q_map.y;
         let mut coeffs = vec![vec![K4::ZERO; y]; k];
@@ -330,8 +328,7 @@ impl Carrier {
         // Interpolate per K^y coordinate (degree < k).
         let mut coeffs = vec![vec![K4::ZERO; y]; k];
         for j in 0..y {
-            let knot_pts: Vec<(K4, K4)> =
-                pts.iter().map(|(t, h)| (*t, h[j])).collect();
+            let knot_pts: Vec<(K4, K4)> = pts.iter().map(|(t, h)| (*t, h[j])).collect();
             let poly = KPoly::interpolate(&knot_pts);
             for (t, c) in poly.coeffs.iter().enumerate().take(k) {
                 coeffs[t][j] = *c;
@@ -344,9 +341,7 @@ impl Carrier {
     pub fn to_poly_rows(&self) -> Vec<KPoly> {
         let y = self.coeffs.first().map(|c| c.len()).unwrap_or(0);
         (0..y)
-            .map(|j| {
-                KPoly::from_coeffs(self.coeffs.iter().map(|c| c[j]).collect())
-            })
+            .map(|j| KPoly::from_coeffs(self.coeffs.iter().map(|c| c[j]).collect()))
             .collect()
     }
 
@@ -471,8 +466,7 @@ pub fn discrepancy_poly(
         }
         // D·(H_src − H) per coordinate.
         let src_row = KPoly::from_coeffs(src_carrier.coeffs.iter().map(|c| c[j]).collect());
-        let claimed_row =
-            KPoly::from_coeffs(claimed_carrier.coeffs.iter().map(|c| c[j]).collect());
+        let claimed_row = KPoly::from_coeffs(claimed_carrier.coeffs.iter().map(|c| c[j]).collect());
         rows[j] = rows[j].add(&d.mul(&src_row.sub(&claimed_row)));
     }
     rows
@@ -489,11 +483,17 @@ mod tests {
     fn sources(k: usize, s: usize, seed: u64) -> Vec<Vec<K4>> {
         let mut nxt = seed;
         let mut rnd = move || {
-            nxt = nxt.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            nxt = nxt
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             nxt >> 33
         };
         (0..k + 1)
-            .map(|_| (0..s).map(|_| k4s(vec![rnd() % Q48, rnd() % Q48, rnd() % Q48, rnd() % Q48])).collect())
+            .map(|_| {
+                (0..s)
+                    .map(|_| k4s(vec![rnd() % Q48, rnd() % Q48, rnd() % Q48, rnd() % Q48]))
+                    .collect()
+            })
             .collect()
     }
 
@@ -511,10 +511,7 @@ mod tests {
                 let aj = params.a_i(j, &c).unwrap();
                 let lhs = ai.mul(&aj);
                 // (λ_j a_i − λ_i a_j) / (ξ_i − ξ_j)
-                let num = params
-                    .scales[j]
-                    .mul(&ai)
-                    .sub(&params.scales[i].mul(&aj));
+                let num = params.scales[j].mul(&ai).sub(&params.scales[i].mul(&aj));
                 let xi = params.poles[i];
                 let xj = params.poles[j];
                 let den = xi.sub(&xj);
@@ -595,7 +592,10 @@ mod tests {
         // Consistent case: F ≡ 0.
         let f_ok = discrepancy_poly(&params, &q_map, &srcs, &residuals, &carrier);
         for row in &f_ok {
-            assert!(row.coeffs.iter().all(|c| c.is_zero()) || row.degree() == 0 && row.eval(&K4::ZERO).is_zero());
+            assert!(
+                row.coeffs.iter().all(|c| c.is_zero())
+                    || row.degree() == 0 && row.eval(&K4::ZERO).is_zero()
+            );
         }
         // Tamper the carrier: F ≠ 0, degree ≤ 2k.
         let mut bad_carrier = carrier.clone();
@@ -632,4 +632,3 @@ mod tests {
         assert!(f.iter().any(|row| row.coeffs.iter().any(|c| !c.is_zero())));
     }
 }
-

@@ -208,11 +208,14 @@ mod tests {
                 ww
             };
             let mut t = Transcript::new_default(b"pcdh-step");
-            t.append_message(b"pcdh-step", &step.to_le_bytes()).ok().unwrap();
-            let (proof, acc) = match pcd_prove_step(&ccs, &key, &matrix_comms, &x, &w, &accs, &mut t) {
-                Ok(v) => v,
-                Err(e) => panic!("pcd prove failed: {e}"),
-            };
+            t.append_message(b"pcdh-step", &step.to_le_bytes())
+                .ok()
+                .unwrap();
+            let (proof, acc) =
+                match pcd_prove_step(&ccs, &key, &matrix_comms, &x, &w, &accs, &mut t) {
+                    Ok(v) => v,
+                    Err(e) => panic!("pcd prove failed: {e}"),
+                };
             prev_msg = fr(step + 1);
             accs.push(acc);
             proofs.push(proof);
@@ -221,7 +224,9 @@ mod tests {
         for step in 0..3usize {
             let incoming: Vec<AccStatement> = accs[..step].to_vec();
             let mut tv = Transcript::new_default(b"pcdh-step");
-            tv.append_message(b"pcdh-step", &(step as u64).to_le_bytes()).ok().unwrap();
+            tv.append_message(b"pcdh-step", &(step as u64).to_le_bytes())
+                .ok()
+                .unwrap();
             // The prover's fold input: incoming + the barebones acc —
             // reconstruct via the proof.
             let ok = pcd_verify_step(

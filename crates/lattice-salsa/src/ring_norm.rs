@@ -51,9 +51,16 @@ pub enum RingNormError {
     Transcript(TranscriptError),
     /// Lemma-4 wraparound gate: the parameters cannot certify an integer
     /// norm (m·n·B² ≥ q/2) — fail closed.
-    WraparoundUnsafe { bound: u64, count: usize, q: u32 },
+    WraparoundUnsafe {
+        bound: u64,
+        count: usize,
+        q: u32,
+    },
     /// The claimed norm exceeds the certified bound.
-    NormBoundExceeded { claimed: u64, bound: u64 },
+    NormBoundExceeded {
+        claimed: u64,
+        bound: u64,
+    },
     /// The modular norm does not match the claimed integer norm
     /// (reconstruction failed — wraparound actually occurred).
     ReconstructionMismatch,
@@ -61,7 +68,10 @@ pub enum RingNormError {
     TraceTerminalFailed,
     /// The D3 batched sumcheck failed.
     Batch(lattice_sumcheck::batch::BatchError),
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<SumcheckError> for RingNormError {
@@ -147,7 +157,10 @@ pub fn prove_ring_norm(
     transcript: &mut Transcript,
 ) -> Result<RingNormProof, RingNormError> {
     if witness.is_empty() {
-        return Err(RingNormError::Shape { expected: 1, got: 0 });
+        return Err(RingNormError::Shape {
+            expected: 1,
+            got: 0,
+        });
     }
     // Lemma-4 gate (fail closed on parameters).
     let _cap = wraparound_gate(witness.len(), ring, bound)?;
@@ -164,9 +177,11 @@ pub fn prove_ring_norm(
             norm_sq = norm_sq.saturating_add((balanced * balanced) as u64);
         }
     }
-    if norm_sq > bound.saturating_mul(bound).saturating_mul(
-        (witness.len() * ring.n()) as u64,
-    ) {
+    if norm_sq
+        > bound
+            .saturating_mul(bound)
+            .saturating_mul((witness.len() * ring.n()) as u64)
+    {
         return Err(RingNormError::NormBoundExceeded {
             claimed: norm_sq,
             bound,
@@ -181,7 +196,10 @@ pub fn prove_ring_norm(
         v.resize(padded_len, Goldilocks::ZERO);
         v
     })
-    .map_err(|_| RingNormError::Shape { expected: padded_len, got: 0 })?;
+    .map_err(|_| RingNormError::Shape {
+        expected: padded_len,
+        got: 0,
+    })?;
     let mut vp = VirtualPolynomial::new(log_vars);
     let z1 = vp
         .add_factor(z.clone())
@@ -305,7 +323,10 @@ fn norm_statement(
     witness: &[RingElement],
 ) -> Result<(VirtualPolynomial, Goldilocks, usize, u64), RingNormError> {
     if witness.is_empty() {
-        return Err(RingNormError::Shape { expected: 1, got: 0 });
+        return Err(RingNormError::Shape {
+            expected: 1,
+            got: 0,
+        });
     }
     // Integer norm (the prover knows the balanced representatives).
     let mut norm_sq: u64 = 0;
@@ -328,7 +349,10 @@ fn norm_statement(
         v.resize(padded_len, Goldilocks::ZERO);
         v
     })
-    .map_err(|_| RingNormError::Shape { expected: padded_len, got: 0 })?;
+    .map_err(|_| RingNormError::Shape {
+        expected: padded_len,
+        got: 0,
+    })?;
     let mut vp = VirtualPolynomial::new(num_vars);
     let z1 = vp
         .add_factor(z.clone())
@@ -406,7 +430,10 @@ pub fn prove_ring_norm_batch(
             pc.factor_claims
                 .first()
                 .copied()
-                .ok_or(RingNormError::Shape { expected: 1, got: 0 })
+                .ok_or(RingNormError::Shape {
+                    expected: 1,
+                    got: 0,
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(RingNormBatchProof {
@@ -442,11 +469,7 @@ pub fn verify_ring_norm_batch(
         // Lemma-4 gate per instance (never trust the prover's parameters).
         wraparound_gate(inst.num_elements, ring, *bound)?;
         let total = (inst.num_elements * inst.ring_dim) as u64;
-        if inst.claimed_norm_sq
-            > bound
-                .saturating_mul(*bound)
-                .saturating_mul(total)
-        {
+        if inst.claimed_norm_sq > bound.saturating_mul(*bound).saturating_mul(total) {
             return Err(RingNormError::NormBoundExceeded {
                 claimed: inst.claimed_norm_sq,
                 bound: *bound,
@@ -511,10 +534,16 @@ impl LinRelation {
     pub fn new(base: Vec<Goldilocks>, num_vars: usize) -> Result<Self, RingNormError> {
         let k = base.len().trailing_zeros() as usize;
         if !base.len().is_power_of_two() {
-            return Err(RingNormError::Shape { expected: 1 << k, got: base.len() });
+            return Err(RingNormError::Shape {
+                expected: 1 << k,
+                got: base.len(),
+            });
         }
         if num_vars < k {
-            return Err(RingNormError::Shape { expected: k, got: num_vars });
+            return Err(RingNormError::Shape {
+                expected: k,
+                got: num_vars,
+            });
         }
         Ok(LinRelation { base, num_vars })
     }
@@ -524,12 +553,17 @@ impl LinRelation {
     /// evaluation is O(2^k) field ops, no communication.
     pub fn row_at(&self, y_prefix: &[Goldilocks]) -> Result<Goldilocks, RingNormError> {
         let k = self.base.len().trailing_zeros() as usize;
-        let base_mle = DenseMle::new(self.base.clone())
-            .map_err(|_| RingNormError::Shape { expected: self.base.len(), got: 0 })?;
+        let base_mle = DenseMle::new(self.base.clone()).map_err(|_| RingNormError::Shape {
+            expected: self.base.len(),
+            got: 0,
+        })?;
         let prefix: Vec<Goldilocks> = y_prefix.iter().take(k).copied().collect();
         base_mle
             .evaluate(&prefix)
-            .map_err(|_| RingNormError::Shape { expected: k, got: y_prefix.len() })
+            .map_err(|_| RingNormError::Shape {
+                expected: k,
+                got: y_prefix.len(),
+            })
     }
 
     /// Π^lde-⊗ prover: prove `ext` is the LDE of the base — a residual
@@ -548,21 +582,23 @@ impl LinRelation {
                 got: ext.num_vars,
             });
         }
-        let r = transcript
-            .challenge_fields(b"salsa-lde-point", self.num_vars)?;
+        let r = transcript.challenge_fields(b"salsa-lde-point", self.num_vars)?;
         let eq = DenseMle::eq_extension(&r);
         let mut vp = VirtualPolynomial::new(self.num_vars);
         let ext_id = vp
             .add_factor(ext.clone())
             .map_err(|e| RingNormError::Sumcheck(SumcheckError::VirtualPoly(e)))?;
-        let eq_id = vp.add_factor(eq).map_err(|e| RingNormError::Sumcheck(SumcheckError::VirtualPoly(e)))?;
+        let eq_id = vp
+            .add_factor(eq)
+            .map_err(|e| RingNormError::Sumcheck(SumcheckError::VirtualPoly(e)))?;
         vp.add_term(Goldilocks::ONE, vec![ext_id, eq_id])
             .map_err(|e| RingNormError::Sumcheck(SumcheckError::VirtualPoly(e)))?;
         // The claim: ext(r) — must equal the row evaluation for an honest
         // LDE; the verifier recomputes the row independently.
-        let claim = ext
-            .evaluate(&r)
-            .map_err(|_| RingNormError::Shape { expected: self.num_vars, got: 0 })?;
+        let claim = ext.evaluate(&r).map_err(|_| RingNormError::Shape {
+            expected: self.num_vars,
+            got: 0,
+        })?;
         let out = sumcheck::prove(&vp, claim, transcript)?;
         Ok(out.proof)
     }
@@ -574,8 +610,7 @@ impl LinRelation {
         proof: &lattice_sumcheck::SumcheckProof,
         transcript: &mut Transcript,
     ) -> Result<(), RingNormError> {
-        let r = transcript
-            .challenge_fields(b"salsa-lde-point", self.num_vars)?;
+        let r = transcript.challenge_fields(b"salsa-lde-point", self.num_vars)?;
         let expected = self.row_at(&r)?;
         proof
             .verify(self.num_vars, 2, expected, transcript, None)
@@ -610,8 +645,10 @@ pub fn prove_norm_chain(
     let rel = LinRelation::new(base, num_vars.max(1))?;
     let mut ext_evals = coeffs;
     ext_evals.resize(1usize << num_vars, Goldilocks::ZERO);
-    let ext = DenseMle::new(ext_evals)
-        .map_err(|_| RingNormError::Shape { expected: 1 << num_vars, got: 0 })?;
+    let ext = DenseMle::new(ext_evals).map_err(|_| RingNormError::Shape {
+        expected: 1 << num_vars,
+        got: 0,
+    })?;
     let lde = rel.prove_lde(&ext, transcript)?;
     Ok(NormChainProof { norm, lde })
 }
@@ -739,11 +776,7 @@ mod tests {
             .unwrap();
         // Row-count preservation: the padded per-instance variable counts
         // are 6, 6, 7 — the batch round count is max = 7, NOT the sum 19.
-        let per_instance_vars: Vec<usize> = proof
-            .instances
-            .iter()
-            .map(|i| i.num_vars)
-            .collect();
+        let per_instance_vars: Vec<usize> = proof.instances.iter().map(|i| i.num_vars).collect();
         let expect_max = per_instance_vars.iter().copied().max().unwrap_or(0);
         assert_ne!(per_instance_vars.iter().copied().min(), Some(expect_max));
         assert_eq!(proof.sumcheck.rounds.len(), expect_max);
@@ -823,13 +856,7 @@ mod tests {
         };
         let mut vt = Transcript::new_default(b"salsa-d3-gate");
         assert!(matches!(
-            verify_ring_norm_batch(
-                &bad,
-                &ring,
-                &[1u64 << 14],
-                &[Goldilocks::ZERO],
-                &mut vt
-            ),
+            verify_ring_norm_batch(&bad, &ring, &[1u64 << 14], &[Goldilocks::ZERO], &mut vt),
             Err(RingNormError::WraparoundUnsafe { .. })
         ));
     }
@@ -910,18 +937,15 @@ mod tests {
         let coeffs = flatten_witness(&w);
         let base: Vec<Goldilocks> = coeffs.clone();
         let mut t = Transcript::new_default(b"salsa-chain");
-        let chain = prove_norm_chain(&w, &ring, 4, base.clone(), &mut t).ok().unwrap();
+        let chain = prove_norm_chain(&w, &ring, 4, base.clone(), &mut t)
+            .ok()
+            .unwrap();
         // Verify both legs: the norm leg with the local opening, the LDE
         // leg against the same relation.
         let mut vt = Transcript::new_default(b"salsa-chain");
-        assert!(verify_ring_norm(
-            &chain.norm,
-            &ring,
-            4,
-            chain.norm.z_at_challenge,
-            &mut vt
-        )
-        .is_ok());
+        assert!(
+            verify_ring_norm(&chain.norm, &ring, 4, chain.norm.z_at_challenge, &mut vt).is_ok()
+        );
         let num_vars = coeffs.len().next_power_of_two().max(2).trailing_zeros() as usize;
         let rel = LinRelation::new(base, num_vars).ok().unwrap();
         assert!(rel.verify_lde(&chain.lde, &mut vt).is_ok());

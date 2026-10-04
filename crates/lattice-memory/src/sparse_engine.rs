@@ -274,9 +274,7 @@ pub fn prove_sparse_sumcheck(
             while seg < order.len() {
                 let suffix = term.positions[order[seg]] & suffix_mask;
                 let mut end = seg + 1;
-                while end < order.len()
-                    && (term.positions[order[end]] & suffix_mask) == suffix
-                {
+                while end < order.len() && (term.positions[order[end]] & suffix_mask) == suffix {
                     end += 1;
                 }
                 for (t, ev) in evals_at.iter_mut().enumerate() {
@@ -496,7 +494,11 @@ pub fn prove_shout_sparse(
 // ---------------------------------------------------------------------------
 
 /// Evaluate a sparse factor at a point over its own variables.
-fn sparse_eval(entries: &[(u64, Goldilocks)], var_map: &[usize], point: &[Goldilocks]) -> Goldilocks {
+fn sparse_eval(
+    entries: &[(u64, Goldilocks)],
+    var_map: &[usize],
+    point: &[Goldilocks],
+) -> Goldilocks {
     let len = var_map.len();
     let mut acc = Goldilocks::ZERO;
     for &(own, val) in entries {
@@ -561,9 +563,7 @@ pub fn prove_onehot_sparse(
         }
         digits_per_dim.push(col);
     }
-    let positions: Vec<u64> = (0..t)
-        .map(|j| (addresses[j] << log_t) | j as u64)
-        .collect();
+    let positions: Vec<u64> = (0..t).map(|j| (addresses[j] << log_t) | j as u64).collect();
 
     // 1. Booleanity per dimension (over the dim's own (k_i, j) space).
     let mut booleanity = Vec::with_capacity(d);
@@ -576,13 +576,13 @@ pub fn prove_onehot_sparse(
         // Dim-space numbering: address vars [0..log_n), then cycle vars.
         let mut var_map: Vec<usize> = (0..log_n).collect();
         var_map.extend(log_n..log_n + log_t);
-        let eq_f = ProjectedDense {
-            mle: eq_m,
-            var_map,
-        };
+        let eq_f = ProjectedDense { mle: eq_m, var_map };
         let mut entries = Vec::with_capacity(t);
         for j in 0..t {
-            entries.push((((digits_per_dim[i][j] as u64) << log_t) | j as u64, Goldilocks::ONE));
+            entries.push((
+                ((digits_per_dim[i][j] as u64) << log_t) | j as u64,
+                Goldilocks::ONE,
+            ));
         }
         let ra_f = SparseFactor {
             entries,
@@ -633,7 +633,12 @@ pub fn prove_onehot_sparse(
         let mut var_map: Vec<usize> = (i * log_n..(i + 1) * log_n).collect();
         var_map.extend(log_k..log_k + log_t);
         let entries: Vec<(u64, Goldilocks)> = (0..t)
-            .map(|j| (((digits_per_dim[i][j] as u64) << log_t) | j as u64, Goldilocks::ONE))
+            .map(|j| {
+                (
+                    ((digits_per_dim[i][j] as u64) << log_t) | j as u64,
+                    Goldilocks::ONE,
+                )
+            })
             .collect();
         ra_dims.push(SparseFactor { entries, var_map });
     }
@@ -665,13 +670,15 @@ pub fn prove_onehot_sparse(
         let dim_var_map: Vec<usize> = (0..log_n + log_t).collect();
         let wv = sparse_eval(&inst.sparse[i].entries, &dim_var_map, &wpt);
         claims.push((mf, wpt, wv));
-        let mut native: Vec<Goldilocks> =
-            raf_point[i * log_n..(i + 1) * log_n].to_vec();
+        let mut native: Vec<Goldilocks> = raf_point[i * log_n..(i + 1) * log_n].to_vec();
         native.extend(raf_point[log_k..log_k + log_t].iter().copied());
         claims.push((mf, native, raf_out.sparse_claims[i]));
     }
     Ok((
-        crate::onehot_check::OneHotProof { booleanity, raf: raf_out.proof },
+        crate::onehot_check::OneHotProof {
+            booleanity,
+            raf: raf_out.proof,
+        },
         claims,
     ))
 }
@@ -718,16 +725,18 @@ pub fn build_twist_ports(
 ) -> Result<TwistPortsWitness, PiopError> {
     let k = 1usize << log_k;
     let t = 1usize << log_t;
-    if read_addr.len() != t
-        || write_addr.len() != t
-        || write_val.len() != t
-        || init.len() != k
-    {
-        return Err(PiopError::Shape { expected: t, got: read_addr.len() });
+    if read_addr.len() != t || write_addr.len() != t || write_val.len() != t || init.len() != k {
+        return Err(PiopError::Shape {
+            expected: t,
+            got: read_addr.len(),
+        });
     }
     for (a, b) in read_addr.iter().zip(write_addr.iter()) {
         if *a >= k as u64 || *b >= k as u64 {
-            return Err(PiopError::AddressOutOfRange { address: (*a).max(*b), k });
+            return Err(PiopError::AddressOutOfRange {
+                address: (*a).max(*b),
+                k,
+            });
         }
     }
     let mut running = init.to_vec();
@@ -795,10 +804,12 @@ pub fn prove_twist_ports_sparse(
         )
         .map_err(PiopError::Transcript)?;
 
-    let read_positions: Vec<u64> =
-        (0..t).map(|j| (w.read_addr[j] << log_t) | j as u64).collect();
-    let write_positions: Vec<u64> =
-        (0..t).map(|j| (w.write_addr[j] << log_t) | j as u64).collect();
+    let read_positions: Vec<u64> = (0..t)
+        .map(|j| (w.read_addr[j] << log_t) | j as u64)
+        .collect();
+    let write_positions: Vec<u64> = (0..t)
+        .map(|j| (w.write_addr[j] << log_t) | j as u64)
+        .collect();
 
     // ---- Leg 1: read-checking at rcycle. ----
     let rcycle = transcript.challenge_fields(b"twist-rcycle", log_t)?;
@@ -959,8 +970,16 @@ pub fn prove_twist_ports_sparse(
     claims.push((FactorId::Val, rho1.to_vec(), out1.dense_claims[1]));
     claims.push((FactorId::Val, rho2.to_vec(), out2.dense_claims[2]));
     // Inc at the leg-2 and leg-3 sumcheck points (rho2 / rho3).
-    claims.push((FactorId::Inc, out2.challenges.clone(), out2.sparse_claims[d]));
-    claims.push((FactorId::Inc, out3.challenges.clone(), out3.sparse_claims[0]));
+    claims.push((
+        FactorId::Inc,
+        out2.challenges.clone(),
+        out2.sparse_claims[d],
+    ));
+    claims.push((
+        FactorId::Inc,
+        out3.challenges.clone(),
+        out3.sparse_claims[0],
+    ));
     // wa dims at leg-2 native points.
     for i in 0..d {
         let mut point: Vec<Goldilocks> = rho2[i * log_n..(i + 1) * log_n].to_vec();
@@ -1033,9 +1052,10 @@ pub fn verify_twist_ports_checked(
 
     // Leg 2.
     let r_inc = transcript.challenge_fields(b"twist-rinc", log_k + log_t)?;
-    let v2 = proof
-        .inc_definition
-        .verify(log_k + log_t, d + 2, Goldilocks::ZERO, transcript, None)?;
+    let v2 =
+        proof
+            .inc_definition
+            .verify(log_k + log_t, d + 2, Goldilocks::ZERO, transcript, None)?;
     let rho2 = &v2.point;
     let rho2_j = &rho2[log_k..];
     let eq2 = DenseMle::eq_eval(&r_inc, rho2)?;
@@ -1083,8 +1103,8 @@ pub fn verify_twist_ports_checked(
 mod tests {
     use super::*;
     use crate::onehot::one_hot_dim_matrix;
-    use crate::shout::{prove_shout, verify_shout};
     use crate::onehot_check::{prove_onehot, verify_onehot, OneHotSide};
+    use crate::shout::{prove_shout, verify_shout};
     use crate::WitnessResolver;
 
     fn fe(x: u64) -> Goldilocks {
@@ -1105,7 +1125,10 @@ mod tests {
         )
         .ok()
         .unwrap();
-        let mut rv: Vec<Goldilocks> = reads.iter().map(|&a| fe(table[a as usize].to_canonical_u64())).collect();
+        let mut rv: Vec<Goldilocks> = reads
+            .iter()
+            .map(|&a| fe(table[a as usize].to_canonical_u64()))
+            .collect();
         rv.resize(1 << log_t, Goldilocks::ZERO);
         let rv_col = DenseMle::new(rv).ok().unwrap();
         let resolver = WitnessResolver {
@@ -1115,14 +1138,26 @@ mod tests {
         };
         // Dense proof.
         let mut t1 = Transcript::new_default(b"shout-test");
-        let dense_proof = prove_shout(&table, std::slice::from_ref(&matrix), log_k, log_t, &resolver, &mut t1)
-            .ok().unwrap();
+        let dense_proof = prove_shout(
+            &table,
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            &resolver,
+            &mut t1,
+        )
+        .ok()
+        .unwrap();
         // Sparse proof.
         let mut t2 = Transcript::new_default(b"shout-test");
         let (sparse_proof, _) =
             prove_shout_sparse(&table, &reads, log_k, log_t, 1, &resolver, &mut t2)
-                .ok().unwrap();
-        assert_eq!(dense_proof.read_checking.rounds, sparse_proof.read_checking.rounds);
+                .ok()
+                .unwrap();
+        assert_eq!(
+            dense_proof.read_checking.rounds,
+            sparse_proof.read_checking.rounds
+        );
         // The sparse proof verifies through the standard verifier.
         let mut t3 = Transcript::new_default(b"shout-test");
         assert!(verify_shout(&sparse_proof, &table, log_k, log_t, 1, &resolver, &mut t3).is_ok());
@@ -1135,11 +1170,16 @@ mod tests {
         let table: Vec<Goldilocks> = (0..16u64).map(|i| fe(i * 7 + 3)).collect();
         let reads = vec![0u64, 7, 15, 3];
         let layout = OneHotLayout::new(log_k, log_t, 2, usize::MAX).ok().unwrap();
-        let digits: Vec<Vec<u32>> = reads.iter().map(|&a| layout.digits(a).ok().unwrap()).collect();
+        let digits: Vec<Vec<u32>> = reads
+            .iter()
+            .map(|&a| layout.digits(a).ok().unwrap())
+            .collect();
         let m0 = one_hot_dim_matrix(&digits.iter().map(|d| d[0]).collect::<Vec<_>>(), 2, log_t)
-            .ok().unwrap();
+            .ok()
+            .unwrap();
         let m1 = one_hot_dim_matrix(&digits.iter().map(|d| d[1]).collect::<Vec<_>>(), 2, log_t)
-            .ok().unwrap();
+            .ok()
+            .unwrap();
         let mut rv: Vec<Goldilocks> = reads.iter().map(|&a| fe(a * 7 + 3)).collect();
         rv.resize(4, Goldilocks::ZERO);
         let rv_col = DenseMle::new(rv).ok().unwrap();
@@ -1160,9 +1200,15 @@ mod tests {
         .ok()
         .unwrap();
         let mut t2 = Transcript::new_default(b"shout-test");
-        let (sparse_proof, _) = prove_shout_sparse(&table, &reads, log_k, log_t, 2, &resolver, &mut t2)
-            .map_err(|e| panic!("d2 sparse err: {e:?}")).ok().unwrap();
-        assert_eq!(dense_proof.read_checking.rounds, sparse_proof.read_checking.rounds);
+        let (sparse_proof, _) =
+            prove_shout_sparse(&table, &reads, log_k, log_t, 2, &resolver, &mut t2)
+                .map_err(|e| panic!("d2 sparse err: {e:?}"))
+                .ok()
+                .unwrap();
+        assert_eq!(
+            dense_proof.read_checking.rounds,
+            sparse_proof.read_checking.rounds
+        );
         let mut t3 = Transcript::new_default(b"shout-test");
         assert!(verify_shout(&sparse_proof, &table, log_k, log_t, 2, &resolver, &mut t3).is_ok());
     }
@@ -1188,19 +1234,41 @@ mod tests {
             ..Default::default()
         };
         let mut t1 = Transcript::new_default(b"onehot-test");
-        let dense_proof = prove_onehot(std::slice::from_ref(&matrix), log_k, log_t, OneHotSide::Read, &resolver, &mut t1)
-            .ok().unwrap();
+        let dense_proof = prove_onehot(
+            std::slice::from_ref(&matrix),
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t1,
+        )
+        .ok()
+        .unwrap();
         let mut t2 = Transcript::new_default(b"onehot-test");
         let (sparse_proof, _cl) =
             prove_onehot_sparse(&addr, log_k, log_t, 1, OneHotSide::Read, &resolver, &mut t2)
-                .map_err(|e| panic!("onehot sparse err: {e:?}")).ok().unwrap();
+                .map_err(|e| panic!("onehot sparse err: {e:?}"))
+                .ok()
+                .unwrap();
         assert_eq!(dense_proof.booleanity.len(), sparse_proof.booleanity.len());
-        for (a, b) in dense_proof.booleanity.iter().zip(sparse_proof.booleanity.iter()) {
+        for (a, b) in dense_proof
+            .booleanity
+            .iter()
+            .zip(sparse_proof.booleanity.iter())
+        {
             assert_eq!(a.rounds, b.rounds);
         }
         assert_eq!(dense_proof.raf.rounds, sparse_proof.raf.rounds);
         let mut t3 = Transcript::new_default(b"onehot-test");
-        assert!(verify_onehot(&sparse_proof, log_k, log_t, OneHotSide::Read, &resolver, &mut t3).is_ok());
+        assert!(verify_onehot(
+            &sparse_proof,
+            log_k,
+            log_t,
+            OneHotSide::Read,
+            &resolver,
+            &mut t3
+        )
+        .is_ok());
     }
 
     #[test]
@@ -1234,7 +1302,8 @@ mod tests {
             running[p.1 as usize] = v;
         }
         let w = build_twist_ports(&read_addr, &write_addr, &write_val, &init, log_k, log_t)
-            .ok().unwrap();
+            .ok()
+            .unwrap();
         // rv column: the observed read values = Val(read_addr[j], j).
         let t = 8;
         let mut rv_vals = Vec::with_capacity(t);
@@ -1251,14 +1320,19 @@ mod tests {
         let mut tr = Transcript::new_default(b"lzx-twist-ports");
         let (proof, claims) = prove_twist_ports_sparse(&w, &wv_col, &resolver, &mut tr)
             .map_err(|e| panic!("prove err: {e:?}"))
-            .ok().unwrap();
+            .ok()
+            .unwrap();
         assert!(!claims.is_empty());
         // Verifier with a claim-table-backed resolver.
         struct TableResolver<'a> {
             claims: &'a [FactorClaim],
         }
         impl<'a> FactorResolver for TableResolver<'a> {
-            fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
+            fn eval(
+                &self,
+                factor: FactorId,
+                point: &[Goldilocks],
+            ) -> Result<Goldilocks, PiopError> {
                 for (f, p, v) in self.claims {
                     if *f == factor && p.as_slice() == point {
                         return Ok(*v);
@@ -1270,16 +1344,28 @@ mod tests {
         let table_res = TableResolver { claims: &claims };
         let mut vt = Transcript::new_default(b"lzx-twist-ports");
         let res = verify_twist_ports_checked(
-            &proof, &w.init, &w.final_state, log_k, log_t, log_k, &table_res, &mut vt,
+            &proof,
+            &w.init,
+            &w.final_state,
+            log_k,
+            log_t,
+            log_k,
+            &table_res,
+            &mut vt,
         );
-        assert!(res.is_ok(), "honest ports twist must verify: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "honest ports twist must verify: {:?}",
+            res.err()
+        );
         // Tampered final state must fail the telescoping claim.
         let mut bad_final = w.final_state.clone();
         bad_final[0] = bad_final[0].add(&fe(1));
         let mut vt2 = Transcript::new_default(b"lzx-twist-ports");
-        assert!(
-            verify_twist_ports_checked(&proof, &w.init, &bad_final, log_k, log_t, log_k, &table_res, &mut vt2).is_err()
-        );
+        assert!(verify_twist_ports_checked(
+            &proof, &w.init, &bad_final, log_k, log_t, log_k, &table_res, &mut vt2
+        )
+        .is_err());
     }
 
     #[test]
@@ -1292,8 +1378,7 @@ mod tests {
         let reads: Vec<u64> = (0..(1usize << log_t))
             .map(|j| ((j.wrapping_mul(2654435761) >> 22) as u64) & ((1u64 << log_k) - 1))
             .collect();
-        let mut rv: Vec<Goldilocks> =
-            reads.iter().map(|&a| table[a as usize]).collect();
+        let mut rv: Vec<Goldilocks> = reads.iter().map(|&a| table[a as usize]).collect();
         let rv_col = DenseMle::new(rv.clone()).ok().unwrap();
         rv.clear();
         let resolver = WitnessResolver {
@@ -1302,14 +1387,19 @@ mod tests {
         };
         let mut tr = Transcript::new_default(b"shout-big");
         let start = std::time::Instant::now();
-        let (proof, _) = prove_shout_sparse(&table, &reads, log_k, log_t, log_k, &resolver, &mut tr)
-            .ok().unwrap();
+        let (proof, _) =
+            prove_shout_sparse(&table, &reads, log_k, log_t, log_k, &resolver, &mut tr)
+                .ok()
+                .unwrap();
         let elapsed = start.elapsed();
         // 2^20 dense cells would be the dense route; here we touched T
         // entries per round: assert the proof exists and completes fast.
         assert!(!proof.read_checking.rounds.is_empty());
         assert_eq!(proof.read_checking.rounds.len(), log_k + log_t);
-        assert!(elapsed.as_secs() < 60, "sparse shout must be fast, took {elapsed:?}");
+        assert!(
+            elapsed.as_secs() < 60,
+            "sparse shout must be fast, took {elapsed:?}"
+        );
     }
 }
 
@@ -1490,9 +1580,7 @@ mod identity_differential {
                 ],
             };
             let mut tr_s = Transcript::new_default(b"sc-diff");
-            let out_s = prove_sparse_sumcheck(&inst, total, &mut tr_s)
-                .ok()
-                .unwrap();
+            let out_s = prove_sparse_sumcheck(&inst, total, &mut tr_s).ok().unwrap();
 
             assert_eq!(out_d.proof.rounds.len(), out_s.proof.rounds.len());
             for (ri, (rd, rs)) in out_d

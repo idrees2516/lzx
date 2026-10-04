@@ -117,7 +117,10 @@ pub enum CycloProtocolError {
     TranscriptFailure,
     /// A digit lies outside `[−b, b]` (the honest prover refuses; the
     /// verifier's leaf check rejects the certificate).
-    DigitOutOfRange { value: i64, bound: u64 },
+    DigitOutOfRange {
+        value: i64,
+        bound: u64,
+    },
     /// The Π^ext constraint row failed (committed digits do not
     /// recompose a witness of the input relation, or the FS challenge
     /// does not replay).
@@ -125,9 +128,15 @@ pub enum CycloProtocolError {
     /// Terminal digit-reconstruction mismatch.
     ReconstructionFailed,
     /// Shape mismatch (layer count / length bookkeeping).
-    ShapeMismatch { expected: usize, got: usize },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
     /// The norm gate `‖v‖∞ ≤ b` refused the opening (hard gate).
-    NormGateExceeded { norm: u64, bound: u64 },
+    NormGateExceeded {
+        norm: u64,
+        bound: u64,
+    },
 }
 
 impl From<Fq2SumcheckError> for CycloProtocolError {
@@ -347,21 +356,19 @@ pub fn verify_range(
     // (PCS-authenticated by the caller) equals Σ_i 2^{i·chunk_log}·d_i.
     let mut coeff_rec = Fq2::ZERO;
     for (i, d) in proof.digit_claims.iter().enumerate() {
-        let shift = (i as u32)
-            .checked_mul(statement.chunk_log)
-            .ok_or(CycloProtocolError::ShapeMismatch {
+        let shift = (i as u32).checked_mul(statement.chunk_log).ok_or(
+            CycloProtocolError::ShapeMismatch {
                 expected: usize::MAX,
                 got: i,
-            })?;
+            },
+        )?;
         if shift >= 64 {
             return Err(CycloProtocolError::ShapeMismatch {
                 expected: 64,
                 got: shift as usize,
             });
         }
-        coeff_rec = coeff_rec.add(&d.mul(&Fq2::from_base(Goldilocks::from_u64(
-            1u64 << shift,
-        ))));
+        coeff_rec = coeff_rec.add(&d.mul(&Fq2::from_base(Goldilocks::from_u64(1u64 << shift))));
     }
     if coeff_rec != coeff_claim {
         return Err(CycloProtocolError::ReconstructionFailed);
@@ -411,9 +418,7 @@ pub fn ext_commit_rok(
             got: witness.len(),
         });
     }
-    if pk_ext.params.ring.modulus.q != ring.modulus.q
-        || pk_ext.params.ring.log_n != ring.log_n
-    {
+    if pk_ext.params.ring.modulus.q != ring.modulus.q || pk_ext.params.ring.log_n != ring.log_n {
         return Err(CycloProtocolError::ShapeMismatch {
             expected: ring.n(),
             got: pk_ext.params.ring.n(),
@@ -477,7 +482,11 @@ pub fn ext_commit_rok(
     // Challenge-batched RHS ⟨c, t⟩ = Σ_r c_r·t_r — the folded instance's
     // new constraint value (Fig-2 step 4's ⟨c, y⟩).
     let mut batched = ring.zero();
-    for (row, c_r) in input_commitment.rows.iter().zip(challenge.coefficients.iter()) {
+    for (row, c_r) in input_commitment
+        .rows
+        .iter()
+        .zip(challenge.coefficients.iter())
+    {
         if *c_r == 0 {
             continue;
         }
@@ -552,20 +561,20 @@ pub fn verify_ext_fold(
         for j in 0..pk.params.m {
             for i in 0..num_chunks {
                 let idx = i * pk.params.m + j;
-                let d = opening_v.get(idx).ok_or(CycloProtocolError::ShapeMismatch {
-                    expected: idx + 1,
-                    got: opening_v.len(),
-                })?;
+                let d = opening_v
+                    .get(idx)
+                    .ok_or(CycloProtocolError::ShapeMismatch {
+                        expected: idx + 1,
+                        got: opening_v.len(),
+                    })?;
                 if d.is_zero() {
                     continue;
                 }
                 let weight = 1i64 << (i as u32 * chunk_log);
-                let a_rj = pk
-                    .entry(r, j)
-                    .ok_or(CycloProtocolError::ShapeMismatch {
-                        expected: pk.params.m,
-                        got: j,
-                    })?;
+                let a_rj = pk.entry(r, j).ok_or(CycloProtocolError::ShapeMismatch {
+                    expected: pk.params.m,
+                    got: j,
+                })?;
                 let prod = a_rj.mul(&d.scale_i64(weight))?;
                 acc = acc.add(&prod)?;
             }
@@ -718,7 +727,9 @@ mod tests {
     fn challenge_spec(k: usize) -> ShortChallengeSpec {
         ShortChallengeSpec {
             n: k,
-            family: ShortChallengeFamily::SmallSet { values: vec![0, 1, -1, 2, -2] },
+            family: ShortChallengeFamily::SmallSet {
+                values: vec![0, 1, -1, 2, -2],
+            },
         }
     }
 
@@ -955,7 +966,9 @@ mod tests {
         // Recomposition identity (the paper's Step-1 split law): Σ (2b)^i
         // w_i = w — pinned via unchunk_elements.
         for (j, e) in w.iter().enumerate() {
-            let chunks: Vec<RingElement> = (0..num_chunks).map(|i| v[i * w.len() + j].clone()).collect();
+            let chunks: Vec<RingElement> = (0..num_chunks)
+                .map(|i| v[i * w.len() + j].clone())
+                .collect();
             let rec = crate::cyclo::unchunk_elements(&ring, &chunks, 4);
             assert_eq!(rec, *e);
         }
@@ -1060,7 +1073,10 @@ mod tests {
         let short = &w[..3];
         assert!(matches!(
             ext_commit_rok(&pk, &pk_ext, &t_input, short, 4, 0, &spec),
-            Err(CycloProtocolError::ShapeMismatch { expected: 4, got: 3 })
+            Err(CycloProtocolError::ShapeMismatch {
+                expected: 4,
+                got: 3
+            })
         ));
         // Extension key too small for the chunked witness.
         let (pk_small, _) = setup(4, 4);

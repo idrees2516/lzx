@@ -77,17 +77,27 @@ use lattice_core::mle::{DenseMle, MleError};
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_core::Goldilocks;
 use lattice_relations::ccs::{Ccs, SparseMatrix};
+use lattice_ring::RingElement;
 use lattice_sumcheck::sumcheck::{self, SumcheckProof};
 use lattice_sumcheck::virtual_poly::VirtualPolynomial;
-use lattice_ring::RingElement;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PiCcsError {
     /// A value does not decompose in the declared level count.
-    DecompositionOverflow { value: u64, base: u64, levels: usize },
+    DecompositionOverflow {
+        value: u64,
+        base: u64,
+        levels: usize,
+    },
     /// A digit exceeded the base (fail-closed before any proof).
-    DigitOutOfRange { digit: u64, base: u64 },
-    Shape { expected: usize, got: usize },
+    DigitOutOfRange {
+        digit: u64,
+        base: u64,
+    },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// The sum-check layer rejected (shape, round identity, or claim).
     Sumcheck(String),
     /// The verifier's recomputed `Q(r')` != the sum-check terminal value.
@@ -99,7 +109,10 @@ pub enum PiCcsError {
     /// The commitment opening failed.
     OpeningFailed,
     /// A CCS selection is not binary (this module pins arity 2).
-    BadSelection { index: usize, arity: usize },
+    BadSelection {
+        index: usize,
+        arity: usize,
+    },
     Transcript(TranscriptError),
 }
 
@@ -112,8 +125,15 @@ impl From<TranscriptError> for PiCcsError {
 impl core::fmt::Display for PiCcsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            PiCcsError::DecompositionOverflow { value, base, levels } => {
-                write!(f, "value {value} does not decompose in {levels} base-{base} levels")
+            PiCcsError::DecompositionOverflow {
+                value,
+                base,
+                levels,
+            } => {
+                write!(
+                    f,
+                    "value {value} does not decompose in {levels} base-{base} levels"
+                )
             }
             PiCcsError::DigitOutOfRange { digit, base } => {
                 write!(f, "digit {digit} >= base {base}")
@@ -175,7 +195,10 @@ pub struct DigitWitness {
 /// value that does not fit rejects).
 pub fn decompose(values: &[u64], base: u64, levels: usize) -> Result<DigitWitness, PiCcsError> {
     if base < 2 || levels == 0 {
-        return Err(PiCcsError::Shape { expected: 2, got: base as usize });
+        return Err(PiCcsError::Shape {
+            expected: 2,
+            got: base as usize,
+        });
     }
     let mut out = vec![vec![0u64; values.len()]; levels];
     for (i, &v) in values.iter().enumerate() {
@@ -185,7 +208,11 @@ pub fn decompose(values: &[u64], base: u64, levels: usize) -> Result<DigitWitnes
             rem /= base;
         }
         if rem != 0 {
-            return Err(PiCcsError::DecompositionOverflow { value: v, base, levels });
+            return Err(PiCcsError::DecompositionOverflow {
+                value: v,
+                base,
+                levels,
+            });
         }
     }
     Ok(DigitWitness { levels: out, base })
@@ -210,7 +237,10 @@ impl DigitWitness {
         for lev in &self.levels {
             for &d in lev {
                 if d >= self.base {
-                    return Err(PiCcsError::DigitOutOfRange { digit: d, base: self.base });
+                    return Err(PiCcsError::DigitOutOfRange {
+                        digit: d,
+                        base: self.base,
+                    });
                 }
             }
         }
@@ -256,15 +286,23 @@ pub fn commit_digits(
     for lev in &digits.levels {
         let packed_u32: Vec<u32> = lev.iter().map(|&d| d as u32).collect();
         let packed = pack_small(&pk.params.ring, &packed_u32);
-        let padded = pk
-            .pad_to_m(&packed)
-            .map_err(|_| PiCcsError::Shape { expected: pk.params.m, got: packed.len() })?;
+        let padded = pk.pad_to_m(&packed).map_err(|_| PiCcsError::Shape {
+            expected: pk.params.m,
+            got: packed.len(),
+        })?;
         commitments.push(pk.commit(&padded).map_err(|_| PiCcsError::OpeningFailed)?);
         packed_levels.push(padded);
     }
     Ok((
-        PiCcsInstance { level_commitments: commitments, u, slack: slack.to_vec() },
-        PiCcsSecret { digits: digits.clone(), packed_levels },
+        PiCcsInstance {
+            level_commitments: commitments,
+            u,
+            slack: slack.to_vec(),
+        },
+        PiCcsSecret {
+            digits: digits.clone(),
+            packed_levels,
+        },
     ))
 }
 
@@ -313,14 +351,28 @@ pub fn fold_claim(c1: &CeClaim, c2: &CeClaim, rho: Goldilocks) -> Result<CeClaim
     if c1.y_products.len() != c2.y_products.len() {
         return Err(PiCcsError::PointMismatch);
     }
-    let y = c1.y.iter().zip(c2.y.iter()).map(|(a, b)| a.add(&rho.mul(b))).collect();
+    let y =
+        c1.y.iter()
+            .zip(c2.y.iter())
+            .map(|(a, b)| a.add(&rho.mul(b)))
+            .collect();
     let y_products = c1
         .y_products
         .iter()
         .zip(c2.y_products.iter())
-        .map(|(ja, jb)| ja.iter().zip(jb.iter()).map(|(a, b)| a.add(&rho.mul(b))).collect())
+        .map(|(ja, jb)| {
+            ja.iter()
+                .zip(jb.iter())
+                .map(|(a, b)| a.add(&rho.mul(b)))
+                .collect()
+        })
         .collect();
-    Ok(CeClaim { r_lev: c1.r_lev.clone(), r_pos: c1.r_pos.clone(), y, y_products })
+    Ok(CeClaim {
+        r_lev: c1.r_lev.clone(),
+        r_pos: c1.r_pos.clone(),
+        y,
+        y_products,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -453,7 +505,9 @@ fn level_products(matrix: &SparseMatrix, digits: &DigitWitness) -> Vec<Vec<Goldi
         .iter()
         .map(|lev| {
             let w: Vec<Goldilocks> = lev.iter().map(|&d| fe(d)).collect();
-            matrix.multiply(&w).unwrap_or_else(|_| vec![Goldilocks::ZERO; matrix.rows])
+            matrix
+                .multiply(&w)
+                .unwrap_or_else(|_| vec![Goldilocks::ZERO; matrix.rows])
         })
         .collect()
 }
@@ -476,7 +530,11 @@ fn span_matrix(ccs: &Ccs) -> SparseMatrix {
             }
         }
     }
-    SparseMatrix { rows: ccs.n, cols: ccs.m, entries }
+    SparseMatrix {
+        rows: ccs.n,
+        cols: ccs.m,
+        entries,
+    }
 }
 
 /// Zero-pad a vector to `m` rows (the position space).
@@ -525,31 +583,44 @@ fn build_vp(
 
     // --- NC factors: the stacked digit table and its affine shifts -----
     let z_stacked = stacked_digit_table(digits, shape)?;
-    let vpe = |e: lattice_sumcheck::virtual_poly::VirtualPolyError| PiCcsError::Sumcheck(format!("{e:?}"));
+    let vpe = |e: lattice_sumcheck::virtual_poly::VirtualPolyError| {
+        PiCcsError::Sumcheck(format!("{e:?}"))
+    };
     let mut nc_factors = Vec::with_capacity(shape.norm_shifts().len());
     for a in shape.norm_shifts() {
         let shifted: Vec<Goldilocks> = z_stacked
             .evaluations
             .iter()
-            .map(|&z| if a < 0 { z.add(&fe(u64::try_from(-a).unwrap_or(0))) } else { z.sub(&fe(a as u64)) })
+            .map(|&z| {
+                if a < 0 {
+                    z.add(&fe(u64::try_from(-a).unwrap_or(0)))
+                } else {
+                    z.sub(&fe(a as u64))
+                }
+            })
             .collect();
-        nc_factors.push(vp.add_factor(DenseMle::new(shifted).map_err(mle_shape_err)?).map_err(vpe)?);
+        nc_factors.push(
+            vp.add_factor(DenseMle::new(shifted).map_err(mle_shape_err)?)
+                .map_err(vpe)?,
+        );
     }
 
     // --- eq(X_pos, α): the F wrapper ------------------------------------
-    let eq_alpha = vp.add_factor(eq_pos_table(alpha_pos, shape)?).map_err(vpe)?;
+    let eq_alpha = vp
+        .add_factor(eq_pos_table(alpha_pos, shape)?)
+        .map_err(vpe)?;
 
     // --- per-level witness tables (EvalK + the claim derivation) -------
     let mut level_factor = Vec::with_capacity(shape.levels);
     for ell in 0..shape.levels {
         let v: Vec<Goldilocks> = match digits.levels.get(ell) {
-            Some(lev) => {
-                pad_rows(&lev.iter().map(|&d| fe(d)).collect::<Vec<_>>(), shape.m)
-            }
+            Some(lev) => pad_rows(&lev.iter().map(|&d| fe(d)).collect::<Vec<_>>(), shape.m),
             None => vec![Goldilocks::ZERO; shape.m],
         };
-        level_factor
-            .push(vp.add_factor(lift_position_table(&v, shape)?).map_err(vpe)?);
+        level_factor.push(
+            vp.add_factor(lift_position_table(&v, shape)?)
+                .map_err(vpe)?,
+        );
     }
 
     // --- per-level product tables + the recombined polynomials ---------
@@ -569,12 +640,18 @@ fn build_vp(
             for (r, &val) in rec.iter_mut().zip(v.iter()) {
                 *r = r.add(&weight.mul(&val));
             }
-            handles.push(vp.add_factor(lift_position_table(&v, shape)?).map_err(vpe)?);
+            handles.push(
+                vp.add_factor(lift_position_table(&v, shape)?)
+                    .map_err(vpe)?,
+            );
         }
         while handles.len() < shape.levels {
             handles.push(
-                vp.add_factor(lift_position_table(&vec![Goldilocks::ZERO; shape.m], shape)?)
-                    .map_err(vpe)?,
+                vp.add_factor(lift_position_table(
+                    &vec![Goldilocks::ZERO; shape.m],
+                    shape,
+                )?)
+                .map_err(vpe)?,
             );
         }
         product_factor.push(handles);
@@ -586,7 +663,10 @@ fn build_vp(
         .add_factor(lift_position_table(&pad_rows(slack, shape.m), shape)?)
         .map_err(vpe)?;
     let eq_r = match prior {
-        Some(p) => Some(vp.add_factor(eq_full_table(&p.r_lev, &p.r_pos)).map_err(vpe)?),
+        Some(p) => Some(
+            vp.add_factor(eq_full_table(&p.r_lev, &p.r_pos))
+                .map_err(vpe)?,
+        ),
         None => None,
     };
 
@@ -603,8 +683,11 @@ fn build_vp(
                 if lev >= jp.len() {
                     break;
                 }
-                vp.add_term(gamma.pow_u64(shape.off_eval_a(j, lev)), vec![eq_r_handle, *pf])
-                    .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
+                vp.add_term(
+                    gamma.pow_u64(shape.off_eval_a(j, lev)),
+                    vec![eq_r_handle, *pf],
+                )
+                .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
             }
         }
     }
@@ -613,17 +696,29 @@ fn build_vp(
     let off_f = gamma.pow_u64(shape.off_f());
     for (j, sel) in ccs.selections.iter().enumerate() {
         if sel.len() != 2 {
-            return Err(PiCcsError::BadSelection { index: j, arity: sel.len() });
+            return Err(PiCcsError::BadSelection {
+                index: j,
+                arity: sel.len(),
+            });
         }
         let c = ccs.constants.get(j).copied().unwrap_or(Goldilocks::ONE);
-        let ja = vp.add_factor(lift_position_table(&recomposed[sel[0]], shape)?).map_err(vpe)?;
-        let jb = vp.add_factor(lift_position_table(&recomposed[sel[1]], shape)?).map_err(vpe)?;
+        let ja = vp
+            .add_factor(lift_position_table(&recomposed[sel[0]], shape)?)
+            .map_err(vpe)?;
+        let jb = vp
+            .add_factor(lift_position_table(&recomposed[sel[1]], shape)?)
+            .map_err(vpe)?;
         vp.add_term(off_f.mul(&c), vec![eq_alpha, ja, jb])
             .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
     }
-    let span_lift = vp.add_factor(lift_position_table(&recomposed[matrices.len() - 1], shape)?).map_err(vpe)?;
-    vp.add_term(off_f.mul(&Goldilocks::ZERO.sub(&u)), vec![eq_alpha, span_lift])
-        .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
+    let span_lift = vp
+        .add_factor(lift_position_table(&recomposed[matrices.len() - 1], shape)?)
+        .map_err(vpe)?;
+    vp.add_term(
+        off_f.mul(&Goldilocks::ZERO.sub(&u)),
+        vec![eq_alpha, span_lift],
+    )
+    .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
     vp.add_term(
         off_f.mul(&Goldilocks::ZERO.sub(&Goldilocks::ONE)),
         vec![eq_alpha, slack_factor],
@@ -634,7 +729,11 @@ fn build_vp(
     vp.add_term(gamma.pow_u64(shape.off_nc()), nc_factors)
         .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
 
-    Ok(BuiltVp { vp, level_factor, product_factor })
+    Ok(BuiltVp {
+        vp,
+        level_factor,
+        product_factor,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -720,14 +819,26 @@ pub fn prove_pi_ccs(
         None => Goldilocks::ZERO,
     };
 
-    let built = build_vp(ccs, shape, &secret.digits, inst.u, &inst.slack, prior, &alpha_pos, &gamma)?;
+    let built = build_vp(
+        ccs,
+        shape,
+        &secret.digits,
+        inst.u,
+        &inst.slack,
+        prior,
+        &alpha_pos,
+        &gamma,
+    )?;
     let out = sumcheck::prove(&built.vp, claim, transcript)
         .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
 
     // The fresh claims from the engine's per-factor terminal claims.
     let r = &out.challenges;
-    let y: Vec<Goldilocks> =
-        built.level_factor.iter().map(|&h| out.factor_claims[h]).collect();
+    let y: Vec<Goldilocks> = built
+        .level_factor
+        .iter()
+        .map(|&h| out.factor_claims[h])
+        .collect();
     let y_products: Vec<Vec<Goldilocks>> = built
         .product_factor
         .iter()
@@ -748,7 +859,10 @@ pub fn prove_pi_ccs(
             .append_field_slice(b"pi-ccs-claims-yj", jp)
             .map_err(PiCcsError::Transcript)?;
     }
-    Ok(PiCcsProof { sumcheck: out.proof, new_claim })
+    Ok(PiCcsProof {
+        sumcheck: out.proof,
+        new_claim,
+    })
 }
 
 /// Verify Π_CCS. Returns the fresh claims (the eval-claim API output) on
@@ -771,7 +885,13 @@ pub fn verify_pi_ccs(
     };
     let verifier = proof
         .sumcheck
-        .verify(shape.num_vars(), shape.max_degree(), claim, transcript, None)
+        .verify(
+            shape.num_vars(),
+            shape.max_degree(),
+            claim,
+            transcript,
+            None,
+        )
         .map_err(|e| PiCcsError::Sumcheck(format!("{e:?}")))?;
     let r = verifier.point;
     let r_lev: Vec<Goldilocks> = r[..shape.log_lev].to_vec();
@@ -780,13 +900,22 @@ pub fn verify_pi_ccs(
     // The fresh claims must be well-shaped and bound to the point.
     let new_claim = &proof.new_claim;
     if new_claim.r_lev != r_lev || new_claim.r_pos != r_pos {
-        return Err(PiCcsError::Shape { expected: shape.log_lev + shape.log_m, got: 0 });
+        return Err(PiCcsError::Shape {
+            expected: shape.log_lev + shape.log_m,
+            got: 0,
+        });
     }
     if new_claim.y.len() != shape.levels
         || new_claim.y_products.len() != shape.t + 1
-        || new_claim.y_products.iter().any(|jp| jp.len() != shape.levels)
+        || new_claim
+            .y_products
+            .iter()
+            .any(|jp| jp.len() != shape.levels)
     {
-        return Err(PiCcsError::Shape { expected: shape.levels, got: new_claim.y.len() });
+        return Err(PiCcsError::Shape {
+            expected: shape.levels,
+            got: new_claim.y.len(),
+        });
     }
     transcript
         .append_field_slice(b"pi-ccs-claims-y", &new_claim.y)
@@ -810,8 +939,7 @@ pub fn verify_pi_ccs(
         }
         for (j, jp) in new_claim.y_products.iter().enumerate() {
             for (lev, &yv) in jp.iter().enumerate() {
-                eval_sum =
-                    eval_sum.add(&gamma.pow_u64(shape.off_eval_a(j, lev)).mul(&yv));
+                eval_sum = eval_sum.add(&gamma.pow_u64(shape.off_eval_a(j, lev)).mul(&yv));
             }
         }
         q_r = q_r.add(&eq_rr.mul(&eval_sum));
@@ -829,7 +957,10 @@ pub fn verify_pi_ccs(
     let mut f_val = Goldilocks::ZERO;
     for (j, sel) in ccs.selections.iter().enumerate() {
         if sel.len() != 2 {
-            return Err(PiCcsError::BadSelection { index: j, arity: sel.len() });
+            return Err(PiCcsError::BadSelection {
+                index: j,
+                arity: sel.len(),
+            });
         }
         let c = ccs.constants.get(j).copied().unwrap_or(Goldilocks::ONE);
         let ma = recombine(&new_claim.y_products[sel[0]]);
@@ -837,12 +968,12 @@ pub fn verify_pi_ccs(
         f_val = f_val.add(&c.mul(&ma.mul(&mb)));
     }
     let m_span = recombine(&new_claim.y_products[shape.t]);
-    f_val = f_val
-        .sub(&inst.u.mul(&m_span))
-        .sub(&DenseMle::new(pad_rows(&inst.slack, shape.m))
+    f_val = f_val.sub(&inst.u.mul(&m_span)).sub(
+        &DenseMle::new(pad_rows(&inst.slack, shape.m))
             .map_err(mle_shape_err)?
             .evaluate(&r_pos)
-            .map_err(mle_shape_err)?);
+            .map_err(mle_shape_err)?,
+    );
     q_r = q_r.add(&gamma.pow_u64(shape.off_f()).mul(&eq_alpha_r.mul(&f_val)));
 
     // NC: γ^{off_nc} · Π_a (Ẑ − a) with Ẑ = Σ_ℓ eq(r'_lev, e_ℓ)·y'_ℓ.
@@ -910,7 +1041,10 @@ pub fn decider_pi_ccs(
         .level_commitments
         .first()
         .map(|c| c.rows.clone())
-        .ok_or(PiCcsError::Shape { expected: 1, got: 0 })?;
+        .ok_or(PiCcsError::Shape {
+            expected: 1,
+            got: 0,
+        })?;
     for (ell, c) in inst.level_commitments.iter().enumerate().skip(1) {
         let w = base.pow(ell as u32) as i64;
         for (acc, row) in acc_rows.iter_mut().zip(c.rows.iter()) {
@@ -931,18 +1065,37 @@ pub fn decider_pi_ccs(
     prover_t
         .append_bytes(b"ccs", ccs_digest)
         .map_err(PiCcsError::Transcript)?;
-    let proof = prove_pi_ccs(ccs, ccs_digest, &shape, &inst, &secret, prior, &mut prover_t)?;
+    let proof = prove_pi_ccs(
+        ccs,
+        ccs_digest,
+        &shape,
+        &inst,
+        &secret,
+        prior,
+        &mut prover_t,
+    )?;
 
     let mut verifier_t = Transcript::new_default(b"lzx-pi-ccs-decider");
     verifier_t
         .append_bytes(b"ccs", ccs_digest)
         .map_err(PiCcsError::Transcript)?;
-    let new_claim =
-        verify_pi_ccs(ccs, ccs_digest, &shape, &inst, prior, &proof, &mut verifier_t)?;
+    let new_claim = verify_pi_ccs(
+        ccs,
+        ccs_digest,
+        &shape,
+        &inst,
+        prior,
+        &proof,
+        &mut verifier_t,
+    )?;
 
     // The direct opening of the level commitments (O(n) — replaced by
     // the functional bridge on the succinct route).
-    for (c, packed) in inst.level_commitments.iter().zip(secret.packed_levels.iter()) {
+    for (c, packed) in inst
+        .level_commitments
+        .iter()
+        .zip(secret.packed_levels.iter())
+    {
         pk.verify_opening(c, packed)
             .map_err(|_| PiCcsError::OpeningFailed)?;
     }
@@ -962,7 +1115,12 @@ mod tests {
 
     fn setup(log_n: u32, m_slots: usize) -> (AjtaiPublicKey, RingConfig) {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m: m_slots, norm_bound: 1 << 26 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 26,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [23u8; 32]).ok().unwrap();
         (pk, ring)
     }
@@ -1035,7 +1193,9 @@ mod tests {
     #[test]
     fn decompose_recompose_roundtrip() {
         for &base in &[2u64, 3, 5, 16] {
-            let values: Vec<u64> = (0..64u64).map(|i| (i * 7 + 3) % (base * base * base)).collect();
+            let values: Vec<u64> = (0..64u64)
+                .map(|i| (i * 7 + 3) % (base * base * base))
+                .collect();
             let d = decompose(&values, base, 3).ok().unwrap();
             assert_eq!(d.recompose(), values);
             d.validate().ok().unwrap();
@@ -1052,13 +1212,22 @@ mod tests {
         let (pk, _ring) = setup(6, 8);
         let ccs = bool_ccs(n);
         let w = boolean_witness(n, 7);
-        let claim = round_trip(&pk, &ccs, 2, 1, &w, Goldilocks::ONE, &vec![Goldilocks::ZERO; n], None)
-            .ok()
-            .unwrap();
+        let claim = round_trip(
+            &pk,
+            &ccs,
+            2,
+            1,
+            &w,
+            Goldilocks::ONE,
+            &vec![Goldilocks::ZERO; n],
+            None,
+        )
+        .ok()
+        .unwrap();
         assert_eq!(claim.y.len(), 1);
         assert_eq!(claim.y_products.len(), 3); // 2 A-matrices + the span
-        // The fresh witness claim: z̃⁽⁰⁾(r_pos) — a random-point MLE eval
-        // of the bit vector (sanity: a valid field element).
+                                               // The fresh witness claim: z̃⁽⁰⁾(r_pos) — a random-point MLE eval
+                                               // of the bit vector (sanity: a valid field element).
         assert!(claim.y[0] != Goldilocks::ZERO || true);
     }
 
@@ -1070,10 +1239,18 @@ mod tests {
         let (pk, _ring) = setup(6, 8);
         let ccs = bool_ccs(n);
         let w = boolean_witness(n, 11);
-        let claim =
-            round_trip(&pk, &ccs, 3, 4, &w, Goldilocks::ONE, &vec![Goldilocks::ZERO; n], None)
-                .ok()
-                .unwrap();
+        let claim = round_trip(
+            &pk,
+            &ccs,
+            3,
+            4,
+            &w,
+            Goldilocks::ONE,
+            &vec![Goldilocks::ZERO; n],
+            None,
+        )
+        .ok()
+        .unwrap();
         assert_eq!(claim.y.len(), 4);
     }
 
@@ -1085,10 +1262,18 @@ mod tests {
         let (pk, _ring) = setup(6, 8);
         let ccs = bool_ccs(n);
         let w = boolean_witness(n, 13);
-        let first =
-            round_trip(&pk, &ccs, 2, 1, &w, Goldilocks::ONE, &vec![Goldilocks::ZERO; n], None)
-                .ok()
-                .unwrap();
+        let first = round_trip(
+            &pk,
+            &ccs,
+            2,
+            1,
+            &w,
+            Goldilocks::ONE,
+            &vec![Goldilocks::ZERO; n],
+            None,
+        )
+        .ok()
+        .unwrap();
         // Second round on the SAME witness with the prior claims bound.
         let second = round_trip(
             &pk,
@@ -1115,12 +1300,15 @@ mod tests {
         let digits = decompose(&values, 2, 1).ok().unwrap();
         let shape = PiCcsShape::derive(&ccs, 2, 1);
         let (inst, secret) =
-            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE).ok().unwrap();
+            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE)
+                .ok()
+                .unwrap();
         let digest = ccs_digest(&ccs);
         let mut pt = Transcript::new_default(b"lzx-pi-ccs-test");
         pt.append_bytes(b"ccs", &digest).ok().unwrap();
-        let mut proof =
-            prove_pi_ccs(&ccs, &digest, &shape, &inst, &secret, None, &mut pt).ok().unwrap();
+        let mut proof = prove_pi_ccs(&ccs, &digest, &shape, &inst, &secret, None, &mut pt)
+            .ok()
+            .unwrap();
         // Tamper the fresh witness claim.
         proof.new_claim.y[0] = proof.new_claim.y[0].add(&Goldilocks::ONE);
         let mut vt = Transcript::new_default(b"lzx-pi-ccs-test");
@@ -1138,12 +1326,15 @@ mod tests {
         let digits = decompose(&values, 2, 1).ok().unwrap();
         let shape = PiCcsShape::derive(&ccs, 2, 1);
         let (inst, secret) =
-            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE).ok().unwrap();
+            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE)
+                .ok()
+                .unwrap();
         let digest = ccs_digest(&ccs);
         let mut pt = Transcript::new_default(b"lzx-pi-ccs-test");
         pt.append_bytes(b"ccs", &digest).ok().unwrap();
-        let mut proof =
-            prove_pi_ccs(&ccs, &digest, &shape, &inst, &secret, None, &mut pt).ok().unwrap();
+        let mut proof = prove_pi_ccs(&ccs, &digest, &shape, &inst, &secret, None, &mut pt)
+            .ok()
+            .unwrap();
         // Tamper a round message.
         if let Some(round) = proof.sumcheck.rounds.first_mut() {
             round[0] = round[0].add(&Goldilocks::ONE);
@@ -1167,7 +1358,9 @@ mod tests {
         let digits = decompose(&values, 2, 2).ok().unwrap(); // 2 = (0,1) digits
         let shape = PiCcsShape::derive(&ccs, 2, 2);
         let (inst, secret) =
-            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE).ok().unwrap();
+            commit_digits(&pk, &digits, &vec![Goldilocks::ZERO; n], Goldilocks::ONE)
+                .ok()
+                .unwrap();
         let digest = ccs_digest(&ccs);
         let mut pt = Transcript::new_default(b"lzx-pi-ccs-test");
         pt.append_bytes(b"ccs", &digest).ok().unwrap();
@@ -1195,7 +1388,10 @@ mod tests {
         assert_eq!(folded.y[1], fe64(2 + 3 * 20));
         assert_eq!(folded.y_products[1][0], fe64(5 + 3 * 50));
         // Different points refuse.
-        let c3 = CeClaim { r_lev: vec![fe64(9)], ..c2.clone() };
+        let c3 = CeClaim {
+            r_lev: vec![fe64(9)],
+            ..c2.clone()
+        };
         assert!(fold_claim(&c1, &c3, rho).is_err());
     }
 
@@ -1211,10 +1407,15 @@ mod tests {
         let w1 = boolean_witness(n, 31);
         let w2 = boolean_witness(n, 37);
         let zero_slack = vec![Goldilocks::ZERO; n];
-        let (i1, s1) = commit_instance(&pk, &w1, &zero_slack, Goldilocks::ONE, false).ok().unwrap();
-        let (i2, s2) = commit_instance(&pk, &w2, &zero_slack, Goldilocks::ONE, false).ok().unwrap();
-        let (folded, folded_secret) =
-            fold_committed(&pk, &ccs, &digest, &i1, &i2, &s1, &s2).ok().unwrap();
+        let (i1, s1) = commit_instance(&pk, &w1, &zero_slack, Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i2, s2) = commit_instance(&pk, &w2, &zero_slack, Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (folded, folded_secret) = fold_committed(&pk, &ccs, &digest, &i1, &i2, &s1, &s2)
+            .ok()
+            .unwrap();
         let claim = decider_pi_ccs(
             &pk,
             &ccs,
@@ -1245,8 +1446,12 @@ mod tests {
         let w1 = boolean_witness(n, 41);
         let w2 = boolean_witness(n, 43);
         let zero_slack = vec![Goldilocks::ZERO; n];
-        let (i1, _s1) = commit_instance(&pk, &w1, &zero_slack, Goldilocks::ONE, false).ok().unwrap();
-        let (i2, _s2) = commit_instance(&pk, &w2, &zero_slack, Goldilocks::ONE, false).ok().unwrap();
+        let (i1, _s1) = commit_instance(&pk, &w1, &zero_slack, Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
+        let (i2, _s2) = commit_instance(&pk, &w2, &zero_slack, Goldilocks::ONE, false)
+            .ok()
+            .unwrap();
         // A FOLDED commitment that does not match the presented values:
         // fold the commitments homomorphically with r, but present
         // values folded with a DIFFERENT r — the binding check fires.

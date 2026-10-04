@@ -25,9 +25,14 @@ use lattice_ring::{Modulus32, RingConfig, RingElement};
 pub enum EmbeddingError {
     Ring(lattice_ring::RingError),
     /// Slot geometry does not divide the ring dimension.
-    BadSlotGeometry { n: usize, slots: usize },
+    BadSlotGeometry {
+        n: usize,
+        slots: usize,
+    },
     /// Element is not in the embedded image.
-    NotInImage { coefficient: usize },
+    NotInImage {
+        coefficient: usize,
+    },
 }
 
 /// Slot embedding: k sub-ring coefficient vectors of length n/k pack into
@@ -35,15 +40,9 @@ pub enum EmbeddingError {
 /// fixed-subfield embedding):
 /// `embed(f_0, ..., f_{k-1}) = Σ_i X^i · f_i(X^k)`.
 /// (Parts are raw coefficient slices of the sub-ring R_{n/k}.)
-pub fn slot_embed(
-    ring: &RingConfig,
-    parts: &[Vec<u32>],
-) -> Result<RingElement, EmbeddingError> {
+pub fn slot_embed(ring: &RingConfig, parts: &[Vec<u32>]) -> Result<RingElement, EmbeddingError> {
     if parts.is_empty() {
-        return Err(EmbeddingError::BadSlotGeometry {
-            n: 0,
-            slots: 0,
-        });
+        return Err(EmbeddingError::BadSlotGeometry { n: 0, slots: 0 });
     }
     let k = parts.len();
     let n = ring.n();
@@ -142,10 +141,7 @@ pub fn trace_functional(elem: &RingElement, k: usize) -> Result<Vec<u32>, Embedd
 /// coefficient weight w_j = ζ^j powers where ζ is a primitive k-th root of
 /// unity mod q (if the modulus supports one); used to weight slot parts
 /// during trace-style verifications.
-pub fn embedding_weights(
-    modulus: &Modulus32,
-    k: usize,
-) -> Result<Vec<u32>, EmbeddingError> {
+pub fn embedding_weights(modulus: &Modulus32, k: usize) -> Result<Vec<u32>, EmbeddingError> {
     // Primitive k-th root of unity: k must divide q - 1.
     let q = modulus;
     if (q.q as u64 - 1) % k as u64 != 0 {
@@ -204,9 +200,7 @@ mod tests {
         // Trace = coefficient-wise sum of parts.
         let q = r.modulus;
         for j in 0..4 {
-            let expected = parts
-                .iter()
-                .fold(0u32, |acc, p| q.add(acc, p[j]));
+            let expected = parts.iter().fold(0u32, |acc, p| q.add(acc, p[j]));
             assert_eq!(tr[j], expected);
         }
     }
@@ -228,7 +222,7 @@ mod tests {
     #[test]
     fn bad_slot_geometry_rejected() {
         let r = ring(4); // n = 16
-        // k = 3 does not divide 16.
+                         // k = 3 does not divide 16.
         let parts = vec![vec![0u32; 5], vec![0u32; 5], vec![0u32; 5]];
         assert!(matches!(
             slot_embed(&r, &parts),

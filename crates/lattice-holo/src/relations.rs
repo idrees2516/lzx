@@ -186,11 +186,7 @@ impl Ccs {
         let _ = domain;
         let mut matrices: Vec<Vec<Vec<Fp256>>> = (0..t_m)
             .map(|j| {
-                crate::poly::fp_matrix(
-                    b"ccs-m",
-                    &[seed, &(j as u64).to_le_bytes()].concat(),
-                    n,
-                )
+                crate::poly::fp_matrix(b"ccs-m", &[seed, &(j as u64).to_le_bytes()].concat(), n)
             })
             .collect();
         let constants = crate::poly::fp_vec(b"ccs-c", seed, q);
@@ -211,7 +207,11 @@ impl Ccs {
             })
             .collect();
         // Zero the first matrix of every nonempty set.
-        let mut firsts: Vec<usize> = sets.iter().filter(|s| !s.is_empty()).map(|s| s[0]).collect();
+        let mut firsts: Vec<usize> = sets
+            .iter()
+            .filter(|s| !s.is_empty())
+            .map(|s| s[0])
+            .collect();
         firsts.sort_unstable();
         firsts.dedup();
         for j in firsts {
@@ -439,12 +439,13 @@ mod tests {
         // γ_i = M_i(β, α)
         let gammas: Vec<Fp256> = matrices
             .iter()
-            .map(|m| crate::poly::matrix_poly_eval(&domain, m, &beta, &alpha).ok().unwrap())
+            .map(|m| {
+                crate::poly::matrix_poly_eval(&domain, m, &beta, &alpha)
+                    .ok()
+                    .unwrap()
+            })
             .collect();
-        let etas = vec![
-            Fp256::from_canonical_u64(2),
-            Fp256::from_canonical_u64(5),
-        ];
+        let etas = vec![Fp256::from_canonical_u64(2), Fp256::from_canonical_u64(5)];
         let inst = build_gbf_alpha_beta(&gammas, &etas, &[], &alpha, &beta);
         // The witness: no committed u/v (the implicit λ's) — but the left
         // side needs slot 0 = λ(α): check_with fills it from alpha ✓ and

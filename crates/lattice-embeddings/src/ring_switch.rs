@@ -30,12 +30,17 @@ pub enum RingSwitchError {
     RingSc(RingScError),
     Transcript(TranscriptError),
     /// The balanced-trace gate failed: Tr(t) < 0 or > n·β².
-    TraceGateFailed { trace: i64 },
+    TraceGateFailed {
+        trace: i64,
+    },
     /// The terminal identity failed.
     TerminalFailed,
     /// The revealed norm does not match the claim.
     NormMismatch,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<RingScError> for RingSwitchError {
@@ -73,10 +78,7 @@ pub fn ring_switch_prove(
             got: w.len(),
         });
     }
-    let wbar: Vec<RingElement> = w
-        .iter()
-        .map(lattice_salsa::ring_sc::conj)
-        .collect();
+    let wbar: Vec<RingElement> = w.iter().map(lattice_salsa::ring_sc::conj).collect();
     let t = norm_conjugate_inner(w)?;
     let claim = ProductClaim {
         tables: vec![wbar.clone(), w.to_vec()],

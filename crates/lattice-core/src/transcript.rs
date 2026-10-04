@@ -78,7 +78,11 @@ impl Transcript {
     }
 
     /// Absorb a field element under a label (canonical 8-byte encoding).
-    pub fn append_field(&mut self, label: &[u8], value: &Goldilocks) -> Result<(), TranscriptError> {
+    pub fn append_field(
+        &mut self,
+        label: &[u8],
+        value: &Goldilocks,
+    ) -> Result<(), TranscriptError> {
         self.append_message(label, &value.to_bytes())
     }
 

@@ -27,9 +27,7 @@ use std::hint::black_box;
 use std::process::Command;
 use std::time::Instant;
 
-use lattice_core::field_simd::{
-    bind_half_slices, eq_table, mul_slices, Sum8,
-};
+use lattice_core::field_simd::{bind_half_slices, eq_table, mul_slices, Sum8};
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_sumcheck::sumcheck::{self, SumcheckOutput};
@@ -57,9 +55,7 @@ fn proof_digest(out: &SumcheckOutput) -> u64 {
     let mut acc: u64 = 0x243F_6A88_85A3_08D3;
     for round in &out.proof.rounds {
         for e in round {
-            acc = acc
-                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                .wrapping_add(e.0);
+            acc = acc.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(e.0);
         }
     }
     for c in &out.challenges {
@@ -84,7 +80,9 @@ fn build_vp(num_vars: usize) -> VirtualPolynomial {
         .add_factor(DenseMle::random(num_vars, b"bench-h"))
         .ok()
         .unwrap();
-    vp.add_term(Goldilocks::from_u64(3), vec![f, g]).ok().unwrap();
+    vp.add_term(Goldilocks::from_u64(3), vec![f, g])
+        .ok()
+        .unwrap();
     vp.add_term(Goldilocks::from_u64(5), vec![g, h, f])
         .ok()
         .unwrap();
@@ -156,7 +154,11 @@ fn run_all() -> BenchOutput {
         });
         black_box(out[n / 2]);
         rows.push(Row {
-            id: if log_n == 16 { "mul-slices-2^16" } else { "mul-slices-2^18" },
+            id: if log_n == 16 {
+                "mul-slices-2^16"
+            } else {
+                "mul-slices-2^18"
+            },
             us,
         });
     }
@@ -172,7 +174,11 @@ fn run_all() -> BenchOutput {
         });
         black_box(table.as_ptr());
         rows.push(Row {
-            id: if log_m == 16 { "eq-table-16vars" } else { "eq-table-18vars" },
+            id: if log_m == 16 {
+                "eq-table-16vars"
+            } else {
+                "eq-table-18vars"
+            },
             us,
         });
     }
@@ -210,18 +216,24 @@ fn run_all() -> BenchOutput {
         let mut prove_digest: u64 = 0;
         let us = median_us(|| {
             let mut t = Transcript::new_default(b"lzx-sumcheck-bench");
-            let out = sumcheck::prove(black_box(&vp), claim, &mut t)
-                .ok()
-                .unwrap();
+            let out = sumcheck::prove(black_box(&vp), claim, &mut t).ok().unwrap();
             prove_digest = proof_digest(&out);
             black_box(out.final_claim);
         });
         rows.push(Row {
-            id: if num_vars == 16 { "prove-2^16 (full)" } else { "prove-2^18 (full)" },
+            id: if num_vars == 16 {
+                "prove-2^16 (full)"
+            } else {
+                "prove-2^18 (full)"
+            },
             us,
         });
         digests.push((
-            if num_vars == 16 { "prove-2^16 digest" } else { "prove-2^18 digest" },
+            if num_vars == 16 {
+                "prove-2^16 digest"
+            } else {
+                "prove-2^18 digest"
+            },
             prove_digest,
         ));
 
@@ -231,15 +243,19 @@ fn run_all() -> BenchOutput {
         let out = sumcheck::prove(&vp, claim, &mut pt).ok().unwrap();
         let expected = vp.evaluate(&out.challenges).ok().unwrap();
         let mut vt = Transcript::new_default(b"lzx-sumcheck-bench");
-        let verdict = out
-            .proof
-            .verify(vp.num_vars, vp.max_degree(), claim, &mut vt, Some(expected));
+        let verdict =
+            out.proof
+                .verify(vp.num_vars, vp.max_degree(), claim, &mut vt, Some(expected));
         let ok = verdict.is_ok();
         let us_verify = median_us(|| {
             let mut vt2 = Transcript::new_default(b"lzx-sumcheck-bench");
-            let v = out
-                .proof
-                .verify(vp.num_vars, vp.max_degree(), claim, &mut vt2, Some(expected));
+            let v = out.proof.verify(
+                vp.num_vars,
+                vp.max_degree(),
+                claim,
+                &mut vt2,
+                Some(expected),
+            );
             black_box(v.is_ok());
         });
         rows.push(Row {
@@ -251,7 +267,11 @@ fn run_all() -> BenchOutput {
             us: us_verify,
         });
         digests.push((
-            if num_vars == 16 { "verify-2^16 ok" } else { "verify-2^18 ok" },
+            if num_vars == 16 {
+                "verify-2^16 ok"
+            } else {
+                "verify-2^18 ok"
+            },
             u64::from(ok),
         ));
     }
@@ -308,7 +328,10 @@ fn main() {
         })
         .and_then(|out| {
             if !out.status.success() {
-                eprintln!("scalar child failed:\n{}", String::from_utf8_lossy(&out.stderr));
+                eprintln!(
+                    "scalar child failed:\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
                 return None;
             }
             let text = String::from_utf8_lossy(&out.stdout).to_string();
@@ -347,12 +370,15 @@ fn main() {
     let simd_out = run_all();
 
     // ---- the table ---------------------------------------------------------
-    println!(" {:<22} {:>12} {:>12} {:>9}", "kernel", "scalar", "simd", "speedup");
+    println!(
+        " {:<22} {:>12} {:>12} {:>9}",
+        "kernel", "scalar", "simd", "speedup"
+    );
     println!(" -----------------------------------------------------------------");
     for r in &simd_out.rows {
-        let sc = scalar.as_ref().and_then(|s| {
-            s.rows.iter().find(|x| x.id == r.id).map(|x| x.us)
-        });
+        let sc = scalar
+            .as_ref()
+            .and_then(|s| s.rows.iter().find(|x| x.id == r.id).map(|x| x.us));
         match sc {
             Some(sc) => println!(
                 " {:<22} {:>12} {:>12} {:>8.2}x",
@@ -380,7 +406,12 @@ fn main() {
                     let m = v == *d;
                     all_match &= m;
                     if id.ends_with("digest") {
-                        println!(" {id}: {:016x} vs {:016x} -> {}", d, v, if m { "MATCH" } else { "MISMATCH" });
+                        println!(
+                            " {id}: {:016x} vs {:016x} -> {}",
+                            d,
+                            v,
+                            if m { "MATCH" } else { "MISMATCH" }
+                        );
                     } else {
                         println!(" {id}: {}", if *d == 1 { "verified OK" } else { "FAILED" });
                     }

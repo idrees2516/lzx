@@ -1,8 +1,8 @@
 //! Wave 7.5: the Recursive opening mode, wired end-to-end.
 
 use lattice_labinius::params::N;
-use lattice_labinius::*;
 use lattice_labinius::scheme::{Opening, Prover, Verifier};
+use lattice_labinius::*;
 
 fn e2e(log_len: u32, cols: u32, extra: Vec<Modulus>, tag: [u8; 32]) {
     let params = Params::new(log_len, cols, extra, Opening::Recursive).unwrap();
@@ -21,17 +21,22 @@ fn e2e(log_len: u32, cols: u32, extra: Vec<Modulus>, tag: [u8; 32]) {
     };
     let claim = w.mle_evaluate(&point);
     assert!(
-        v.verify_opening_recursive(&point, &claim, &row, &ch, &proof).is_ok(),
+        v.verify_opening_recursive(&point, &claim, &row, &ch, &proof)
+            .is_ok(),
         "the honest recursive round must verify"
     );
     // The claim identity is checked inside the recursive verify — a wrong
     // claim must fail.
-    assert!(v.verify_opening_recursive(&point, &(claim + F162::ONE), &row, &ch, &proof).is_err());
+    assert!(v
+        .verify_opening_recursive(&point, &(claim + F162::ONE), &row, &ch, &proof)
+        .is_err());
     // Tampered row → the digest desyncs → the LaBRADOR statement mismatch.
     let mut bad_row = row.clone();
     let vals = bad_row.values_mut();
     vals[0] = vals[0] + F162::ONE;
-    assert!(v.verify_opening_recursive(&point, &claim, &bad_row, &ch, &proof).is_err());
+    assert!(v
+        .verify_opening_recursive(&point, &claim, &bad_row, &ch, &proof)
+        .is_err());
     let _ = c;
     let _ = N;
     let _ = &w;
@@ -62,11 +67,15 @@ fn recursive_tampered_proof_rejected() {
     let claim = w.mle_evaluate(&point);
     // Tampered norm announcement → cap check fails.
     proof.norms[0] = u64::MAX;
-    assert!(v.verify_opening_recursive(&point, &claim, &row, &ch, &proof).is_err());
+    assert!(v
+        .verify_opening_recursive(&point, &claim, &row, &ch, &proof)
+        .is_err());
     // Tampered proof structure → the LaBRADOR verify rejects.
     let mut proof2 = p.prove_recursive(&pp, &o, &row, &ch).ok().unwrap();
     proof2.proof.digits.clear();
-    assert!(v.verify_opening_recursive(&point, &claim, &row, &ch, &proof2).is_err());
+    assert!(v
+        .verify_opening_recursive(&point, &claim, &row, &ch, &proof2)
+        .is_err());
     // Tampered digit coefficient (out of the witness-coefficient range).
     let mut proof3 = p.prove_recursive(&pp, &o, &row, &ch).ok().unwrap();
     if let Some(d) = proof3.proof.digits.first_mut() {
@@ -74,5 +83,7 @@ fn recursive_tampered_proof_rejected() {
             *c = i16::MAX;
         }
     }
-    assert!(v.verify_opening_recursive(&point, &claim, &row, &ch, &proof3).is_err());
+    assert!(v
+        .verify_opening_recursive(&point, &claim, &row, &ch, &proof3)
+        .is_err());
 }

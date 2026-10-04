@@ -38,9 +38,39 @@ pub struct Table4 {
 
 /// Table 4 verbatim.
 pub const TABLE4: [Table4; 3] = [
-    Table4 { log_n: 26, m: 3156, r: 333, n: 18, n1: 7, b0: 6, d0: 5, b: 7, d: 5 },
-    Table4 { log_n: 28, m: 6312, r: 665, n: 18, n1: 7, b0: 5, d0: 6, b: 6, d: 5 },
-    Table4 { log_n: 30, m: 12625, r: 1329, n: 18, n1: 7, b0: 4, d0: 8, b: 6, d: 5 },
+    Table4 {
+        log_n: 26,
+        m: 3156,
+        r: 333,
+        n: 18,
+        n1: 7,
+        b0: 6,
+        d0: 5,
+        b: 7,
+        d: 5,
+    },
+    Table4 {
+        log_n: 28,
+        m: 6312,
+        r: 665,
+        n: 18,
+        n1: 7,
+        b0: 5,
+        d0: 6,
+        b: 6,
+        d: 5,
+    },
+    Table4 {
+        log_n: 30,
+        m: 12625,
+        r: 1329,
+        n: 18,
+        n1: 7,
+        b0: 4,
+        d0: 8,
+        b: 6,
+        d: 5,
+    },
 ];
 
 /// Greyhound's contribution to the proof size (the reference's
@@ -93,14 +123,18 @@ pub fn analytic_labrador_size(rank: usize, normsq_per_elem: f64) -> u64 {
         let nn = cur_rank.div_ceil(r).max(1);
         let next_rank = cpp.f * nn + m;
         // the z variance growth: ×(TAU+4TAU2)/r... the amortized fold
-        var = var * (crate::challenge::TAU1 as f64 + 4.0 * crate::challenge::TAU2 as f64) / (r as f64).max(1.0);
+        var = var * (crate::challenge::TAU1 as f64 + 4.0 * crate::challenge::TAU2 as f64)
+            / (r as f64).max(1.0);
         // the decomposition resets the variance: var/2^{2b} per digit
         var = (var / 2f64.powi(2 * cpp.b as i32)).max(1.0 / 12.0);
         if next_rank >= cur_rank {
             // the tail: add the tail's cost and stop
-            let Ok((tcpp, _tnn, tr, _)) =
-                crate::sis::init_proof(&[cur_rank], &[((cur_rank * N) as f64 * var) as u64], false, true)
-            else {
+            let Ok((tcpp, _tnn, tr, _)) = crate::sis::init_proof(
+                &[cur_rank],
+                &[((cur_rank * N) as f64 * var) as u64],
+                false,
+                true,
+            ) else {
                 break;
             };
             let tail_bits = ((tcpp.u1len + tcpp.u2len + LIFTS) * N * LOGQ) as u64 + 128;
@@ -178,11 +212,18 @@ mod tests {
             eprintln!("N = 2^{}: analytic total = {kb:.1} KB", TABLE4[i].log_n);
             // the honest band: the model reproduces the ORDER and the
             // near-constancy (the paper's Tables 1–2: 46–58 KB across sizes)
-            assert!(kb > 20.0 && kb < 130.0, "N=2^{} total {kb} KB outside the paper's regime", TABLE4[i].log_n);
+            assert!(
+                kb > 20.0 && kb < 130.0,
+                "N=2^{} total {kb} KB outside the paper's regime",
+                TABLE4[i].log_n
+            );
         }
         // the near-constancy: the 2^30 total within 2.5× of the 2^26 total
         let ratio = totals[2] as f64 / totals[0] as f64;
-        assert!(ratio < 2.5, "the proof size must be near-constant in N (ratio {ratio})");
+        assert!(
+            ratio < 2.5,
+            "the proof size must be near-constant in N (ratio {ratio})"
+        );
     }
 
     #[test]

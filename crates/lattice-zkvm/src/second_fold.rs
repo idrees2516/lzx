@@ -126,9 +126,7 @@ pub fn profile_bits(
     // The extraction's relaxed bound (the 2× factor).
     let bound = 2 * beta2;
     if bound == 0 || bound >= q / 2 {
-        return Err(format!(
-            "gate exceeds q/2: bound {bound} vs q {q}"
-        ));
+        return Err(format!("gate exceeds q/2: bound {bound} vs q {q}"));
     }
     let width = (params.n_bar + params.r) as u64;
     let p = lattice_sis_estimator::scalar_sis_from_ring(
@@ -340,7 +338,11 @@ pub fn prove_second_fold(
         for (i, g) in gammas.iter().enumerate() {
             if *g != 0 {
                 let term = u_targets[i].mul(&Goldilocks::from_u64(g.unsigned_abs()));
-                rhs3 = if *g < 0 { rhs3.sub(&term) } else { rhs3.add(&term) };
+                rhs3 = if *g < 0 {
+                    rhs3.sub(&term)
+                } else {
+                    rhs3.add(&term)
+                };
             }
         }
         if phi_z != rhs3 {
@@ -351,7 +353,7 @@ pub fn prove_second_fold(
     transcript
         .append_bytes(b"sf-z", &crate::compact::serialize_elements(ring, &z))
         .map_err(|e| format!("{e:?}"))?;
-    let response = crate::compact::encode_response(&z_coeffs).map_err(|e| e)?;
+    let response = crate::compact::encode_response(&z_coeffs)?;
     Ok(SecondFoldProof {
         params: params.clone(),
         t_inner: inner_bytes,
@@ -404,8 +406,7 @@ pub fn verify_second_fold(
         ));
     }
     // Deserialize the inner commitments.
-    let t_inner =
-        crate::compact::deserialize_elements(ring, &proof.t_inner).map_err(|e| e)?;
+    let t_inner = crate::compact::deserialize_elements(ring, &proof.t_inner)?;
     if t_inner.len() != r * params.kappa {
         return Err(format!(
             "inner commitment count {} != {}",
@@ -429,7 +430,7 @@ pub fn verify_second_fold(
         })
         .collect::<Result<Vec<_>, _>>()?;
     // Decode + gate z.
-    let z_coeffs = crate::compact::decode_response(&proof.response).map_err(|e| e)?;
+    let z_coeffs = crate::compact::decode_response(&proof.response)?;
     if z_coeffs.len() != n_bar * n {
         return Err("response length".into());
     }
@@ -476,8 +477,7 @@ pub fn verify_second_fold(
             ring: ring.clone(),
             k: params.kappa,
             m: n_bar,
-            norm_bound: u32::try_from(params.beta2(beta1).max(1))
-                .map_err(|e| format!("{e:?}"))?,
+            norm_bound: u32::try_from(params.beta2(beta1).max(1)).map_err(|e| format!("{e:?}"))?,
         };
         let a2_seed = derive_a2_seed(seed);
         let a2 = AjtaiPublicKey::from_seed(a2_params, a2_seed).map_err(|e| format!("{e:?}"))?;
@@ -508,7 +508,11 @@ pub fn verify_second_fold(
         for (i, g) in gammas.iter().enumerate() {
             if *g != 0 {
                 let term = u_targets[i].mul(&Goldilocks::from_u64(g.unsigned_abs()));
-                rhs = if *g < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                rhs = if *g < 0 {
+                    rhs.sub(&term)
+                } else {
+                    rhs.add(&term)
+                };
             }
         }
         if phi_z != rhs {
@@ -579,6 +583,7 @@ pub(crate) fn functional_of(
 }
 
 #[cfg(test)]
+#[allow(clippy::type_complexity)]
 mod tests {
     use super::*;
 
@@ -664,13 +669,21 @@ mod tests {
     fn second_fold_honest_roundtrip() {
         let ring = ring();
         let params = SecondFoldParams::sound_defaults();
-        let (parts, targets, us, blocks, psi) =
-            synth(&ring, params.r, params.n_bar, params.k);
+        let (parts, targets, us, blocks, psi) = synth(&ring, params.r, params.n_bar, params.k);
         let beta1 = 255u64; // the byte-packed level-1 gate
         let seed = [7u8; 32];
         let mut tr = Transcript::new_default(b"sf-test");
         let proof = prove_second_fold(
-            &ring, &parts, &targets, &us, &blocks, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &parts,
+            &targets,
+            &us,
+            &blocks,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .unwrap();
         // Verify with a fresh transcript.
@@ -687,13 +700,21 @@ mod tests {
     fn second_fold_tampered_z_rejected() {
         let ring = ring();
         let params = SecondFoldParams::sound_defaults();
-        let (parts, targets, us, blocks, psi) =
-            synth(&ring, params.r, params.n_bar, params.k);
+        let (parts, targets, us, blocks, psi) = synth(&ring, params.r, params.n_bar, params.k);
         let beta1 = 255u64;
         let seed = [7u8; 32];
         let mut tr = Transcript::new_default(b"sf-test");
         let proof = prove_second_fold(
-            &ring, &parts, &targets, &us, &blocks, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &parts,
+            &targets,
+            &us,
+            &blocks,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .unwrap();
         // Tamper: flip a coefficient of the decoded response.
@@ -714,13 +735,21 @@ mod tests {
     fn second_fold_tampered_inner_rejected() {
         let ring = ring();
         let params = SecondFoldParams::sound_defaults();
-        let (parts, targets, us, blocks, psi) =
-            synth(&ring, params.r, params.n_bar, params.k);
+        let (parts, targets, us, blocks, psi) = synth(&ring, params.r, params.n_bar, params.k);
         let beta1 = 255u64;
         let seed = [7u8; 32];
         let mut tr = Transcript::new_default(b"sf-test");
         let proof = prove_second_fold(
-            &ring, &parts, &targets, &us, &blocks, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &parts,
+            &targets,
+            &us,
+            &blocks,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .unwrap();
         let mut bad = proof.clone();
@@ -738,13 +767,21 @@ mod tests {
     fn second_fold_wrong_target_rejected() {
         let ring = ring();
         let params = SecondFoldParams::sound_defaults();
-        let (parts, targets, us, blocks, psi) =
-            synth(&ring, params.r, params.n_bar, params.k);
+        let (parts, targets, us, blocks, psi) = synth(&ring, params.r, params.n_bar, params.k);
         let beta1 = 255u64;
         let seed = [7u8; 32];
         let mut tr = Transcript::new_default(b"sf-test");
         let proof = prove_second_fold(
-            &ring, &parts, &targets, &us, &blocks, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &parts,
+            &targets,
+            &us,
+            &blocks,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .unwrap();
         // A different public target (the wrong statement).
@@ -757,23 +794,31 @@ mod tests {
             *e0 = RingElement::from_coeffs(&ring, coeffs);
         }
         let mut vt = Transcript::new_default(b"sf-test");
-        assert!(verify_second_fold(
-            &ring, &t2, &us, &blocks, &psi, beta1, seed, &proof, &mut vt
-        )
-        .is_err());
+        assert!(
+            verify_second_fold(&ring, &t2, &us, &blocks, &psi, beta1, seed, &proof, &mut vt)
+                .is_err()
+        );
     }
 
     #[test]
     fn second_fold_wrong_functional_rejected() {
         let ring = ring();
         let params = SecondFoldParams::sound_defaults();
-        let (parts, targets, us, blocks, psi) =
-            synth(&ring, params.r, params.n_bar, params.k);
+        let (parts, targets, us, blocks, psi) = synth(&ring, params.r, params.n_bar, params.k);
         let beta1 = 255u64;
         let seed = [7u8; 32];
         let mut tr = Transcript::new_default(b"sf-test");
         let proof = prove_second_fold(
-            &ring, &parts, &targets, &us, &blocks, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &parts,
+            &targets,
+            &us,
+            &blocks,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .unwrap();
         let mut u2 = us.clone();

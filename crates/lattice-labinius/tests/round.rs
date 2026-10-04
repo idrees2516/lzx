@@ -1,7 +1,7 @@
-use lattice_labinius::*;
+use lattice_labinius::binfield::{B128, F162};
 use lattice_labinius::params::{N, QS, QS_LARGE, QS_QUAD};
 use lattice_labinius::scalar::{eval_at, eval_quad_at, intt, mul_mod_phi, ntt, ntt_quad};
-use lattice_labinius::binfield::{F162, B128};
+use lattice_labinius::*;
 
 fn coeffs(seed: u64, q: u16) -> scalar::Coeffs {
     let mut rng = binfield::Rng::new(seed);
@@ -97,11 +97,18 @@ fn f162_field_axioms() {
 fn challenges_respect_canonical_bound() {
     let mut t = Transcript::new(b"test/challenges");
     for _ in 0..8 {
-        let (c, attempts) = challenge::sample_short_challenge(&mut t, challenge::DEFAULT_WEIGHT, challenge::DEFAULT_BOUND);
+        let (c, attempts) = challenge::sample_short_challenge(
+            &mut t,
+            challenge::DEFAULT_WEIGHT,
+            challenge::DEFAULT_BOUND,
+        );
         assert!(attempts >= 1);
         assert_eq!(c.weight, challenge::DEFAULT_WEIGHT);
         let n = challenge::canonical_inf_norm_sq(&c);
-        assert!(n <= challenge::DEFAULT_BOUND * challenge::DEFAULT_BOUND + 1e-9, "norm^2 {n}");
+        assert!(
+            n <= challenge::DEFAULT_BOUND * challenge::DEFAULT_BOUND + 1e-9,
+            "norm^2 {n}"
+        );
     }
 }
 
@@ -129,13 +136,20 @@ fn reference_round_clear_default_moduli() {
     let fr = v.fold_row_evaluation(&row, &ch);
     v.verify_opening(&fc, &folded, &point, &fr).unwrap();
     // tamper: a wrong claim must fail
-    assert!(v.verify_evaluation(&point, &(claim + F162::ONE), &row).is_err());
+    assert!(v
+        .verify_evaluation(&point, &(claim + F162::ONE), &row)
+        .is_err());
 }
 
 #[test]
 fn bit_dropped_round() {
-    let params = Params::new(11, 2, vec![Modulus::Q2917_Q_S, Modulus::Q4861_Q_S],
-        Opening::BitDropped { bits: 9 }).unwrap();
+    let params = Params::new(
+        11,
+        2,
+        vec![Modulus::Q2917_Q_S, Modulus::Q4861_Q_S],
+        Opening::BitDropped { bits: 9 },
+    )
+    .unwrap();
     let pp = PublicParameters::from_seed(params.clone(), [4u8; 32]);
     let w = Witness::random(&params, [5u8; 32]);
     let (p, v) = (Prover::new(&pp), Verifier::new(&pp));
@@ -154,7 +168,14 @@ fn bit_dropped_round() {
 #[test]
 fn quadratic_base_fold() {
     // the base limb can be any of the seven: use a quadratic one
-    let params = Params::with_base(11, 2, Modulus::Q2917_Q_S, vec![Modulus::Q3889_FS_S], Opening::Clear).unwrap();
+    let params = Params::with_base(
+        11,
+        2,
+        Modulus::Q2917_Q_S,
+        vec![Modulus::Q3889_FS_S],
+        Opening::Clear,
+    )
+    .unwrap();
     let pp = PublicParameters::from_seed(params.clone(), [6u8; 32]);
     let w = Witness::random(&params, [7u8; 32]);
     let (p, v) = (Prover::new(&pp), Verifier::new(&pp));
@@ -179,15 +200,19 @@ fn labrador_round_trip() {
     for c in s.iter_mut() {
         *c = (rng.below(9) as i32 - 4) as i16;
     }
-    let phi: Vec<Vec<Poly>> = (0..1).map(|_| {
-        (0..n).map(|_| {
-            let mut p = [0i64; 64];
-            for c in p.iter_mut() {
-                *c = (rng.below(7) as i32 - 3) as i64;
-            }
-            Poly(p)
-        }).collect()
-    }).collect();
+    let phi: Vec<Vec<Poly>> = (0..1)
+        .map(|_| {
+            (0..n)
+                .map(|_| {
+                    let mut p = [0i64; 64];
+                    for c in p.iter_mut() {
+                        *c = (rng.below(7) as i32 - 3) as i64;
+                    }
+                    Poly(p)
+                })
+                .collect()
+        })
+        .collect();
     // b = <phi, s>
     let polys: Vec<Poly> = s.chunks(64).map(Poly::from_i16).collect();
     let b = Poly::sprod(&phi.iter().flatten().copied().collect::<Vec<_>>(), &polys);
@@ -235,7 +260,11 @@ fn folded_witness_wire_roundtrip_honest() {
     let digest = wire_digest(&params);
     let wire = folded.to_wire(&digest).expect("encode");
     let back = FoldedWitness::from_wire(&wire, &digest).expect("decode");
-    assert_eq!(back.elements(), folded.elements(), "wire round-trip differs");
+    assert_eq!(
+        back.elements(),
+        folded.elements(),
+        "wire round-trip differs"
+    );
     let raw = folded.raw_wire_bytes();
     assert!(
         wire.len() * 2 < raw,
@@ -280,7 +309,11 @@ fn folded_witness_wire_roundtrip_adversarial() {
     let digest = [7u8; 32];
     let wire = fw.to_wire(&digest).expect("encode");
     let back = FoldedWitness::from_wire(&wire, &digest).expect("decode");
-    assert_eq!(back.elements(), fw.elements(), "adversarial round-trip differs");
+    assert_eq!(
+        back.elements(),
+        fw.elements(),
+        "adversarial round-trip differs"
+    );
 }
 
 #[test]

@@ -70,10 +70,16 @@ mod tests {
         let beta = vec![Fp256::from_canonical_u64(7), Fp256::from_canonical_u64(11)];
         let gammas: Vec<Fp256> = matrices
             .iter()
-            .map(|m| crate::poly::matrix_poly_eval(&domain, m, &beta, &alpha).ok().unwrap())
+            .map(|m| {
+                crate::poly::matrix_poly_eval(&domain, m, &beta, &alpha)
+                    .ok()
+                    .unwrap()
+            })
             .collect();
         // Commit the matrices (the holographic index).
-        let key = crate::pc::PcKey::new(domain.clone(), &[64u8; 32]).ok().unwrap();
+        let key = crate::pc::PcKey::new(domain.clone(), &[64u8; 32])
+            .ok()
+            .unwrap();
         let coms: Vec<crate::pc::PcCommitment> = matrices
             .iter()
             .map(|m| key.commit_matrix(&domain, m).ok().unwrap())

@@ -78,7 +78,11 @@ pub fn review_composition(attestation: &QromAttestation) -> Result<ReviewReport,
         .verify(&attestation.protocol_digest, attestation.budget)
         .map_err(|e| ReviewError::Attestation(e.to_string()))?;
 
-    let labels: Vec<&str> = attestation.stages.iter().map(|s| s.label.as_str()).collect();
+    let labels: Vec<&str> = attestation
+        .stages
+        .iter()
+        .map(|s| s.label.as_str())
+        .collect();
     let digest = protocol_digest(&labels);
 
     let mut checks: Vec<(&'static str, bool)> = Vec::new();
@@ -110,10 +114,7 @@ pub fn review_composition(attestation: &QromAttestation) -> Result<ReviewReport,
     // 5. Every stage declares bounded rejection behavior.
     checks.push((
         "rejection-bounds-declared",
-        attestation
-            .stages
-            .iter()
-            .all(|s| s.max_retries <= 256),
+        attestation.stages.iter().all(|s| s.max_retries <= 256),
     ));
 
     for (name, ok) in &checks {
@@ -189,10 +190,7 @@ mod tests {
         // The capability bridge: granted for exactly this digest.
         let set = grant_qrom_capability(&report);
         assert!(set
-            .require(
-                SecurityCapability::QromFiatShamir,
-                &report.protocol_digest
-            )
+            .require(SecurityCapability::QromFiatShamir, &report.protocol_digest)
             .is_ok());
         // Not granted for any other digest.
         let other = protocol_digest(&["something", "else"]);

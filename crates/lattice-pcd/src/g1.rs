@@ -201,11 +201,7 @@ impl G1Point {
         let sj = s1.mul(&j);
         let y3 = r.mul(&v.sub(&x3)).sub(&sj.double());
         let zsum = self.z.add(&other.z);
-        let z3 = zsum
-            .mul(&zsum)
-            .sub(&z1z1)
-            .sub(&z2z2)
-            .mul(&h);
+        let z3 = zsum.mul(&zsum).sub(&z1z1).sub(&z2z2).mul(&h);
         G1Point {
             x: x3,
             y: y3,
@@ -335,8 +331,14 @@ mod tests {
     fn jacobian_identity_semantics() {
         let g = G1Affine::generator().to_projective();
         assert!(G1Point::identity().is_identity());
-        assert_eq!(g.add(&G1Point::identity()).to_affine(), G1Affine::generator());
-        assert_eq!(G1Point::identity().add(&g).to_affine(), G1Affine::generator());
+        assert_eq!(
+            g.add(&G1Point::identity()).to_affine(),
+            G1Affine::generator()
+        );
+        assert_eq!(
+            G1Point::identity().add(&g).to_affine(),
+            G1Affine::generator()
+        );
         assert!(g.add(&g.neg()).is_identity());
     }
 
@@ -415,6 +417,9 @@ mod tests {
         let back = G1Affine::from_bytes(&bytes).ok().unwrap();
         assert_eq!(g, back);
         let id = G1Affine::identity().to_bytes();
-        assert_eq!(G1Affine::from_bytes(&id).ok().unwrap(), G1Affine::identity());
+        assert_eq!(
+            G1Affine::from_bytes(&id).ok().unwrap(),
+            G1Affine::identity()
+        );
     }
 }

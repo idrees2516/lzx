@@ -242,7 +242,7 @@ impl Params {
     /// PoK widths (Eq 4.18 with nfold = 0 — fresh ternary salts).
     pub fn pok_widths_fresh(&self, nc: usize) -> (f64, f64) {
         let (gamma1, gamma2) = (46.0, 46.0); // γ₁, γ₂ from [LNP22] at these
-        // norms — generous constants keep the tails conservative at toy scale.
+                                             // norms — generous constants keep the tails conservative at toy scale.
         crate::gauss::calibrate_widths(
             nc,
             0,
@@ -348,7 +348,7 @@ impl SecurityBudget {
         // εSZ = 2^{−123.5} = 23/2^{128}, εSC = 2^{−121.6} = 84/2^{128}).
         let eps_sz = (log_m + 2.0).log2() - log_k;
         let eps_sc = (log_m * d_max).log2() - log_k;
-        let eps_deg0 = 2.0_f64.log2() - log_k;  // 2/|K| = 2^{−127}
+        let eps_deg0 = 2.0_f64.log2() - log_k; // 2/|K| = 2^{−127}
         let eps_ct = 1.0 - log_k;
         let w_max = p.w_max();
         let eps_cw = (w_max as f64).log2() + ((p.capital_k + p.k) as f64).log2() - log_c;
@@ -412,12 +412,12 @@ mod tests {
         // Table 2 rows: k, Bfold = (K+k)T(B̃−1)+B̃.
         assert_eq!(p64.k, 30);
         assert_eq!(p64.b_fold(), (31 * 128) + 2); // 3970? (paper: 3970)
-        // The paper's Bfold row says 3970 = 30·128 + 10? Check: (K+k)T(B̃−1)+B̃
-        // with K=1, k=30, T=128, B̃=2: 31·128·1 + 2 = 3970. ✓
+                                                  // The paper's Bfold row says 3970 = 30·128 + 10? Check: (K+k)T(B̃−1)+B̃
+                                                  // with K=1, k=30, T=128, B̃=2: 31·128·1 + 2 = 3970. ✓
         assert_eq!(p64.b_fold(), 3970);
         assert_eq!(p128.k, 31);
         assert_eq!(p128.b_fold(), (32 * 256) + 2); // 8194 ✓ (Table 2)
-        // κ, κ′=ℓ, κcom rows.
+                                                   // κ, κ′=ℓ, κcom rows.
         assert_eq!((p64.kappa, p64.ell, p64.kappa_com()), (19, 16, 35));
         assert_eq!((p128.kappa, p128.ell, p128.kappa_com()), (11, 16, 27));
         // m1, m2 rows (ml·d ≥ 640).

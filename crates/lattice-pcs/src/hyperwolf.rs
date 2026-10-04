@@ -136,23 +136,21 @@ impl HwRing {
 
     pub fn add(&self, a: &HwElt, b: &HwElt) -> HwElt {
         let q = self.q;
-        let c = a
-            .0
-            .iter()
-            .zip(b.0.iter())
-            .map(|(&x, &y)| (x + y) % q)
-            .collect();
+        let c =
+            a.0.iter()
+                .zip(b.0.iter())
+                .map(|(&x, &y)| (x + y) % q)
+                .collect();
         HwElt(c)
     }
 
     pub fn sub(&self, a: &HwElt, b: &HwElt) -> HwElt {
         let q = self.q;
-        let c = a
-            .0
-            .iter()
-            .zip(b.0.iter())
-            .map(|(&x, &y)| (x + q - y % q) % q)
-            .collect();
+        let c =
+            a.0.iter()
+                .zip(b.0.iter())
+                .map(|(&x, &y)| (x + q - y % q) % q)
+                .collect();
         HwElt(c)
     }
 
@@ -191,11 +189,10 @@ impl HwRing {
     /// Scalar multiply by a centred i128 scalar.
     pub fn scale(&self, a: &HwElt, s: i128) -> HwElt {
         let q = i128::from(self.q);
-        let c = a
-            .0
-            .iter()
-            .map(|&x| (i128::from(x) * s).rem_euclid(q) as u64)
-            .collect();
+        let c =
+            a.0.iter()
+                .map(|&x| (i128::from(x) * s).rem_euclid(q) as u64)
+                .collect();
         HwElt(c)
     }
 
@@ -398,12 +395,20 @@ pub fn balanced_digits(v: i128, delta: u64, iota: usize) -> Result<Vec<i64>, HwE
             }
         }
     }
-    Ok(digits.into_iter().map(|x| (x as i128 * sign) as i64).collect())
+    Ok(digits
+        .into_iter()
+        .map(|x| (x as i128 * sign) as i64)
+        .collect())
 }
 
 /// `G^{−1}_{δ,iota}(a)`: iota digit ring elements (balanced digits),
 /// component-major: digit e of every coefficient goes to layer e.
-pub fn gadget_decompose_elt(ring: &HwRing, elt: &HwElt, delta: u64, iota: usize) -> Result<Vec<HwElt>, HwError> {
+pub fn gadget_decompose_elt(
+    ring: &HwRing,
+    elt: &HwElt,
+    delta: u64,
+    iota: usize,
+) -> Result<Vec<HwElt>, HwError> {
     let mut layers = vec![vec![0u64; ring.n]; iota];
     for (i, &c) in elt.0.iter().enumerate() {
         let v = ring.center(c);
@@ -475,7 +480,13 @@ pub fn expand_a0(ring: &HwRing, a0_ints: &[u64], delta: u64, iota: usize) -> Vec
 /// a0 = (1, u, …, u^{bd−1}); a_i = (1, u^{b^i·d}, …) — the stride of
 /// axis i is (product of inner axis lengths in INTEGER positions): axis 0
 /// spans a full b·d integer block, so axis i's stride is b^i·d.
-pub fn build_a_univariate(ring: &HwRing, u: u64, k: usize, b: usize, d: usize) -> (Vec<u64>, Vec<Vec<u64>>) {
+pub fn build_a_univariate(
+    ring: &HwRing,
+    u: u64,
+    k: usize,
+    b: usize,
+    d: usize,
+) -> (Vec<u64>, Vec<Vec<u64>>) {
     let q = ring.q;
     let mut a0 = Vec::with_capacity(b * d);
     for e in 0..(b * d) as u64 {
@@ -697,7 +708,9 @@ pub fn sample_challenge(
             return Ok((elt, gamma));
         }
     }
-    Err(HwError::Transcript(TranscriptError::RejectionBudgetExceeded))
+    Err(HwError::Transcript(
+        TranscriptError::RejectionBudgetExceeded,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -720,11 +733,8 @@ impl JlMatrix {
         let mut entries: Vec<Vec<i64>> = Vec::with_capacity(jl_rows);
         let mut counter = 0u32;
         while entries.len() < jl_rows {
-            let bytes = Transcript::xof(
-                b"hw-jl",
-                &[seed, &counter.to_le_bytes()].concat(),
-                cols * d,
-            );
+            let bytes =
+                Transcript::xof(b"hw-jl", &[seed, &counter.to_le_bytes()].concat(), cols * d);
             let row: Vec<i64> = bytes
                 .iter()
                 .take(cols * d)
@@ -918,7 +928,10 @@ impl HwKeys {
 pub enum HwError {
     Transcript(TranscriptError),
     DigitOverflow,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// A verifier check failed (evaluation identity / JL norm / binding /
     /// projection consistency / final pinning).
     VerificationFailed,
@@ -1005,11 +1018,7 @@ impl HyperWolfFull {
     pub fn new(params: HwParams, seed: &[u8]) -> Self {
         let ring = params.ring();
         let keys = HwKeys::new(&params, &ring, seed);
-        HyperWolfFull {
-            params,
-            ring,
-            keys,
-        }
+        HyperWolfFull { params, ring, keys }
     }
 
     // ---------------------------------------------------------- Protocol 2 #
@@ -1074,7 +1083,11 @@ impl HyperWolfFull {
         ))
     }
 
-    fn absorb_round(&self, transcript: &mut Transcript, msg: &HwRoundMessage) -> Result<(), HwError> {
+    fn absorb_round(
+        &self,
+        transcript: &mut Transcript,
+        msg: &HwRoundMessage,
+    ) -> Result<(), HwError> {
         transcript.append_bytes(b"hw:round", b"")?;
         for fr in &msg.fold {
             transcript.append_bytes(b"hw:fold", &self.ring.to_bytes(fr))?;
@@ -1100,8 +1113,11 @@ impl HyperWolfFull {
         let label = format!("hw:chal:L{}", level);
         let mut out = Vec::with_capacity(self.params.b);
         for i in 0..self.params.b {
-            let (elt, _gamma) =
-                sample_challenge(transcript, format!("{}:{}", label, i).as_bytes(), self.ring.n)?;
+            let (elt, _gamma) = sample_challenge(
+                transcript,
+                format!("{}:{}", label, i).as_bytes(),
+                self.ring.n,
+            )?;
             out.push(elt);
         }
         Ok(out)
@@ -1225,16 +1241,13 @@ impl HyperWolfFull {
             } else {
                 // statement-chain form: cm_out^(level) ==
                 // B G^{-1}(Σ C_i c_min,i^{prev})
-                if self
-                    .keys
-                    .outer_commit_from_fold(
-                        ring,
-                        &c_min_hist[c_min_hist.len() - 1],
-                        &c_hist[c_hist.len() - 1],
-                        p.delta_t,
-                        p.iota_p(),
-                    )?
-                    != cm_out
+                if self.keys.outer_commit_from_fold(
+                    ring,
+                    &c_min_hist[c_min_hist.len() - 1],
+                    &c_hist[c_hist.len() - 1],
+                    p.delta_t,
+                    p.iota_p(),
+                )? != cm_out
                 {
                     return Ok(false);
                 }
@@ -1268,9 +1281,9 @@ impl HyperWolfFull {
                 y = ring.add(&y, &term);
             }
             // cm_out^(level-1) = B G^{-1}(Σ C_i c_min,i)
-            cm_out = self
-                .keys
-                .outer_commit_from_fold(ring, &msg.c_mins, &c, p.delta_t, p.iota_p())?;
+            cm_out =
+                self.keys
+                    .outer_commit_from_fold(ring, &msg.c_mins, &c, p.delta_t, p.iota_p())?;
             c_hist.push(c);
             p_hist.push(msg.projections.clone());
             c_min_hist.push(msg.c_mins.clone());
@@ -1541,11 +1554,8 @@ mod tests {
     fn small_ints(n: usize, tag: &[u8], span: i64) -> Vec<i64> {
         (0..n)
             .map(|i| {
-                let bytes = Transcript::xof(
-                    b"hw-test",
-                    &[tag, &(i as u32).to_le_bytes()].concat(),
-                    4,
-                );
+                let bytes =
+                    Transcript::xof(b"hw-test", &[tag, &(i as u32).to_le_bytes()].concat(), 4);
                 let mut arr = [0u8; 4];
                 arr.copy_from_slice(&bytes[..4]);
                 (u32::from_le_bytes(arr) as i64 % (2 * span + 1)) - span
@@ -1556,7 +1566,10 @@ mod tests {
     fn sample_point(transcript: &mut Transcript, count: usize, q: u64) -> Vec<u64> {
         (0..count)
             .map(|_| {
-                let b = transcript.challenge_bytes(b"hw:test-point", 8).ok().unwrap();
+                let b = transcript
+                    .challenge_bytes(b"hw:test-point", 8)
+                    .ok()
+                    .unwrap();
                 let mut arr = [0u8; 8];
                 arr.copy_from_slice(&b[..8]);
                 u64::from_le_bytes(arr) % q
@@ -1670,11 +1683,7 @@ mod tests {
         let (elt, gamma) = sample_challenge(&mut t, b"c0", 16).ok().unwrap();
         assert_eq!(elt.0.len(), 16);
         // fixed-weight signed: |coeffs| <= 1, certified gamma = ceil(sqrt(10)) = 4
-        let nonzero = elt
-            .0
-            .iter()
-            .filter(|&&x| x != 0)
-            .count();
+        let nonzero = elt.0.iter().filter(|&&x| x != 0).count();
         assert!(nonzero <= 10);
         for &x in &elt.0 {
             let v = if x > HW_Q61 / 2 {
@@ -1798,7 +1807,9 @@ mod tests {
         }
         assert_eq!(ip.0[0], y_direct % HW_Q61);
         // and the pure fold-engine contraction equals the full evaluation
-        let folded = fold_engine(&hw.ring, &state.s, &a0c, &a_list[..k - 2]).ok().unwrap();
+        let folded = fold_engine(&hw.ring, &state.s, &a0c, &a_list[..k - 2])
+            .ok()
+            .unwrap();
         let _ = folded;
     }
 
@@ -1824,10 +1835,7 @@ mod tests {
         // at 2^15 with the full (uncompacted) protocol logic the model
         // gives the uncompacted size — the check pins the FORMULA:
         let bytes = total_elts * params.d * 8;
-        assert_eq!(
-            bytes,
-            (rounds * per_round + params.b * iota) * params.d * 8
-        );
+        assert_eq!(bytes, (rounds * per_round + params.b * iota) * params.d * 8);
         // the model is monotone in N (k grows)
         let params30 = paper_params(1 << 30);
         let iota30 = params30.iota();
@@ -1866,7 +1874,10 @@ mod tests {
             .iter()
             .map(|g| (g.to_canonical_u64() % hw.ring.q) as i64)
             .collect();
-        let pt: Vec<u64> = point.iter().map(|g| g.to_canonical_u64() % hw.ring.q).collect();
+        let pt: Vec<u64> = point
+            .iter()
+            .map(|g| g.to_canonical_u64() % hw.ring.q)
+            .collect();
         let y = hw.evaluate_direct(&f_ints, &pt, true);
         OpeningClaim {
             point,
@@ -1924,21 +1935,24 @@ mod tests {
             // Proof/claim mismatch rejected.
             let other_claim = hw_claim(&hw, &mle, 2);
             let mut vt4 = Transcript::new_default(b"hw-full-trait");
-            assert!(backend.verify(&commitment, &other_claim, &proof, &mut vt4).is_err());
+            assert!(backend
+                .verify(&commitment, &other_claim, &proof, &mut vt4)
+                .is_err());
 
             // H7 defaults: one claim delegates, two claims error honestly.
             let mut t5 = Transcript::new_default(b"hw-full-trait");
-            assert!(
-                backend
-                    .prove_evaluations(&mle, std::slice::from_ref(&claim), &mut t5)
-                    .is_ok()
-            );
+            assert!(backend
+                .prove_evaluations(&mle, std::slice::from_ref(&claim), &mut t5)
+                .is_ok());
             let mut t6 = Transcript::new_default(b"hw-full-trait");
             let err = backend
                 .prove_evaluations(&mle, &[claim.clone(), other_claim], &mut t6)
                 .err()
                 .unwrap();
-            assert!(matches!(err, HwError::Feature(crate::PcsFeatureError::BatchingUnsupported)));
+            assert!(matches!(
+                err,
+                HwError::Feature(crate::PcsFeatureError::BatchingUnsupported)
+            ));
         }
 
         // for_mle rejects MLE sizes below the k ≥ 2 protocol floor.
@@ -1969,7 +1983,10 @@ mod tests {
             .iter()
             .map(|g| (g.to_canonical_u64() % hw.ring.q) as i64)
             .collect();
-        let pt: Vec<u64> = point.iter().map(|g| g.to_canonical_u64() % hw.ring.q).collect();
+        let pt: Vec<u64> = point
+            .iter()
+            .map(|g| g.to_canonical_u64() % hw.ring.q)
+            .collect();
         let y_hw = hw.evaluate_direct(&f_ints, &pt, true);
         // Exact integer MLE evaluation: Σ_x eq(pt, bin(x))·f[x], with the
         // eq factors computed over the integers.

@@ -21,9 +21,7 @@ struct Prng {
 
 impl Prng {
     fn new(seed: u64) -> Self {
-        Prng {
-            state: seed | 1,
-        }
+        Prng { state: seed | 1 }
     }
 
     fn next_u64(&mut self) -> u64 {

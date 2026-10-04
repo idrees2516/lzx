@@ -87,8 +87,8 @@ pub fn slack(mu: usize, c: usize, k: usize, theta: f64) -> f64 {
 /// The no-overflow input-norm ceiling of Theorem 3:
 /// `B < q / (2^{µ+1}·√(θ·c^{µ−1}·m))` with m the coefficient length.
 pub fn max_input_norm(mu: usize, c: usize, theta: f64, q: f64, m: usize) -> f64 {
-    let denom = (1u64 << (mu + 1)) as f64
-        * (theta * (c as f64).powi(mu as i32 - 1) * m as f64).sqrt();
+    let denom =
+        (1u64 << (mu + 1)) as f64 * (theta * (c as f64).powi(mu as i32 - 1) * m as f64).sqrt();
     q / denom
 }
 
@@ -181,8 +181,7 @@ pub fn search_parameters(
                     if max_norm < 2.0 {
                         continue; // cannot even prove tiny norms
                     }
-                    let representation =
-                        d * (2 * c + total_mu.saturating_sub(2) * c * c) * k;
+                    let representation = d * (2 * c + total_mu.saturating_sub(2) * c * c) * k;
                     out.push(TtrpChoice {
                         ell,
                         mu1,

@@ -22,12 +22,11 @@
 //! module as the polylog response layer the outer protocol will close.
 
 use crate::pcs::{AkitaPcs, Commitment};
+use lattice_core::mle::DenseMle;
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
-use lattice_core::mle::DenseMle;
 use lattice_salsa::ring_norm::{
-    prove_norm_chain, prove_ring_norm, verify_ring_norm, LinRelation, NormChainProof,
-    RingNormProof,
+    prove_norm_chain, prove_ring_norm, verify_ring_norm, LinRelation, NormChainProof, RingNormProof,
 };
 use lattice_sumcheck::sumcheck;
 
@@ -40,7 +39,10 @@ pub enum SalsaResponseError {
     Transcript(lattice_core::transcript::TranscriptError),
     /// Ajtai commitment failure (shape/bound).
     Ajtai(String),
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// The terminal identity `P(r_sc) = eq(r, r_sc)·f(r_sc)` failed.
     TerminalBindingFailed,
 }
@@ -107,18 +109,25 @@ impl AkitaPcs {
         vp.add_term(Goldilocks::ONE, vec![fi, ei])?;
         let out = sumcheck::prove(&vp, value, transcript)?;
         // The terminal claim f(r_sc) from the carrier's factor claims.
-        let f_term = out.factor_claims.first().copied().ok_or(
-            SalsaResponseError::Shape { expected: 1, got: 0 },
-        )?;
+        let f_term = out
+            .factor_claims
+            .first()
+            .copied()
+            .ok_or(SalsaResponseError::Shape {
+                expected: 1,
+                got: 0,
+            })?;
         // The D1 ∘ D2 chain over the packed witness (polylog response).
-        let packed = lattice_ring::packing::pack_field_elements(
-            &self.pk.params.ring,
-            &mle.evaluations,
-        );
+        let packed =
+            lattice_ring::packing::pack_field_elements(&self.pk.params.ring, &mle.evaluations);
         let packed_len = packed.len();
-        let padded = self.pk.pad_to_m(&packed).map_err(|_| {
-            SalsaResponseError::Shape { expected: self.pk.params.m, got: packed_len }
-        })?;
+        let padded = self
+            .pk
+            .pad_to_m(&packed)
+            .map_err(|_| SalsaResponseError::Shape {
+                expected: self.pk.params.m,
+                got: packed_len,
+            })?;
         let chain = prove_norm_chain(
             &padded,
             &self.pk.params.ring,
@@ -158,10 +167,10 @@ impl AkitaPcs {
         // 1. Carrier: Σ eq(r,x)f(x) = f(r); the verdict exposes the
         //    sumcheck point r_sc, and the terminal identity
         //    P(r_sc) = eq(r, r_sc)·f(r_sc) binds f_term.
-        let verdict = proof
-            .sumcheck
-            .verify(commitment.num_vars, 2, proof.value, transcript, None)
-            ?;
+        let verdict =
+            proof
+                .sumcheck
+                .verify(commitment.num_vars, 2, proof.value, transcript, None)?;
         let eq_factor = eq_at(&proof.point, &verdict.point);
         if verdict.final_claim != eq_factor.mul(&proof.f_term) {
             return Err(SalsaResponseError::TerminalBindingFailed);
@@ -170,7 +179,8 @@ impl AkitaPcs {
         // reconstructed from the claimed norm (the envelope the prover's
         // gate certified; verify_ring_norm re-runs the Lemma-4 gate).
         let total = (proof.chain.norm.num_elements * proof.chain.norm.ring_dim) as u64;
-        let bound = ((proof.chain.norm.claimed_norm_sq as f64 / total.max(1) as f64).sqrt()
+        let bound = ((proof.chain.norm.claimed_norm_sq as f64 / total.max(1) as f64)
+            .sqrt()
             .ceil() as u64)
             .max(1);
         verify_ring_norm(
@@ -179,8 +189,7 @@ impl AkitaPcs {
             bound,
             proof.z_r,
             transcript,
-        )
-?;
+        )?;
         // 3. D2: the LDE linearization (the terminal is the verifier's
         //    own row evaluation — zero communication). The variable count
         //    mirrors the prove side: log2 of the padded flattened length.
@@ -188,7 +197,10 @@ impl AkitaPcs {
         let nv = total.next_power_of_two().max(2).trailing_zeros() as usize;
         let k = proof.base.len().trailing_zeros() as usize;
         if nv < k {
-            return Err(SalsaResponseError::Shape { expected: k, got: nv });
+            return Err(SalsaResponseError::Shape {
+                expected: k,
+                got: nv,
+            });
         }
         let rel = LinRelation::new(proof.base.clone(), nv)?;
         rel.verify_lde(&proof.chain.lde, transcript)?;
@@ -197,7 +209,7 @@ impl AkitaPcs {
 }
 
 /// `eq(r, s)` for two arbitrary points: `Π (r_i s_i + (1−r_i)(1−s_i))`.
-fn eq_at(r: &[Goldilocks], s: &[Goldilocks]) -> Goldilocks {
+pub(crate) fn eq_at(r: &[Goldilocks], s: &[Goldilocks]) -> Goldilocks {
     let mut acc = Goldilocks::ONE;
     for (i, &rv) in r.iter().enumerate() {
         let sv = s.get(i).copied().unwrap_or(Goldilocks::ZERO);
@@ -218,7 +230,12 @@ mod tests {
 
     fn setup(log_n: u32, m_slots: usize) -> (AkitaPcs, AjtaiPublicKey) {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m: m_slots, norm_bound: 1 << 20 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 20,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [17u8; 32]).ok().unwrap();
         (AkitaPcs { pk: pk.clone() }, pk)
     }
@@ -250,7 +267,11 @@ mod tests {
             let q = e.config().modulus.q;
             let half = q / 2;
             for &c in e.coeffs() {
-                let b = if c > half { c as i64 - q as i64 } else { c as i64 };
+                let b = if c > half {
+                    c as i64 - q as i64
+                } else {
+                    c as i64
+                };
                 let p = lattice_core::field::GOLDILOCKS_MODULUS as i64;
                 flat.push(Goldilocks::from_u64(b.rem_euclid(p) as u64));
             }
@@ -271,8 +292,10 @@ mod tests {
             .map(|i| Goldilocks::from_u64(0x1000_0000 + i as u64))
             .collect();
         let mut t = Transcript::new_default(b"akita-salsa");
-        let proof =
-            pcs.prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t).ok().unwrap();
+        let proof = pcs
+            .prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"akita-salsa");
         assert!(
             pcs.verify_evaluation_salsa(&com, &proof, &mut vt).is_ok(),
@@ -297,8 +320,10 @@ mod tests {
             .map(|i| Goldilocks::from_u64(0x2000_0000 + i as u64))
             .collect();
         let mut t = Transcript::new_default(b"akita-salsa-t");
-        let mut proof =
-            pcs.prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t).ok().unwrap();
+        let mut proof = pcs
+            .prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t)
+            .ok()
+            .unwrap();
         // Tampered f_term: the terminal binding fails.
         let orig = proof.f_term;
         proof.f_term = proof.f_term.add(&Goldilocks::ONE);
@@ -313,15 +338,19 @@ mod tests {
         let mut vt2 = Transcript::new_default(b"akita-salsa-t");
         assert!(pcs.verify_evaluation_salsa(&com, &proof, &mut vt2).is_err());
         // Tampered carrier round: the sumcheck rejects.
-        let mut proof2 =
-            pcs.prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t).ok().unwrap();
+        let mut proof2 = pcs
+            .prove_evaluation_salsa(&f, &point, 1024, base.clone(), &mut t)
+            .ok()
+            .unwrap();
         if let Some(r0) = proof2.sumcheck.rounds.first_mut() {
             if let Some(v) = r0.first_mut() {
                 *v = v.add(&Goldilocks::ONE);
             }
         }
         let mut vt3 = Transcript::new_default(b"akita-salsa-t");
-        assert!(pcs.verify_evaluation_salsa(&com, &proof2, &mut vt3).is_err());
+        assert!(pcs
+            .verify_evaluation_salsa(&com, &proof2, &mut vt3)
+            .is_err());
     }
 }
 
@@ -330,7 +359,10 @@ mod debug_chain {
     use super::*;
     use lattice_salsa::ring_norm::{prove_norm_chain, verify_ring_norm};
 
-    fn dbg_setup() -> (crate::pcs::AkitaPcs, lattice_commitment::ajtai::AjtaiPublicKey) {
+    fn dbg_setup() -> (
+        crate::pcs::AkitaPcs,
+        lattice_commitment::ajtai::AjtaiPublicKey,
+    ) {
         let ring = lattice_ring::RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
             .ok()
             .unwrap();
@@ -351,8 +383,11 @@ mod debug_chain {
         let (pcs, _pk) = dbg_setup();
         let n = 16usize;
         let bytes = lattice_core::transcript::Transcript::xof(b"dbg-mle", b"c128", n);
-        let evals: Vec<Goldilocks> =
-            bytes.iter().take(n).map(|&b| Goldilocks::from_u64(u64::from(b) % 1024)).collect();
+        let evals: Vec<Goldilocks> = bytes
+            .iter()
+            .take(n)
+            .map(|&b| Goldilocks::from_u64(u64::from(b) % 1024))
+            .collect();
         let f = DenseMle::new(evals).ok().unwrap();
         let packed =
             lattice_ring::packing::pack_field_elements(&pcs.pk.params.ring, &f.evaluations);
@@ -362,7 +397,11 @@ mod debug_chain {
             let q = e.config().modulus.q;
             let half = q / 2;
             for &c in e.coeffs() {
-                let b = if c > half { c as i64 - q as i64 } else { c as i64 };
+                let b = if c > half {
+                    c as i64 - q as i64
+                } else {
+                    c as i64
+                };
                 let p = lattice_core::field::GOLDILOCKS_MODULUS as i64;
                 base.push(Goldilocks::from_u64(b.rem_euclid(p) as u64));
             }
@@ -371,16 +410,31 @@ mod debug_chain {
             base.push(Goldilocks::ZERO);
         }
         let mut t = Transcript::new_default(b"c128");
-        let chain = prove_norm_chain(&padded, &pcs.pk.params.ring, 1024, base.clone(), &mut t).ok().unwrap();
+        let chain = prove_norm_chain(&padded, &pcs.pk.params.ring, 1024, base.clone(), &mut t)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"c128");
-        let r = verify_ring_norm(&chain.norm, &pcs.pk.params.ring, 1024, chain.norm.z_at_challenge, &mut vt);
+        let r = verify_ring_norm(
+            &chain.norm,
+            &pcs.pk.params.ring,
+            1024,
+            chain.norm.z_at_challenge,
+            &mut vt,
+        );
         assert!(r.is_ok(), "d1: {r:?}");
-        let rel = LinRelation::new({
-            // rebuild base identically
-            let mut b2 = base.clone();
-            while b2.len() < b2.len().next_power_of_two() { b2.push(Goldilocks::ZERO); }
-            b2
-        }, 7usize).ok().unwrap();
+        let rel = LinRelation::new(
+            {
+                // rebuild base identically
+                let mut b2 = base.clone();
+                while b2.len() < b2.len().next_power_of_two() {
+                    b2.push(Goldilocks::ZERO);
+                }
+                b2
+            },
+            7usize,
+        )
+        .ok()
+        .unwrap();
         let r2 = rel.verify_lde(&chain.lde, &mut vt);
         assert!(r2.is_ok(), "d2: {r2:?}");
     }
@@ -391,8 +445,11 @@ mod debug_chain {
         // Small MLE values (< 2^10).
         let n = 16usize;
         let bytes = lattice_core::transcript::Transcript::xof(b"dbg-mle", b"dbg", n);
-        let evals: Vec<Goldilocks> =
-            bytes.iter().take(n).map(|&b| Goldilocks::from_u64(u64::from(b) % 1024)).collect();
+        let evals: Vec<Goldilocks> = bytes
+            .iter()
+            .take(n)
+            .map(|&b| Goldilocks::from_u64(u64::from(b) % 1024))
+            .collect();
         let f = DenseMle::new(evals).ok().unwrap();
         // The trivial LDE base: the balanced flattened coefficients.
         let packed =
@@ -402,7 +459,11 @@ mod debug_chain {
             let q = e.config().modulus.q;
             let half = q / 2;
             for &c in e.coeffs() {
-                let b = if c > half { c as i64 - q as i64 } else { c as i64 };
+                let b = if c > half {
+                    c as i64 - q as i64
+                } else {
+                    c as i64
+                };
                 let p = lattice_core::field::GOLDILOCKS_MODULUS as i64;
                 base.push(Goldilocks::from_u64(b.rem_euclid(p) as u64));
             }
@@ -410,8 +471,9 @@ mod debug_chain {
         while base.len() < base.len().next_power_of_two() {
             base.push(Goldilocks::ZERO);
         }
-        let point: Vec<Goldilocks> =
-            (0..4).map(|i| Goldilocks::from_u64(0x3000_0000 + i as u64)).collect();
+        let point: Vec<Goldilocks> = (0..4)
+            .map(|i| Goldilocks::from_u64(0x3000_0000 + i as u64))
+            .collect();
         let mut t = Transcript::new_default(b"dbg");
         // Carrier alone (fresh flow, mirrors prove_evaluation_salsa).
         let eq = DenseMle::eq_extension(&point);
@@ -426,7 +488,9 @@ mod debug_chain {
         let packed =
             lattice_ring::packing::pack_field_elements(&pcs.pk.params.ring, &f.evaluations);
         let padded = pcs.pk.pad_to_m(&packed).ok().unwrap();
-        let chain = prove_norm_chain(&padded, &pcs.pk.params.ring, 1024, base, &mut t).ok().unwrap();
+        let chain = prove_norm_chain(&padded, &pcs.pk.params.ring, 1024, base, &mut t)
+            .ok()
+            .unwrap();
         // Verify side: carrier verify then D1.
         let mut vt = Transcript::new_default(b"dbg");
         let mut vp2 = lattice_sumcheck::VirtualPolynomial::new(f.num_vars);
@@ -537,7 +601,11 @@ fn byte_cube_mle(packed: &[lattice_ring::RingElement]) -> Result<DenseMle, Salsa
     for e in packed {
         let q = e.config().modulus.q;
         for &c in e.coeffs() {
-            let b = if c > q / 2 { c as i64 - q as i64 } else { c as i64 };
+            let b = if c > q / 2 {
+                c as i64 - q as i64
+            } else {
+                c as i64
+            };
             flat.push(Goldilocks::from_u64(b.rem_euclid(p) as u64));
         }
     }
@@ -551,7 +619,11 @@ fn byte_cube_mle(packed: &[lattice_ring::RingElement]) -> Result<DenseMle, Salsa
 /// where `c = 8·x + b` on the data region, ZERO on the pad (the pad
 /// coefficients are zero — the byte-recomposition identity — the
 /// verifier's own computation, never prover data).
-fn psi_weights_at(r_sc: &[Goldilocks], data_values: usize, total_coeffs: usize) -> Vec<Goldilocks> {
+pub(crate) fn psi_weights_at(
+    r_sc: &[Goldilocks],
+    data_values: usize,
+    total_coeffs: usize,
+) -> Vec<Goldilocks> {
     let data_flat = data_values * 8;
     let mut w = vec![Goldilocks::ZERO; total_coeffs];
     for (c, slot) in w.iter_mut().enumerate() {
@@ -578,9 +650,13 @@ impl AkitaPcs {
     /// (`prove_grouped_salsa`) runs over the same packing.
     pub fn commit_bytes(&self, mle: &DenseMle) -> Result<Commitment, SalsaResponseError> {
         let packed = byte_pack_witness(&self.pk.params.ring, &mle.evaluations);
-        let padded = self.pk.pad_to_m(&packed).map_err(|_| {
-            SalsaResponseError::Shape { expected: self.pk.params.m, got: packed.len() }
-        })?;
+        let padded = self
+            .pk
+            .pad_to_m(&packed)
+            .map_err(|_| SalsaResponseError::Shape {
+                expected: self.pk.params.m,
+                got: packed.len(),
+            })?;
         let commitment = self
             .pk
             .commit(&padded)
@@ -604,7 +680,10 @@ impl AkitaPcs {
         transcript: &mut Transcript,
     ) -> Result<(SalsaGroupedResponse, Vec<lattice_ring::RingElement>), SalsaResponseError> {
         if claims.is_empty() {
-            return Err(SalsaResponseError::Shape { expected: 1, got: 0 });
+            return Err(SalsaResponseError::Shape {
+                expected: 1,
+                got: 0,
+            });
         }
         // 1. The grouped carrier (identical to prove_grouped's RLC).
         let rhos = transcript
@@ -624,19 +703,30 @@ impl AkitaPcs {
             .factor_claims
             .first()
             .copied()
-            .ok_or(SalsaResponseError::Shape { expected: 1, got: 0 })?;
+            .ok_or(SalsaResponseError::Shape {
+                expected: 1,
+                got: 0,
+            })?;
 
         // 2. The byte-packed witness (one byte per coefficient — the
         //    D1 Lemma-4 gate's regime), padded to the key's m slots so
         //    the ψ-functional and D1 run over the SAME cube.
         let packed = byte_pack_witness(&self.pk.params.ring, &mle.evaluations);
-        let padded = self.pk.pad_to_m(&packed).map_err(|_| {
-            SalsaResponseError::Shape { expected: self.pk.params.m, got: packed.len() }
-        })?;
+        let padded = self
+            .pk
+            .pad_to_m(&packed)
+            .map_err(|_| SalsaResponseError::Shape {
+                expected: self.pk.params.m,
+                got: packed.len(),
+            })?;
         let z_mle = byte_cube_mle(&padded)?;
         // The ψ-functional carrier: Σ_c w(c)·z(c) = f(r_sc) with the
         // verifier-computable byte-recomposition weights at r_sc.
-        let w = psi_weights_at(&out.challenges, mle.evaluations.len(), z_mle.evaluations.len());
+        let w = psi_weights_at(
+            &out.challenges,
+            mle.evaluations.len(),
+            z_mle.evaluations.len(),
+        );
         let w_mle = DenseMle::new(w)?;
         let mut vp2 = lattice_sumcheck::VirtualPolynomial::new(z_mle.num_vars);
         let zi = vp2.add_factor(z_mle.clone())?;
@@ -721,10 +811,17 @@ impl AkitaPcs {
         //    reconstructed from the claimed norm; the Lemma-4 gate
         //    re-runs inside).
         let total = (proof.chain.num_elements * proof.chain.ring_dim) as u64;
-        let bound = ((proof.chain.claimed_norm_sq as f64 / total.max(1) as f64).sqrt().ceil()
-            as u64)
+        let bound = ((proof.chain.claimed_norm_sq as f64 / total.max(1) as f64)
+            .sqrt()
+            .ceil() as u64)
             .max(1);
-        verify_ring_norm(&proof.chain, &self.pk.params.ring, bound, proof.z_r, transcript)?;
+        verify_ring_norm(
+            &proof.chain,
+            &self.pk.params.ring,
+            bound,
+            proof.z_r,
+            transcript,
+        )?;
         Ok(())
     }
 }
@@ -738,7 +835,12 @@ mod grouped_tests {
 
     fn setup(log_n: u32, m_slots: usize) -> (AkitaPcs, AjtaiPublicKey) {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m: m_slots, norm_bound: 1 << 20 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 20,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [17u8; 32]).ok().unwrap();
         (AkitaPcs { pk: pk.clone() }, pk)
     }
@@ -784,19 +886,25 @@ mod grouped_tests {
         let mut bad = proof.clone();
         bad.f_term = bad.f_term.add(&Goldilocks::ONE);
         let mut vt2 = Transcript::new_default(b"akita-salsa-grp");
-        assert!(pcs.verify_grouped_salsa(&com, &claims, &bad, &mut vt2).is_err());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims, &bad, &mut vt2)
+            .is_err());
 
         // Tampered z_r: the D1 reconstruction fails.
         let mut bad2 = proof.clone();
         bad2.z_r = bad2.z_r.add(&Goldilocks::ONE);
         let mut vt3 = Transcript::new_default(b"akita-salsa-grp");
-        assert!(pcs.verify_grouped_salsa(&com, &claims, &bad2, &mut vt3).is_err());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims, &bad2, &mut vt3)
+            .is_err());
 
         // A tampered claim value: the RLC carrier rejects.
         let mut claims_bad = claims.clone();
         claims_bad[0].value = claims_bad[0].value.add(&Goldilocks::ONE);
         let mut vt4 = Transcript::new_default(b"akita-salsa-grp");
-        assert!(pcs.verify_grouped_salsa(&com, &claims_bad, &proof, &mut vt4).is_err());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims_bad, &proof, &mut vt4)
+            .is_err());
 
         // A tampered carrier round: the sumcheck rejects.
         let mut bad3 = proof.clone();
@@ -806,7 +914,9 @@ mod grouped_tests {
             }
         }
         let mut vt5 = Transcript::new_default(b"akita-salsa-grp");
-        assert!(pcs.verify_grouped_salsa(&com, &claims, &bad3, &mut vt5).is_err());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims, &bad3, &mut vt5)
+            .is_err());
 
         // A tampered ψ-functional round: the functional sumcheck
         // rejects.
@@ -817,6 +927,8 @@ mod grouped_tests {
             }
         }
         let mut vt6 = Transcript::new_default(b"akita-salsa-grp");
-        assert!(pcs.verify_grouped_salsa(&com, &claims, &bad4, &mut vt6).is_err());
+        assert!(pcs
+            .verify_grouped_salsa(&com, &claims, &bad4, &mut vt6)
+            .is_err());
     }
 }

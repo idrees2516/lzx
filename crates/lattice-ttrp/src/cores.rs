@@ -187,8 +187,7 @@ impl core::fmt::Display for TtrpCoreError {
 /// Each entry draws 2 bits from a SHAKE-256 stream: 0 or 3 → 0 (prob. 1/2),
 /// 1 → +1 (prob. 1/4), 2 → −1 (prob. 1/4) — exactly `D_ghl`.
 pub fn sample_cores(params: &TtrpParams, seed: &[u8]) -> Vec<Vec<CoreTensor>> {
-    let total: usize = params
-        .k
+    let total: usize = params.k
         * params
             .mu()
             .saturating_sub(2)
@@ -224,7 +223,12 @@ pub fn sample_cores(params: &TtrpParams, seed: &[u8]) -> Vec<Vec<CoreTensor>> {
                     _ => 0i8,
                 });
             }
-            cores.push(CoreTensor { r0, d: params.d(), r1, entries });
+            cores.push(CoreTensor {
+                r0,
+                d: params.d(),
+                r1,
+                entries,
+            });
         }
         rows.push(cores);
     }

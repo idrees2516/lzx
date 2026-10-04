@@ -71,7 +71,11 @@ fn main() {
     println!();
     println!("| beta1 (r) | w | r2 | kappa | A2 | classical | garbage elems | proof bytes* |");
     println!("|---|---|---|---|---|---|---|---|");
-    for (r1, beta1) in [(2u64, 2 * 64 * BETA0), (4, 4 * 64 * BETA0), (8, 8 * 64 * BETA0)] {
+    for (r1, beta1) in [
+        (2u64, 2 * 64 * BETA0),
+        (4, 4 * 64 * BETA0),
+        (8, 8 * 64 * BETA0),
+    ] {
         let tag = format!("2^{:.0} (r={r1})", (beta1 as f64).log2());
         for w in [2u64, 4, 8] {
             // find the min-cost sound row: cost = r2^2·kappa (garbage) — the
@@ -88,9 +92,7 @@ fn main() {
                         if let Some((cl, _)) = bits(kappa, w + r2, bound) {
                             if cl >= 128.0 {
                                 let cost = r2 * r2 * kappa;
-                                let better = best
-                                    .map(|(_, _, _, _, bg)| cost < bg)
-                                    .unwrap_or(true);
+                                let better = best.map(|(_, _, _, _, bg)| cost < bg).unwrap_or(true);
                                 if better {
                                     best = Some((r2, kappa, a2, cl, cost));
                                 }

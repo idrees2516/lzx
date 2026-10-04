@@ -83,11 +83,31 @@ fn transcripts_equal(a: &mut Transcript, b: &mut Transcript) -> bool {
 #[test]
 fn fast_prover_bit_identical_to_baseline() {
     let specs = vec![
-        VpSpec { num_vars: 6, terms: vec![(1, 2)], seed: 0x1111 },
-        VpSpec { num_vars: 6, terms: vec![(3, 3)], seed: 0x2222 },
-        VpSpec { num_vars: 7, terms: vec![(1, 4)], seed: 0x3333 },
-        VpSpec { num_vars: 8, terms: vec![(5, 2), (7, 3)], seed: 0x4444 },
-        VpSpec { num_vars: 5, terms: vec![(2, 5)], seed: 0x5555 },
+        VpSpec {
+            num_vars: 6,
+            terms: vec![(1, 2)],
+            seed: 0x1111,
+        },
+        VpSpec {
+            num_vars: 6,
+            terms: vec![(3, 3)],
+            seed: 0x2222,
+        },
+        VpSpec {
+            num_vars: 7,
+            terms: vec![(1, 4)],
+            seed: 0x3333,
+        },
+        VpSpec {
+            num_vars: 8,
+            terms: vec![(5, 2), (7, 3)],
+            seed: 0x4444,
+        },
+        VpSpec {
+            num_vars: 5,
+            terms: vec![(2, 5)],
+            seed: 0x5555,
+        },
     ];
     for spec in &specs {
         let vp = build_vp(spec);
@@ -96,7 +116,10 @@ fn fast_prover_bit_identical_to_baseline() {
             let mut t1 = Transcript::new_default(b"sc-ident");
             let out1 = sumcheck::prove(&vp, claim, &mut t1).ok().unwrap();
             let mut t2 = Transcript::new_default(b"sc-ident");
-            let opts = FastProverOpts { window, collect_stats: false };
+            let opts = FastProverOpts {
+                window,
+                collect_stats: false,
+            };
             let out2 = prove_fast_with_opts(&vp, claim, &mut t2, &opts, &[], &[])
                 .ok()
                 .unwrap();
@@ -135,7 +158,10 @@ fn fast_prover_zerocheck_style_with_eq_split() {
 
     // Fast with the eq factor split: pass the eq factor's index + w = r.
     let mut t2 = Transcript::new_default(b"sc-eq");
-    let opts = FastProverOpts { window: 3, collect_stats: false };
+    let opts = FastProverOpts {
+        window: 3,
+        collect_stats: false,
+    };
     let out2 = prove_fast_with_eq(&vp, claim, &mut t2, &opts, &[ei], &r)
         .ok()
         .unwrap();
@@ -146,13 +172,20 @@ fn fast_prover_zerocheck_style_with_eq_split() {
 
 #[test]
 fn fast_prover_window_zero_is_optimized_tail() {
-    let spec = VpSpec { num_vars: 6, terms: vec![(1, 3)], seed: 0x6666 };
+    let spec = VpSpec {
+        num_vars: 6,
+        terms: vec![(1, 3)],
+        seed: 0x6666,
+    };
     let vp = build_vp(&spec);
     let claim = vp_sum(&vp);
     let mut t1 = Transcript::new_default(b"sc-tail");
     let out1 = sumcheck::prove(&vp, claim, &mut t1).ok().unwrap();
     let mut t2 = Transcript::new_default(b"sc-tail");
-    let opts = FastProverOpts { window: 0, collect_stats: false };
+    let opts = FastProverOpts {
+        window: 0,
+        collect_stats: false,
+    };
     let out2 = prove_fast_with_opts(&vp, claim, &mut t2, &opts, &[], &[])
         .ok()
         .unwrap();
@@ -161,11 +194,18 @@ fn fast_prover_window_zero_is_optimized_tail() {
 
 #[test]
 fn fast_prover_stats_reported() {
-    let spec = VpSpec { num_vars: 8, terms: vec![(1, 3)], seed: 0x7777 };
+    let spec = VpSpec {
+        num_vars: 8,
+        terms: vec![(1, 3)],
+        seed: 0x7777,
+    };
     let vp = build_vp(&spec);
     let claim = vp_sum(&vp);
     let mut t = Transcript::new_default(b"sc-stats");
-    let opts = FastProverOpts { window: 3, collect_stats: true };
+    let opts = FastProverOpts {
+        window: 3,
+        collect_stats: true,
+    };
     prove_fast_with_opts(&vp, claim, &mut t, &opts, &[], &[])
         .ok()
         .unwrap();
@@ -176,7 +216,11 @@ fn fast_prover_stats_reported() {
 
 #[test]
 fn fast_prover_default_drop_in() {
-    let spec = VpSpec { num_vars: 6, terms: vec![(9, 2)], seed: 0x8888 };
+    let spec = VpSpec {
+        num_vars: 6,
+        terms: vec![(9, 2)],
+        seed: 0x8888,
+    };
     let vp = build_vp(&spec);
     let claim = vp_sum(&vp);
     let mut t1 = Transcript::new_default(b"sc-drop");

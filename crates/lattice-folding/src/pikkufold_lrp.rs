@@ -56,22 +56,33 @@
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiPublicKey};
 use lattice_core::norm_budget::NormBudget;
-use lattice_core::short_challenge::{ShortChallengeSpec, ShortChallengeFamily};
+use lattice_core::short_challenge::{ShortChallengeFamily, ShortChallengeSpec};
 use lattice_core::transcript::Transcript;
 use lattice_ring::{Modulus32, RingConfig, RingElement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LrpError {
-    DimensionRecursion { layer: usize, expected: usize, got: usize },
-    NotPowerOfTwo { value: usize },
+    DimensionRecursion {
+        layer: usize,
+        expected: usize,
+        got: usize,
+    },
+    NotPowerOfTwo {
+        value: usize,
+    },
     Ring(lattice_ring::RingError),
     Ajtai(AjtaiError),
     TranscriptFailure,
     /// The certified-JL norm gate `∥v_tr∥₂ ≤ ω` failed — the fresh
     /// witnesses exceed the claimed `β_in` (or the projection collapsed).
-    NormGateExceeded { norm_sq: u128, omega_sq: u128 },
+    NormGateExceeded {
+        norm_sq: u128,
+        omega_sq: u128,
+    },
     /// The trace-batching linearity check failed.
-    TraceBatchingFailed { challenge: usize },
+    TraceBatchingFailed {
+        challenge: usize,
+    },
     /// RingSC round / claim / terminal checks failed.
     Sumcheck(&'static str),
     /// The terminal ring cross-check (public layer claims + `t'` claims
@@ -82,7 +93,10 @@ pub enum LrpError {
     ModularConditionsViolated,
     /// Norm-budget gate (Wave 6.2 discipline).
     NormGateClosed,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<lattice_ring::RingError> for LrpError {
@@ -118,16 +132,54 @@ pub struct CertifiedJl {
 
 /// Theorem 2 / Table 1 (verbatim values).
 pub const CERTIFIED_JL_TABLE: [CertifiedJl; 5] = [
-    CertifiedJl { lambda: 64, rows: 128, gamma1: 6.97, alpha: 13.53, beta: 171.8, b: 73.0 },
-    CertifiedJl { lambda: 96, rows: 192, gamma1: 8.43, alpha: 20.45, beta: 257.5, b: 100.0 },
-    CertifiedJl { lambda: 128, rows: 256, gamma1: 9.66, alpha: 27.37, beta: 343.2, b: 126.0 },
-    CertifiedJl { lambda: 192, rows: 384, gamma1: 11.75, alpha: 41.21, beta: 514.6, b: 176.0 },
-    CertifiedJl { lambda: 256, rows: 512, gamma1: 13.51, alpha: 55.05, beta: 686.0, b: 224.0 },
+    CertifiedJl {
+        lambda: 64,
+        rows: 128,
+        gamma1: 6.97,
+        alpha: 13.53,
+        beta: 171.8,
+        b: 73.0,
+    },
+    CertifiedJl {
+        lambda: 96,
+        rows: 192,
+        gamma1: 8.43,
+        alpha: 20.45,
+        beta: 257.5,
+        b: 100.0,
+    },
+    CertifiedJl {
+        lambda: 128,
+        rows: 256,
+        gamma1: 9.66,
+        alpha: 27.37,
+        beta: 343.2,
+        b: 126.0,
+    },
+    CertifiedJl {
+        lambda: 192,
+        rows: 384,
+        gamma1: 11.75,
+        alpha: 41.21,
+        beta: 514.6,
+        b: 176.0,
+    },
+    CertifiedJl {
+        lambda: 256,
+        rows: 512,
+        gamma1: 13.51,
+        alpha: 55.05,
+        beta: 686.0,
+        b: 224.0,
+    },
 ];
 
 /// The certified row for `λ`, if present.
 pub fn certified_jl(lambda: u32) -> Option<CertifiedJl> {
-    CERTIFIED_JL_TABLE.iter().copied().find(|c| c.lambda == lambda)
+    CERTIFIED_JL_TABLE
+        .iter()
+        .copied()
+        .find(|c| c.lambda == lambda)
 }
 
 /// Upper-tail constant `u_j` for a projection layer with `rows` rows.
@@ -222,7 +274,13 @@ impl LrpLayer {
                 _ => -1,
             });
         }
-        LrpLayer { fine, repeats, n, m, entries }
+        LrpLayer {
+            fine,
+            repeats,
+            n,
+            m,
+            entries,
+        }
     }
 
     fn rows(&self) -> usize {
@@ -252,18 +310,31 @@ impl LayeredProjection {
         seed: &[u8],
     ) -> Result<Self, LrpError> {
         if schedule.is_empty() || schedule.len() < 2 {
-            return Err(LrpError::Shape { expected: 2, got: schedule.len() });
+            return Err(LrpError::Shape {
+                expected: 2,
+                got: schedule.len(),
+            });
         }
         let d = schedule.len();
         let (r_last, _n_last, _m_last) = schedule[d - 1];
         if r_last != 1 {
-            return Err(LrpError::DimensionRecursion { layer: d - 1, expected: 1, got: r_last });
+            return Err(LrpError::DimensionRecursion {
+                layer: d - 1,
+                expected: 1,
+                got: r_last,
+            });
         }
         let mut layers = Vec::with_capacity(d);
         for (i, &(r, n, m)) in schedule.iter().enumerate() {
             let fine = i + 1 == d;
-            let layer =
-                LrpLayer::sample(fine, r, n, m, ring.n(), &[seed, &(i as u32).to_le_bytes()].concat());
+            let layer = LrpLayer::sample(
+                fine,
+                r,
+                n,
+                m,
+                ring.n(),
+                &[seed, &(i as u32).to_le_bytes()].concat(),
+            );
             layers.push(layer);
         }
         // Recursion (Lemma 9): layer i's OUTPUT count (r_i·n_i = N_{i+1})
@@ -294,9 +365,15 @@ impl LayeredProjection {
         // Fine-layer output count need not be a power of two per the paper
         // (it is 2λ), but our eq-table machinery requires it; check:
         if !layers[d - 1].n.is_power_of_two() {
-            return Err(LrpError::NotPowerOfTwo { value: layers[d - 1].n });
+            return Err(LrpError::NotPowerOfTwo {
+                value: layers[d - 1].n,
+            });
         }
-        Ok(LayeredProjection { ring: ring.clone(), layers, n0 })
+        Ok(LayeredProjection {
+            ring: ring.clone(),
+            layers,
+            n0,
+        })
     }
 
     /// Boundary ring counts `N_0, N_1, …, N_{d-1}` and the fine output
@@ -315,7 +392,10 @@ impl LayeredProjection {
     /// balanced `Z_q` coordinates.
     pub fn project(&self, w: &[RingElement]) -> Result<Vec<i64>, LrpError> {
         if w.len() != self.n0 {
-            return Err(LrpError::Shape { expected: self.n0, got: w.len() });
+            return Err(LrpError::Shape {
+                expected: self.n0,
+                got: w.len(),
+            });
         }
         let phi = self.ring.n();
         let q = self.ring.modulus.q as i64;
@@ -324,7 +404,11 @@ impl LayeredProjection {
         let mut cur: Vec<i64> = Vec::with_capacity(self.n0 * phi);
         for e in w {
             for &c in e.coeffs() {
-                let b = if c as i64 <= half { c as i64 } else { c as i64 - q };
+                let b = if c as i64 <= half {
+                    c as i64
+                } else {
+                    c as i64 - q
+                };
                 cur.push(b);
             }
         }
@@ -375,7 +459,10 @@ impl LayeredProjection {
     /// `Lift_fine` monomial entries.
     pub fn project_ring(&self, w: &[RingElement]) -> Result<Vec<RingElement>, LrpError> {
         if w.len() != self.n0 {
-            return Err(LrpError::Shape { expected: self.n0, got: w.len() });
+            return Err(LrpError::Shape {
+                expected: self.n0,
+                got: w.len(),
+            });
         }
         let ring = &self.ring;
         let mut v: Vec<RingElement> = w.to_vec();
@@ -409,8 +496,7 @@ impl LayeredProjection {
                 for gamma in 0..phi {
                     let j = fine.entries[a * fine.m * phi + b * phi + gamma] as i64;
                     if j != 0 {
-                        coeffs[phi - 1 - gamma] =
-                            ring.modulus.reduce_i64(j * d_inv);
+                        coeffs[phi - 1 - gamma] = ring.modulus.reduce_i64(j * d_inv);
                     }
                 }
                 let entry = RingElement::from_coeffs(ring, coeffs);
@@ -428,7 +514,10 @@ impl LayeredProjection {
         let phi = self.ring.n();
         let q = self.ring.modulus.q as i64;
         let half = q / 2;
-        let raw = self.ring.modulus.reduce_i64(phi as i64 * x.coeff(phi - 1) as i64);
+        let raw = self
+            .ring
+            .modulus
+            .reduce_i64(phi as i64 * x.coeff(phi - 1) as i64);
         if raw as i64 <= half {
             raw as i64
         } else {
@@ -453,8 +542,7 @@ pub fn trace_batching_ok(
     b_tilde: &[Vec<u32>],
 ) -> bool {
     let q = lrp.ring.modulus.q as i64;
-    if v_btd.len() != b_tilde.len() || v_tr.len() != b_tilde.first().map(|b| b.len()).unwrap_or(0)
-    {
+    if v_btd.len() != b_tilde.len() || v_tr.len() != b_tilde.first().map(|b| b.len()).unwrap_or(0) {
         return false;
     }
     for (i, vb) in v_btd.iter().enumerate() {
@@ -488,12 +576,19 @@ pub struct RingVirtualPoly {
 
 impl RingVirtualPoly {
     pub fn new(num_vars: usize) -> Self {
-        RingVirtualPoly { num_vars, factors: Vec::new(), terms: Vec::new() }
+        RingVirtualPoly {
+            num_vars,
+            factors: Vec::new(),
+            terms: Vec::new(),
+        }
     }
 
     pub fn add_factor(&mut self, evals: Vec<RingElement>) -> Result<usize, LrpError> {
         if evals.len() != 1usize << self.num_vars {
-            return Err(LrpError::Shape { expected: 1 << self.num_vars, got: evals.len() });
+            return Err(LrpError::Shape {
+                expected: 1 << self.num_vars,
+                got: evals.len(),
+            });
         }
         self.factors.push(evals);
         Ok(self.factors.len() - 1)
@@ -501,7 +596,10 @@ impl RingVirtualPoly {
 
     pub fn add_term(&mut self, coeff: RingElement, ids: Vec<usize>) -> Result<(), LrpError> {
         if ids.iter().any(|id| *id >= self.factors.len()) {
-            return Err(LrpError::Shape { expected: self.factors.len(), got: ids.len() });
+            return Err(LrpError::Shape {
+                expected: self.factors.len(),
+                got: ids.len(),
+            });
         }
         self.terms.push((coeff, ids));
         Ok(())
@@ -511,7 +609,11 @@ impl RingVirtualPoly {
     /// per-variable true degree is ≤ this, and over-complete Lagrange
     /// interpolation of the honest round values is exact).
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 }
 
@@ -558,7 +660,10 @@ fn sum_products_ring(
     }
     match acc {
         Some(a) => Ok(a),
-        None => Err(LrpError::Shape { expected: 1, got: 0 }),
+        None => Err(LrpError::Shape {
+            expected: 1,
+            got: 0,
+        }),
     }
 }
 
@@ -625,7 +730,9 @@ fn challenge_zq_vec(
     count: usize,
     q: u32,
 ) -> Result<Vec<u32>, LrpError> {
-    (0..count).map(|_| challenge_zq(transcript, label, q)).collect()
+    (0..count)
+        .map(|_| challenge_zq(transcript, label, q))
+        .collect()
 }
 
 /// The coefficient subfield batching `Φ_δ(x) = ⟨δ, coeff(x)⟩` (the paper's
@@ -641,7 +748,11 @@ pub fn phi_delta(ring: &RingConfig, delta: &[u32], x: &RingElement) -> u32 {
 }
 
 /// Sample a ring element uniformly from the transcript (batch weights `d`).
-fn challenge_ring(transcript: &mut Transcript, label: &[u8], ring: &RingConfig) -> Result<RingElement, LrpError> {
+fn challenge_ring(
+    transcript: &mut Transcript,
+    label: &[u8],
+    ring: &RingConfig,
+) -> Result<RingElement, LrpError> {
     let phi = ring.n();
     let bytes = transcript
         .challenge_bytes(label, 4 * phi)
@@ -719,7 +830,11 @@ pub fn ring_sc_prove(
     if phi_delta(ring, &delta, &terminal) != current_claim {
         return Err(LrpError::Sumcheck("terminal Φ_δ check failed"));
     }
-    Ok(RingScOutput { proof: RingScProof { rounds, terminal }, point, factor_claims })
+    Ok(RingScOutput {
+        proof: RingScProof { rounds, terminal },
+        point,
+        factor_claims,
+    })
 }
 
 /// Verifier-side RingSC verdict: the challenge point and the derived
@@ -773,7 +888,10 @@ pub fn ring_sc_verify(
     if phi_delta(ring, &delta, &proof.terminal) != current {
         return Err(LrpError::Sumcheck("final check"));
     }
-    Ok(RingScVerdict { point, final_claim: current })
+    Ok(RingScVerdict {
+        point,
+        final_claim: current,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -946,18 +1064,23 @@ pub fn prove_fold(
     let ring = &pk.params.ring;
     let q = ring.modulus.q;
     if fresh.len() != cfg.k || acc.1.len() != cfg.m {
-        return Err(LrpError::Shape { expected: cfg.k, got: fresh.len() });
+        return Err(LrpError::Shape {
+            expected: cfg.k,
+            got: fresh.len(),
+        });
     }
     for (inst, w) in fresh.iter() {
         if w.len() != cfg.m || inst.s.len() != log2(cfg.m) {
-            return Err(LrpError::Shape { expected: cfg.m, got: w.len() });
+            return Err(LrpError::Shape {
+                expected: cfg.m,
+                got: w.len(),
+            });
         }
     }
     let lrp = LayeredProjection::from_schedule(ring, &cfg.schedule, b"pikku-lrp-seed")?;
 
     // --- statement absorption ---
-    let fresh_instances: Vec<PikkuInstance> =
-        fresh.iter().map(|(i, _)| i.clone()).collect();
+    let fresh_instances: Vec<PikkuInstance> = fresh.iter().map(|(i, _)| i.clone()).collect();
     let acc_instance = acc.0.clone();
     absorb_fold_statement(pk, cfg, &fresh_instances, &acc_instance, transcript)?;
 
@@ -968,15 +1091,25 @@ pub fn prove_fold(
     }
     let n0 = lrp.n0;
     if n0 != cfg.k * cfg.m {
-        return Err(LrpError::Shape { expected: cfg.k * cfg.m, got: n0 });
+        return Err(LrpError::Shape {
+            expected: cfg.k * cfg.m,
+            got: n0,
+        });
     }
 
     // --- v_proj, v_tr, ṽ_btd ---
     let v_proj = lrp.project_ring(&w_all)?;
     let v_tr = lrp.trace_image(&v_proj);
     // Norm gate (prover side too — fail closed before transmitting).
-    let omega_sq = omega_squared(&lrp.layers.iter().map(|l| l.rows()).collect::<Vec<_>>(), cfg.k, cfg.beta_in);
-    let norm_sq: u128 = v_tr.iter().map(|&x| u128::from(x.unsigned_abs().pow(2))).sum();
+    let omega_sq = omega_squared(
+        &lrp.layers.iter().map(|l| l.rows()).collect::<Vec<_>>(),
+        cfg.k,
+        cfg.beta_in,
+    );
+    let norm_sq: u128 = v_tr
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs().pow(2)))
+        .sum();
     if norm_sq > omega_sq {
         return Err(LrpError::NormGateExceeded { norm_sq, omega_sq });
     }
@@ -994,8 +1127,10 @@ pub fn prove_fold(
     for _ in 0..cfg.mu {
         c_points.push(challenge_zq_vec(transcript, b"pikku-fold-c", nu_d, q)?);
     }
-    let b_tildes: Vec<Vec<u32>> =
-        c_points.iter().map(|c| eq_table_zq(&ring.modulus, c)).collect();
+    let b_tildes: Vec<Vec<u32>> = c_points
+        .iter()
+        .map(|c| eq_table_zq(&ring.modulus, c))
+        .collect();
 
     // --- ṽ_btd_i = ⟨b̃_i, v_proj⟩ ---
     let mut v_btd = Vec::with_capacity(cfg.mu);
@@ -1023,7 +1158,17 @@ pub fn prove_fold(
     }
 
     // --- the batched virtual polynomial (SC^proj ⊕ SC^eval ⊕ SC^eval_acc) ---
-    let vp = build_fold_vp(ring, &lrp, cfg, &b_tildes, &w_all, &acc.1, &d_weights, &fresh_instances, &acc_instance)?;
+    let vp = build_fold_vp(
+        ring,
+        &lrp,
+        cfg,
+        &b_tildes,
+        &w_all,
+        &acc.1,
+        &d_weights,
+        &fresh_instances,
+        &acc_instance,
+    )?;
 
     // The batched ring claim: Σ d·ṽ_btd + Σ d·t_i + d·t_acc ∈ R_q (the
     // engine draws δ and batches it through Φ_δ as its first action).
@@ -1057,11 +1202,18 @@ pub fn prove_fold(
                 let mut eq_a = 1u32;
                 for (k, &rav) in dbg_ra.iter().enumerate() {
                     let bit = (a >> (dbg_ra.len() - 1 - k)) & 1;
-                    let f = if bit == 1 { rav } else { (ring.modulus.q + 1 - rav % ring.modulus.q) % ring.modulus.q };
+                    let f = if bit == 1 {
+                        rav
+                    } else {
+                        (ring.modulus.q + 1 - rav % ring.modulus.q) % ring.modulus.q
+                    };
                     eq_a = ((eq_a as u64 * f as u64) % ring.modulus.q as u64) as u32;
                 }
                 let w = ((eq_b as u64 * eq_a as u64) % ring.modulus.q as u64) as u32;
-                brute = brute.add(&w_all[b * cfg.m + a].scale_i64(w as i64)).ok().unwrap();
+                brute = brute
+                    .add(&w_all[b * cfg.m + a].scale_i64(w as i64))
+                    .ok()
+                    .unwrap();
             }
         }
         let wc = out.factor_claims[0].clone();
@@ -1116,8 +1268,16 @@ pub fn verify_fold(
     absorb_fold_statement(pk, cfg, fresh, acc, transcript)?;
 
     // v_tr: gate first (Fig 2 order).
-    let omega_sq = omega_squared(&lrp.layers.iter().map(|l| l.rows()).collect::<Vec<_>>(), cfg.k, cfg.beta_in);
-    let norm_sq: u128 = proof.v_tr.iter().map(|&x| u128::from(x.unsigned_abs().pow(2))).sum();
+    let omega_sq = omega_squared(
+        &lrp.layers.iter().map(|l| l.rows()).collect::<Vec<_>>(),
+        cfg.k,
+        cfg.beta_in,
+    );
+    let norm_sq: u128 = proof
+        .v_tr
+        .iter()
+        .map(|&x| u128::from(x.unsigned_abs().pow(2)))
+        .sum();
     if norm_sq > omega_sq {
         return Err(LrpError::NormGateExceeded { norm_sq, omega_sq });
     }
@@ -1135,12 +1295,17 @@ pub fn verify_fold(
     for _ in 0..cfg.mu {
         c_points.push(challenge_zq_vec(transcript, b"pikku-fold-c", nu_d, q)?);
     }
-    let b_tildes: Vec<Vec<u32>> =
-        c_points.iter().map(|c| eq_table_zq(&ring.modulus, c)).collect();
+    let b_tildes: Vec<Vec<u32>> = c_points
+        .iter()
+        .map(|c| eq_table_zq(&ring.modulus, c))
+        .collect();
 
     // ṽ_btd + trace batching (Z_q-linearity check).
     if proof.v_btd.len() != cfg.mu {
-        return Err(LrpError::Shape { expected: cfg.mu, got: proof.v_btd.len() });
+        return Err(LrpError::Shape {
+            expected: cfg.mu,
+            got: proof.v_btd.len(),
+        });
     }
     let mut vbtd_buf = Vec::new();
     for vb in &proof.v_btd {
@@ -1150,7 +1315,9 @@ pub fn verify_fold(
         .append_bytes(b"pikku-fold-vbtd", &vbtd_buf)
         .map_err(|_| LrpError::TranscriptFailure)?;
     if !trace_batching_ok(&lrp, &proof.v_tr, &proof.v_btd, &b_tildes) {
-        return Err(LrpError::TraceBatchingFailed { challenge: usize::MAX });
+        return Err(LrpError::TraceBatchingFailed {
+            challenge: usize::MAX,
+        });
     }
 
     // d weights.
@@ -1173,14 +1340,23 @@ pub fn verify_fold(
     }
     let num_vars = fold_num_vars(cfg);
     let max_degree = 4;
-    let verdict =
-        ring_sc_verify(ring, num_vars, max_degree, &claim_ring, &proof.sumcheck, transcript)?;
+    let verdict = ring_sc_verify(
+        ring,
+        num_vars,
+        max_degree,
+        &claim_ring,
+        &proof.sumcheck,
+        transcript,
+    )?;
     let point = verdict.point;
 
     // t' claims.
     let (_r_b, r_a) = split_point(&point, cfg);
     if proof.t_prime.len() != cfg.k {
-        return Err(LrpError::Shape { expected: cfg.k, got: proof.t_prime.len() });
+        return Err(LrpError::Shape {
+            expected: cfg.k,
+            got: proof.t_prime.len(),
+        });
     }
     let mut tp_buf = Vec::new();
     for t in &proof.t_prime {
@@ -1193,7 +1369,9 @@ pub fn verify_fold(
 
     // Terminal cross-check: g(r) recomputed from PUBLIC layer claims and
     // the t' claims must equal the prover's terminal ring element.
-    let recomputed = recompute_terminal(ring, &lrp, cfg, &b_tildes, &point, fresh, acc, &d_weights, proof)?;
+    let recomputed = recompute_terminal(
+        ring, &lrp, cfg, &b_tildes, &point, fresh, acc, &d_weights, proof,
+    )?;
     if recomputed != proof.sumcheck.terminal {
         return Err(LrpError::TerminalCrossCheck);
     }
@@ -1232,9 +1410,14 @@ pub fn verify_fold(
             .map_err(|_| LrpError::NormGateClosed)?;
     }
     let beta_out = budget.beta();
-    Ok(FoldedView { y_fold, s_fold: r_a, t_fold, z, beta_out })
+    Ok(FoldedView {
+        y_fold,
+        s_fold: r_a,
+        t_fold,
+        z,
+        beta_out,
+    })
 }
-
 
 /// Total sumcheck variable count: `Σ_{i ∈ [0, d-1]} log N_i` (all
 /// boundaries except the output `x_0`; e.g. kernel `log(16·8·4) = 9`).
@@ -1312,14 +1495,19 @@ fn sample_z_challenges(
 ) -> Result<Vec<RingElement>, LrpError> {
     let spec = ShortChallengeSpec {
         n: ring.n(),
-        family: ShortChallengeFamily::FixedWeight { weight: 3, amplitude: 1 },
+        family: ShortChallengeFamily::FixedWeight {
+            weight: 3,
+            amplitude: 1,
+        },
     };
     let mut out = Vec::with_capacity(k);
     for _ in 0..k {
         let seed = transcript
             .challenge_bytes(b"pikku-fold-z", 32)
             .map_err(|_| LrpError::TranscriptFailure)?;
-        let ch = spec.sample(&seed).map_err(|_| LrpError::TranscriptFailure)?;
+        let ch = spec
+            .sample(&seed)
+            .map_err(|_| LrpError::TranscriptFailure)?;
         out.push(RingElement::from_signed(ring, &ch.coefficients));
     }
     Ok(out)
@@ -1378,11 +1566,14 @@ fn build_fold_vp(
     // lrp.layers[d-2]; the one connecting (x_2, x_3) is lrp.layers[d-3]
     // (requires d >= 3; the kernel schedule has exactly 3 layers).
     if d < 3 {
-        return Err(LrpError::Shape { expected: 3, got: d });
+        return Err(LrpError::Shape {
+            expected: 3,
+            got: d,
+        });
     }
     let l_mid = &lrp.layers[d - 2]; // (x_1, x_2): I_{r} ⊗ M over (N_{d-1} → N_{d-2})?? see below
     let l_bot = &lrp.layers[d - 3]; // (x_2, x_3)
-    // Block-diagonal tables: entry (out=(β,a), in=(β',b)) = J[a][b]·[β=β'].
+                                    // Block-diagonal tables: entry (out=(β,a), in=(β',b)) = J[a][b]·[β=β'].
     let block_table = |l: &LrpLayer, n_out: usize, m_in: usize| -> Vec<RingElement> {
         let mut tab = Vec::with_capacity(n_out * m_in);
         for out in 0..n_out {
@@ -1391,7 +1582,11 @@ fn build_fold_vp(
                 let a = out % l.n;
                 let beta_p = inp / l.m;
                 let b = inp % l.m;
-                let e = if beta == beta_p { l.entries[a * l.m + b] } else { 0 };
+                let e = if beta == beta_p {
+                    l.entries[a * l.m + b]
+                } else {
+                    0
+                };
                 tab.push(ring.constant(ring.modulus.reduce_i64(e as i64)));
             }
         }
@@ -1448,8 +1643,13 @@ fn build_fold_vp(
             nu_1 + nu_2,
         ))?);
     }
-    let sel_acc_id =
-        vp.add_factor(expand_to_full(ring, &eq_sel(&acc_inst.s, None), num_vars, nu_3, nu_1 + nu_2))?;
+    let sel_acc_id = vp.add_factor(expand_to_full(
+        ring,
+        &eq_sel(&acc_inst.s, None),
+        num_vars,
+        nu_3,
+        nu_1 + nu_2,
+    ))?;
 
     // ---- terms ----
     // The eval/acc terms' factors cover only the x_3 group; over the full
@@ -1475,8 +1675,7 @@ fn build_fold_vp(
         let pow2 = ring.modulus.pow(2, (nu_1 + nu_2 + log_k) as u64);
         ring.modulus.inv(pow2).unwrap_or(1)
     };
-    let acc_coeff = d_weights[cfg.mu + cfg.k]
-        .mul(&ring.constant(norm_acc))?;
+    let acc_coeff = d_weights[cfg.mu + cfg.k].mul(&ring.constant(norm_acc))?;
     vp.add_term(acc_coeff, vec![sel_acc_id, wacc_id])?;
     Ok(vp)
 }
@@ -1546,7 +1745,11 @@ fn recompute_terminal(
                 let a = out % l.n;
                 let beta_p = inp / l.m;
                 let b = inp % l.m;
-                let e = if beta == beta_p { l.entries[a * l.m + b] } else { 0 };
+                let e = if beta == beta_p {
+                    l.entries[a * l.m + b]
+                } else {
+                    0
+                };
                 tab.push(ring.constant(m.reduce_i64(e as i64)));
             }
         }
@@ -1683,7 +1886,12 @@ mod tests {
 
     fn setup(log_n: u32, m: usize) -> (AjtaiPublicKey, RingConfig) {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m, norm_bound: 1 << 20 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m,
+            norm_bound: 1 << 20,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [41u8; 32]).ok().unwrap();
         (pk, ring)
     }
@@ -1734,7 +1942,10 @@ mod tests {
     fn schedule_validation_rejects_broken_recursion() {
         let (_pk, ring) = setup(4, 8);
         // Valid kernel schedule.
-        assert!(LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"s").is_ok());
+        assert!(
+            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"s")
+                .is_ok()
+        );
         // Broken recursion: layer 0 input 2·8 = 16 ≠ layer 1 output 2·2 = 4.
         assert!(matches!(
             LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 2), (1, 8, 2)], b"s"),
@@ -1758,7 +1969,9 @@ mod tests {
         // exact integer path agree on every coordinate.
         let (_pk, ring) = setup(4, 8);
         let lrp =
-            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"l10").ok().unwrap();
+            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"l10")
+                .ok()
+                .unwrap();
         for tag in [b"a".as_slice(), b"b".as_slice()] {
             // N_0 = r_0·m_0 = 16 — stack two witnesses.
             let mut w = small_w(&ring, tag);
@@ -1775,7 +1988,9 @@ mod tests {
         // Tr(X^k·u) = d·u_{d-1-k} — the trace-dual of the monomial basis.
         let (_pk, ring) = setup(4, 8);
         let lrp =
-            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"td").ok().unwrap();
+            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"td")
+                .ok()
+                .unwrap();
         let d = ring.n() as i64;
         for k in 0..ring.n() {
             let mut coeffs = vec![0u32; ring.n()];
@@ -1783,9 +1998,11 @@ mod tests {
             let xk = RingElement::from_coeffs(&ring, coeffs);
             let u = small_w(&ring, b"u").first().cloned().unwrap();
             let prod = xk.mul(&u).ok().unwrap();
-            let expected = (d * u.coeff(ring.n() - 1 - k) as i64)
-                .rem_euclid(ring.modulus.q as i64);
-            assert_eq!(lrp.trace_of(&prod).rem_euclid(ring.modulus.q as i64) as u64 as i64, expected);
+            let expected = (d * u.coeff(ring.n() - 1 - k) as i64).rem_euclid(ring.modulus.q as i64);
+            assert_eq!(
+                lrp.trace_of(&prod).rem_euclid(ring.modulus.q as i64) as u64 as i64,
+                expected
+            );
         }
     }
 
@@ -1793,7 +2010,9 @@ mod tests {
     fn trace_batching_linearity() {
         let (_pk, ring) = setup(4, 8);
         let lrp =
-            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"tb").ok().unwrap();
+            LayeredProjection::from_schedule(&ring, &[(2, 4, 8), (2, 2, 4), (1, 8, 4)], b"tb")
+                .ok()
+                .unwrap();
         let mut w = small_w(&ring, b"tb-w");
         w.extend(small_w(&ring, b"tb-w2"));
         let v_proj = lrp.project_ring(&w).ok().unwrap();
@@ -1855,7 +2074,11 @@ mod tests {
         let b1: Vec<Vec<RingElement>> = vp.factors.iter().map(|f| half_bind_ring(f, 1)).collect();
         for (fi, b) in b1.iter().enumerate() {
             for (p, bv) in b.iter().enumerate().take(4) {
-                assert_eq!(*bv, vp.factors[fi][p + 4], "half_bind(1) factor {fi} point {p}");
+                assert_eq!(
+                    *bv,
+                    vp.factors[fi][p + 4],
+                    "half_bind(1) factor {fi} point {p}"
+                );
             }
         }
         let g0 = sum_products_ring(&b0, &vp.terms).ok().unwrap();
@@ -1883,7 +2106,9 @@ mod tests {
         }
         assert_eq!(total, claim, "round-0 ring identity");
         // phi_delta linearity.
-        let delta: Vec<u32> = (0..ring.n()).map(|j| (j as u32 * 5 + 1) % ring.modulus.q).collect();
+        let delta: Vec<u32> = (0..ring.n())
+            .map(|j| (j as u32 * 5 + 1) % ring.modulus.q)
+            .collect();
         let lhs = phi_delta(&ring, &delta, &total);
         let rhs = phi_delta(&ring, &delta, &claim);
         assert_eq!(lhs, rhs);
@@ -1905,9 +2130,18 @@ mod tests {
         let mut t2 = Vec::new();
         let mut t3 = Vec::new();
         for i in 0..8usize {
-            t1.push(RingElement::from_signed(&ring, &[(i as i64 * 3 + 1) % 7 - 3; 8]));
-            t2.push(RingElement::from_signed(&ring, &[(i as i64 * 5 + 2) % 11 - 5; 8]));
-            t3.push(RingElement::from_signed(&ring, &[(i as i64 + 3) % 13 - 6; 8]));
+            t1.push(RingElement::from_signed(
+                &ring,
+                &[(i as i64 * 3 + 1) % 7 - 3; 8],
+            ));
+            t2.push(RingElement::from_signed(
+                &ring,
+                &[(i as i64 * 5 + 2) % 11 - 5; 8],
+            ));
+            t3.push(RingElement::from_signed(
+                &ring,
+                &[(i as i64 + 3) % 13 - 6; 8],
+            ));
         }
         let f1 = vp.add_factor(t1.clone()).ok().unwrap();
         let f2 = vp.add_factor(t2.clone()).ok().unwrap();
@@ -1928,10 +2162,17 @@ mod tests {
         };
         let mut vt = Transcript::new_default(b"rsc-test");
         assert_eq!(
-            ring_sc_verify(&ring, num_vars, vp.max_degree(), &claim, &out.proof, &mut vt)
-                .ok()
-                .unwrap()
-                .point,
+            ring_sc_verify(
+                &ring,
+                num_vars,
+                vp.max_degree(),
+                &claim,
+                &out.proof,
+                &mut vt
+            )
+            .ok()
+            .unwrap()
+            .point,
             out.point
         );
         // Tampered round rejected.
@@ -1947,7 +2188,15 @@ mod tests {
         // Wrong claim rejected.
         let wrong = claim.add(&ring.one()).ok().unwrap();
         let mut vt4 = Transcript::new_default(b"rsc-test");
-        assert!(ring_sc_verify(&ring, num_vars, vp.max_degree(), &wrong, &out.proof, &mut vt4).is_err());
+        assert!(ring_sc_verify(
+            &ring,
+            num_vars,
+            vp.max_degree(),
+            &wrong,
+            &out.proof,
+            &mut vt4
+        )
+        .is_err());
     }
 
     /// The fixture type (kept explicit for the test module).
@@ -1974,7 +2223,20 @@ mod tests {
         let y_acc = pk.commit(&w_acc).ok().unwrap();
         let s_acc: Vec<u32> = vec![2, 0, 4];
         let t_acc = mle_at(&ring, &w_acc, &s_acc).ok().unwrap();
-        (pk, ring, cfg, fresh, (PikkuInstance { y: y_acc, s: s_acc, t: t_acc }, w_acc))
+        (
+            pk,
+            ring,
+            cfg,
+            fresh,
+            (
+                PikkuInstance {
+                    y: y_acc,
+                    s: s_acc,
+                    t: t_acc,
+                },
+                w_acc,
+            ),
+        )
     }
 
     #[test]
@@ -2003,7 +2265,11 @@ mod tests {
             let mut eqv = 1u32;
             for (k, &sk) in s.iter().enumerate() {
                 let bit = (a >> (2 - k)) & 1;
-                let f = if bit == 1 { sk } else { (ring.modulus.q + 1 - sk) % ring.modulus.q };
+                let f = if bit == 1 {
+                    sk
+                } else {
+                    (ring.modulus.q + 1 - sk) % ring.modulus.q
+                };
                 eqv = ((eqv as u64 * f as u64) % ring.modulus.q as u64) as u32;
             }
             assert_eq!(*tv, eqv, "eq_table entry {a}");
@@ -2017,8 +2283,9 @@ mod tests {
         let proof = prove_fold(&pk, &cfg, &fresh, &acc, &mut t).ok().unwrap();
         let fresh_insts: Vec<PikkuInstance> = fresh.iter().map(|(i, _)| i.clone()).collect();
         let mut vt = Transcript::new_default(b"pikku-fig2");
-        let folded =
-            verify_fold(&pk, &cfg, &fresh_insts, &acc.0, &proof, &mut vt).ok().unwrap();
+        let folded = verify_fold(&pk, &cfg, &fresh_insts, &acc.0, &proof, &mut vt)
+            .ok()
+            .unwrap();
         // The decider: w_fold = w_acc + Σ z_i·w_i opens y_fold and satisfies
         // MLE[w_fold](s_fold) = t_fold (the folded instance is valid).
         let mut w_fold = acc.1.clone();
@@ -2104,8 +2371,9 @@ mod tests {
         // accumulator, resetting periodically per the norm/SIS accounting.
         let (pk, ring, cfg, fresh, acc) = fold_fixture();
         let mut tr = Transcript::new_default(b"pikku-ivc");
-        let mut acc_state =
-            PikkuAccumulator::fresh(&pk, &acc.1, cfg.beta_acc, &mut tr).ok().unwrap();
+        let mut acc_state = PikkuAccumulator::fresh(&pk, &acc.1, cfg.beta_acc, &mut tr)
+            .ok()
+            .unwrap();
         // The accumulator's witness tracks the folds (w_fold = w_acc +
         // Σ z_i·w_i per round) — the decider-side state.
         let mut acc_w: Vec<RingElement> = acc.1.clone();
@@ -2114,22 +2382,32 @@ mod tests {
         for round in 0..4 {
             let mut t = Transcript::new_default(b"pikku-ivc-round");
             let acc_pair = (acc_state.instance.clone(), acc_w.clone());
-            let proof = prove_fold(&pk, &cfg, &fresh, &acc_pair, &mut t).ok().unwrap();
-            let mut vt = Transcript::new_default(b"pikku-ivc-round");
-            let folded = verify_fold(&pk, &cfg, &fresh_insts, &acc_state.instance, &proof, &mut vt)
+            let proof = prove_fold(&pk, &cfg, &fresh, &acc_pair, &mut t)
                 .ok()
                 .unwrap();
+            let mut vt = Transcript::new_default(b"pikku-ivc-round");
+            let folded = verify_fold(
+                &pk,
+                &cfg,
+                &fresh_insts,
+                &acc_state.instance,
+                &proof,
+                &mut vt,
+            )
+            .ok()
+            .unwrap();
             // Decider validity of the folded instance BEFORE applying.
-            assert!(pk.verify_opening(&folded.y_fold, &{
-                let mut w = acc_w.clone();
-                for (i, zi) in folded.z.iter().enumerate() {
-                    for (j, wi) in fresh[i].1.iter().enumerate() {
-                        w[j] = w[j].add(&wi.mul(zi).ok().unwrap()).ok().unwrap();
+            assert!(pk
+                .verify_opening(&folded.y_fold, &{
+                    let mut w = acc_w.clone();
+                    for (i, zi) in folded.z.iter().enumerate() {
+                        for (j, wi) in fresh[i].1.iter().enumerate() {
+                            w[j] = w[j].add(&wi.mul(zi).ok().unwrap()).ok().unwrap();
+                        }
                     }
-                }
-                w
-            })
-            .is_ok());
+                    w
+                })
+                .is_ok());
             // Update the accumulator witness: w_acc ← w_acc + Σ z_i·w_i.
             for (i, zi) in folded.z.iter().enumerate() {
                 for (j, wi) in fresh[i].1.iter().enumerate() {
@@ -2141,7 +2419,9 @@ mod tests {
             if acc_state.should_reset(4, 1 << 30) {
                 resets += 1;
                 let mut rt = Transcript::new_default(b"pikku-ivc-reset");
-                acc_state = PikkuAccumulator::fresh(&pk, &acc_w, cfg.beta_acc, &mut rt).ok().unwrap();
+                acc_state = PikkuAccumulator::fresh(&pk, &acc_w, cfg.beta_acc, &mut rt)
+                    .ok()
+                    .unwrap();
                 assert_eq!(acc_state.folds, 0);
             }
         }

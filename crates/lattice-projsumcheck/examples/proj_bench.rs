@@ -64,7 +64,10 @@ fn main() {
         let t_proj = t0.elapsed().as_secs_f64() * 1e3;
 
         // Blackhole so both kernels are fully measured.
-        let _ = (buf_bool[0].to_canonical_u64(), buf_proj[0].to_canonical_u64());
+        let _ = (
+            buf_bool[0].to_canonical_u64(),
+            buf_proj[0].to_canonical_u64(),
+        );
         println!(
             "[binding 2^{}] Boolean (a + r(b−a)): {:.3} ms | projective (a + r·b): {:.3} ms | speedup {}",
             n, t_bool, t_proj, fmt_ratio(t_bool, t_proj)
@@ -100,15 +103,23 @@ fn main() {
 
         println!(
             "[eq table n={}] Boolean: {:.3} ms | projective (e, e·r): {:.3} ms | speedup {}",
-            n, t_eq_bool, t_eq_proj, fmt_ratio(t_eq_bool, t_eq_proj)
+            n,
+            t_eq_bool,
+            t_eq_proj,
+            fmt_ratio(t_eq_bool, t_eq_proj)
         );
         println!(
             "[LT table n={}] Boolean: {:.3} ms | projective: {:.3} ms | speedup {}",
-            n, t_lt_bool, t_lt_proj, fmt_ratio(t_lt_bool, t_lt_proj)
+            n,
+            t_lt_bool,
+            t_lt_proj,
+            fmt_ratio(t_lt_bool, t_lt_proj)
         );
         // Blackhole the results so the table constructions are measured.
         let chk = |t: &[Goldilocks]| -> u64 {
-            t.iter().map(|v| v.to_canonical_u64()).fold(0u64, u64::wrapping_add)
+            t.iter()
+                .map(|v| v.to_canonical_u64())
+                .fold(0u64, u64::wrapping_add)
         };
         let _ = (chk(&eq_bool), chk(&eq_proj), chk(&lt_bool), chk(&lt_proj));
     }
@@ -129,7 +140,9 @@ fn main() {
         if with_eq {
             let pt: Vec<Goldilocks> = vec![Goldilocks::from_u64(7); n];
             let eqf = vp_bool.add_factor(DenseMle::eq_extension(&pt)).unwrap();
-            vp_bool.add_term(Goldilocks::ONE, vec![fa, fb, eqf]).unwrap();
+            vp_bool
+                .add_term(Goldilocks::ONE, vec![fa, fb, eqf])
+                .unwrap();
         } else {
             vp_bool.add_term(Goldilocks::ONE, vec![fa, fb]).unwrap();
         }
@@ -149,7 +162,9 @@ fn main() {
                 .map(|i| Goldilocks::from_u64(i.wrapping_mul(1_000_000_007)))
                 .collect();
             let peq = vp_proj.add_factor(MonomialMle::eq_projective(&r)).unwrap();
-            vp_proj.add_term(Goldilocks::ONE, vec![pa, pb, peq]).unwrap();
+            vp_proj
+                .add_term(Goldilocks::ONE, vec![pa, pb, peq])
+                .unwrap();
         } else {
             vp_proj.add_term(Goldilocks::ONE, vec![pa, pb]).unwrap();
         }
@@ -164,18 +179,8 @@ fn main() {
             assert_eq!(claim_bool, claim_proj);
         }
 
-        let proof_bool_bytes: usize = out_bool
-            .proof
-            .rounds
-            .iter()
-            .map(|r| r.len() * 8)
-            .sum();
-        let proof_proj_bytes: usize = out_proj
-            .proof
-            .rounds
-            .iter()
-            .map(|r| r.len() * 8)
-            .sum();
+        let proof_bool_bytes: usize = out_bool.proof.rounds.iter().map(|r| r.len() * 8).sum();
+        let proof_proj_bytes: usize = out_proj.proof.rounds.iter().map(|r| r.len() * 8).sum();
         println!(
             "[sumcheck n={}{}] Boolean: {:.3} ms ({} B) | projective: {:.3} ms ({} B) | speedup {} | size {:.2}x",
             n,
@@ -217,15 +222,22 @@ fn main() {
 
         println!(
             "[Fp256 chained mul ×{}] full CIOS: {:.3} ms | upper-limb: {:.3} ms | speedup {}",
-            iters, t_full, t_upper, fmt_ratio(t_full, t_upper)
+            iters,
+            t_full,
+            t_upper,
+            fmt_ratio(t_full, t_upper)
         );
 
         // Binding loop: p(0,x') + r·p(∞,x') over 2^20 pairs with an
         // upper-limb challenge vs a full-field challenge (Table 5's
         // projective rows).
         let len = 1usize << 20;
-        let lo: Vec<Fp256> = (0..len as u64).map(|i| Fp256::from_canonical_u64(i * 31 + 7)).collect();
-        let hi: Vec<Fp256> = (0..len as u64).map(|i| Fp256::from_canonical_u64(i * 97 + 3)).collect();
+        let lo: Vec<Fp256> = (0..len as u64)
+            .map(|i| Fp256::from_canonical_u64(i * 31 + 7))
+            .collect();
+        let hi: Vec<Fp256> = (0..len as u64)
+            .map(|i| Fp256::from_canonical_u64(i * 97 + 3))
+            .collect();
         let mut hash2 = [0u8; 32];
         for (i, b) in hash2.iter_mut().enumerate() {
             *b = (i * 71 + 13) as u8;
@@ -312,8 +324,10 @@ fn lt_bool_table(r: &[Goldilocks]) -> Vec<Goldilocks> {
             }
             let ru = r[v];
             let yv_f = Goldilocks::from_u64(yv as u64);
-            prefix = prefix
-                .mul(&ru.mul(&yv_f).add(&Goldilocks::ONE.sub(&ru).mul(&Goldilocks::ONE.sub(&yv_f))));
+            prefix = prefix.mul(
+                &ru.mul(&yv_f)
+                    .add(&Goldilocks::ONE.sub(&ru).mul(&Goldilocks::ONE.sub(&yv_f))),
+            );
         }
         evals[idx] = acc;
     }

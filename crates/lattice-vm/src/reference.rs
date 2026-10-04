@@ -171,7 +171,10 @@ impl RefMachine {
         let next = pc.wrapping_add(4);
 
         let imm_i = sign_extend((word >> 20) as u64, 12);
-        let imm_s = sign_extend(((((word >> 25) & 0x7f) << 5) | ((word >> 7) & 0x1f)) as u64, 12);
+        let imm_s = sign_extend(
+            ((((word >> 25) & 0x7f) << 5) | ((word >> 7) & 0x1f)) as u64,
+            12,
+        );
         let imm_b = sign_extend(
             ((((word >> 31) & 0x1) << 12)
                 | (((word >> 7) & 0x1) << 11)
@@ -565,8 +568,7 @@ impl RefMachine {
                     let v = self.reg(2).wrapping_add(sign_extend(imm, 10) as u64);
                     self.set_reg(2, v);
                 } else {
-                    let imm = ((((half >> 12) & 0x1) as u64) << 5)
-                        | (((half >> 2) & 0x1f) as u64);
+                    let imm = ((((half >> 12) & 0x1) as u64) << 5) | (((half >> 2) & 0x1f) as u64);
                     self.set_reg(rd, (sign_extend(imm, 6) as u64) << 12);
                 }
                 self.pc = next;
@@ -625,8 +627,8 @@ impl RefMachine {
                 // C.SW.
                 let rs1 = expand(rs1c);
                 let rs2 = expand(((half >> 2) & 0x7) as u8);
-                let imm = ((((half >> 10) & 0x7) as u64) << 3)
-                    | ((((half >> 5) & 0x3) as u64) << 1);
+                let imm =
+                    ((((half >> 10) & 0x7) as u64) << 3) | ((((half >> 5) & 0x3) as u64) << 1);
                 let addr = self.reg(rs1).wrapping_add(imm);
                 self.mem.write_u32(addr, self.reg(rs2) as u32);
                 self.pc = next;
@@ -635,8 +637,8 @@ impl RefMachine {
                 // C.SD.
                 let rs1 = expand(rs1c);
                 let rs2 = expand(((half >> 2) & 0x7) as u8);
-                let imm = ((((half >> 10) & 0x7) as u64) << 3)
-                    | ((((half >> 5) & 0x3) as u64) << 1);
+                let imm =
+                    ((((half >> 10) & 0x7) as u64) << 3) | ((((half >> 5) & 0x3) as u64) << 1);
                 let addr = self.reg(rs1).wrapping_add(imm);
                 self.mem.write_u64(addr, self.reg(rs2));
                 self.pc = next;
@@ -687,7 +689,8 @@ mod tests {
         m.mem.write_u32(0, 0xFFF00093);
         // div x2, x1, x0 => -1 (divide BY zero): funct7=1, rs2=0, rs1=1,
         // funct3=4, rd=2, opcode=0x33.
-        m.mem.write_u32(4, (1u32 << 25) | (1 << 15) | (4 << 12) | (2 << 7) | 0x33);
+        m.mem
+            .write_u32(4, (1u32 << 25) | (1 << 15) | (4 << 12) | (2 << 7) | 0x33);
         // ecall
         m.mem.write_u32(8, 0x00000073);
         m.run(16).ok().unwrap();

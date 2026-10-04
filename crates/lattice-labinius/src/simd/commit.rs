@@ -237,11 +237,21 @@ unsafe fn fold_pair(w0: *const i16, w1: *const i16, a0: *const i16, a1: *const i
 pub unsafe fn mac27(w: *const i16, a: *const i16, acc: *mut i32) {
     for p in 0..13 {
         let s = _mm512_load_si512(acc.add(16 * p) as *const __m512i);
-        let d = fold_pair(w.add(64 * p), w.add(64 * p + 32), a.add(64 * p), a.add(64 * p + 32));
+        let d = fold_pair(
+            w.add(64 * p),
+            w.add(64 * p + 32),
+            a.add(64 * p),
+            a.add(64 * p + 32),
+        );
         _mm512_store_si512(acc.add(16 * p) as *mut __m512i, _mm512_add_epi32(s, d));
     }
     let s = _mm512_load_si512(acc.add(16 * 13) as *const __m512i);
-    let d = fold_pair(w.add(32 * 26), w.add(32 * 26), a.add(32 * 26), a.add(32 * 26));
+    let d = fold_pair(
+        w.add(32 * 26),
+        w.add(32 * 26),
+        a.add(32 * 26),
+        a.add(32 * 26),
+    );
     _mm512_store_si512(acc.add(16 * 13) as *mut __m512i, _mm512_add_epi32(s, d));
 }
 
@@ -356,7 +366,12 @@ unsafe fn mod_q_pd<const Q: u16>(v: __m512d) -> __m256i {
     let q = _mm512_set1_pd(Q as f64);
     let t = _mm512_roundscale_pd::<0x09>(_mm512_mul_pd(v, _mm512_set1_pd(1.0 / Q as f64)));
     let r = _mm512_fnmadd_pd(t, q, v);
-    let r = _mm512_mask_add_pd(r, _mm512_cmp_pd_mask::<_CMP_LT_OQ>(r, _mm512_setzero_pd()), r, q);
+    let r = _mm512_mask_add_pd(
+        r,
+        _mm512_cmp_pd_mask::<_CMP_LT_OQ>(r, _mm512_setzero_pd()),
+        r,
+        q,
+    );
     let r = _mm512_mask_sub_pd(r, _mm512_cmp_pd_mask::<_CMP_NLT_UQ>(r, q), r, q);
     _mm512_cvttpd_epi32(r)
 }
@@ -511,7 +526,12 @@ unsafe fn leaf<const Q: u16>(w: *const i16, a: *const i16) -> (__m512i, __m512i)
 /// `w`, `a`, `acc01` and `acc2` must be 64-byte aligned; `w` and `a` must cover 18 vectors,
 /// `acc01` [`QACC01_PER_BLK`] and `acc2` [`QACC2_PER_BLK`]. AVX-512 F/BW.
 #[target_feature(enable = "avx512f,avx512bw")]
-pub unsafe fn mac_quad18<const Q: u16>(w: *const i16, a: *const i16, acc01: *mut i32, acc2: *mut i32) {
+pub unsafe fn mac_quad18<const Q: u16>(
+    w: *const i16,
+    a: *const i16,
+    acc01: *mut i32,
+    acc2: *mut i32,
+) {
     for m in 0..4 {
         let (j0, j1) = (2 * m, 2 * m + 1);
         let (d0, t0) = leaf::<Q>(w.add(64 * j0), a.add(64 * j0));
@@ -701,7 +721,15 @@ pub fn sfence() {
 ///
 /// # Safety
 /// AVX-512 PCS feature set; `idx`/`a`/`out`/`acc` per the kernels' contracts.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn split_batch<const Q: u16>(
     idx: &BinaryIndex32,
     a: &Batch32,
@@ -725,7 +753,15 @@ pub unsafe fn split_batch<const Q: u16>(
 ///
 /// # Safety
 /// AVX-512 PCS feature set; `idx`/`a`/`out`/`acc` per the kernels' contracts.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn split_large_batch<const Q: u16>(
     idx: &BinaryIndex32,
     a: &Batch32,
@@ -749,7 +785,15 @@ pub unsafe fn split_large_batch<const Q: u16>(
 ///
 /// # Safety
 /// AVX-512 PCS feature set; `idx`/`a`/`out`/`acc` per the kernels' contracts.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn quad_batch<const Q: u16>(
     idx: &BinaryIndex32,
     a: &Batch32,
@@ -771,7 +815,6 @@ pub unsafe fn quad_batch<const Q: u16>(
         reduce_quad_part::<Q>(acc.p2.as_mut_ptr() as *mut i32, QBLOCKS * QACC2_PER_BLK);
     }
 }
-
 
 // =============================================================================================
 // the fold's u64 MAC (non-binary rows: the amortised witness and the verifier's A v)

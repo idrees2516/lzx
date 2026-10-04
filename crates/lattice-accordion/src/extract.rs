@@ -65,11 +65,7 @@ pub struct HonestReduceProver<'a> {
 }
 
 impl<'a> HonestReduceProver<'a> {
-    fn restricted_tables(
-        &self,
-        alpha: &Fq,
-        prefix: &[Fq],
-    ) -> crate::sumcheck::SummandTables {
+    fn restricted_tables(&self, alpha: &Fq, prefix: &[Fq]) -> crate::sumcheck::SummandTables {
         let p_prime = self.srs.value_column().scale(alpha);
         let t_table = self.cube.t_table(self.u);
         let mut tables =
@@ -299,7 +295,11 @@ mod tests {
         let srs = Srs::from_seed(1, 16, cube.size(), seed);
         let n = 1usize << k;
         let f: Vec<Fq> = (0..n)
-            .map(|i| Fq::from_u64((i as u64).wrapping_mul(6364136223846793005).wrapping_add(7) & 0xFFFF_FFFF))
+            .map(|i| {
+                Fq::from_u64(
+                    (i as u64).wrapping_mul(6364136223846793005).wrapping_add(7) & 0xFFFF_FFFF,
+                )
+            })
             .collect();
         let w = cube.digit_layers(&f);
         let u: Vec<Fq> = (0..k).map(|i| Fq::from_u64(100 + i as u64 * 31)).collect();
@@ -409,12 +409,15 @@ mod tests {
         let k = 3;
         let cube = LayeredCube::new(k, 4);
         let base = Srs::from_seed(1, 16, cube.size(), b"dup-base");
-        let mut columns: Vec<ModulePoint> =
-            (0..cube.size() + 1).map(|c| base.generator(c).clone()).collect();
+        let mut columns: Vec<ModulePoint> = (0..cube.size() + 1)
+            .map(|c| base.generator(c).clone())
+            .collect();
         columns[4] = columns[0].clone();
         let srs = Srs::from_columns(1, 16, columns);
         let n = 1usize << k;
-        let f: Vec<Fq> = (0..n).map(|i| Fq::from_u64((i as u64 * 997 + 3) & 0xFFFF)).collect();
+        let f: Vec<Fq> = (0..n)
+            .map(|i| Fq::from_u64((i as u64 * 997 + 3) & 0xFFFF))
+            .collect();
         let w = cube.digit_layers(&f);
         let mut w2 = w.clone();
         // w2 = w + e_0 − e_4 (still short: digit-sized entries).
@@ -457,7 +460,10 @@ mod tests {
             .map(|(i, _)| i)
             .collect();
         assert_eq!(support, vec![0, 4]);
-        let mags: Vec<u64> = support.iter().map(|&i| k_g[i].0.min(Q_50 - k_g[i].0)).collect();
+        let mags: Vec<u64> = support
+            .iter()
+            .map(|&i| k_g[i].0.min(Q_50 - k_g[i].0))
+            .collect();
         assert!(mags.iter().all(|&m| m == 1), "unit coefficients");
     }
 
@@ -487,9 +493,7 @@ mod tests {
                         } else {
                             s1[i]
                         };
-                        eqv = eqv.mul(
-                            &bv.mul(&pv).add(&Fq::ONE.sub(&bv).mul(&Fq::ONE.sub(&pv))),
-                        );
+                        eqv = eqv.mul(&bv.mul(&pv).add(&Fq::ONE.sub(&bv).mul(&Fq::ONE.sub(&pv))));
                     }
                     acc = acc.add(&eqv.mul(&cube_vals[b]));
                 }

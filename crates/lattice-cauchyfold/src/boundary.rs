@@ -84,17 +84,14 @@ pub fn analyze(params: &CauchyParams, support_c: &[K4], q_map: &QuadraticMap) ->
         })
         .collect();
     // As rows: function i's values across C.
-    let a_rows: Vec<Vec<K4>> = (0..k).map(|i| a_fns.iter().map(|v| v[i]).collect()).collect();
+    let a_rows: Vec<Vec<K4>> = (0..k)
+        .map(|i| a_fns.iter().map(|v| v[i]).collect())
+        .collect();
     // Pairwise products a_i·a_j.
     let mut pair_rows = Vec::new();
     for i in 0..k {
         for j in (i + 1)..k {
-            pair_rows.push(
-                a_fns
-                    .iter()
-                    .map(|v| v[i].mul(&v[j]))
-                    .collect::<Vec<K4>>(),
-            );
+            pair_rows.push(a_fns.iter().map(|v| v[i].mul(&v[j])).collect::<Vec<K4>>());
         }
     }
     let mut va_rows = a_rows.clone();
@@ -162,7 +159,14 @@ mod tests {
     fn support(k: usize, extra: usize) -> Vec<K4> {
         // Distinct points avoiding the poles 1..=k.
         (0..2 * k + 1 + extra)
-            .map(|i| K4::from_coeffs([(i as u64 * 997 + 5000 + k as u64 * 7 + 1) % Q48_, i as u64 * 31 + 3, 7, 11]))
+            .map(|i| {
+                K4::from_coeffs([
+                    (i as u64 * 997 + 5000 + k as u64 * 7 + 1) % Q48_,
+                    i as u64 * 31 + 3,
+                    7,
+                    11,
+                ])
+            })
             .collect()
     }
     use crate::field_k::Q48 as Q48_;
@@ -229,8 +233,9 @@ mod tests {
                     .collect::<Vec<K4>>()
             })
             .collect();
-        let a_rows: Vec<Vec<K4>> =
-            (0..k).map(|i| a_fns.iter().map(|v| v[i]).collect()).collect();
+        let a_rows: Vec<Vec<K4>> = (0..k)
+            .map(|i| a_fns.iter().map(|v| v[i]).collect())
+            .collect();
         let mut pair_rows = Vec::new();
         for i in 0..k {
             for j in (i + 1)..k {

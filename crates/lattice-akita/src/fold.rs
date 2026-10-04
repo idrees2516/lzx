@@ -90,13 +90,23 @@ pub enum FoldError {
     ShortChallenge(ShortChallengeError),
     Transcript(TranscriptError),
     NormBudget(NormBudgetError),
-    Decomposition { coefficient: usize },
+    Decomposition {
+        coefficient: usize,
+    },
     /// The response does not fit the response digit depth (Eq 111).
-    ResponseTooLarge { bound: u64, capacity: u64 },
+    ResponseTooLarge {
+        bound: u64,
+        capacity: u64,
+    },
     /// A digit lies outside its balanced alphabet.
-    DigitOutOfRange { digit: i64, bound: i64 },
+    DigitOutOfRange {
+        digit: i64,
+        bound: i64,
+    },
     ChallengeMismatch,
-    OuterBinding { block: usize },
+    OuterBinding {
+        block: usize,
+    },
     OpeningBinding,
     Equation7,
     Equation8,
@@ -104,14 +114,20 @@ pub enum FoldError {
     SuccessorBinding,
     /// The revealed response does not recompose from its digits.
     ResponseRecomposition,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl FoldError {
     /// True iff the failure is the norm-budget hard gate.
     #[allow(clippy::needless_range_loop)]
-pub fn is_wraparound(&self) -> bool {
-        matches!(self, FoldError::NormBudget(NormBudgetError::Wraparound { .. }))
+    pub fn is_wraparound(&self) -> bool {
+        matches!(
+            self,
+            FoldError::NormBudget(NormBudgetError::Wraparound { .. })
+        )
     }
 }
 
@@ -140,17 +156,11 @@ impl FoldKeys {
     /// Derive all tiers from a seed (public-coin setup; the schedule
     /// digest binds the shapes).
     #[allow(clippy::needless_range_loop)]
-pub fn from_seed(params: &FoldParams, seed: [u8; 32]) -> Result<Self, FoldError> {
+    pub fn from_seed(params: &FoldParams, seed: [u8; 32]) -> Result<Self, FoldError> {
         let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, params.log_n)
             .map_err(FoldError::Ring)?;
         let md = params.block_len * params.source_digits;
-        let a_matrix = derive_matrix(
-            &ring,
-            params.inner_rows,
-            md,
-            b"akita-fold-A",
-            &seed,
-        );
+        let a_matrix = derive_matrix(&ring, params.inner_rows, md, b"akita-fold-A", &seed);
         let slice_width = params.inner_rows * params.inner_digits;
         let b_matrix = derive_matrix(
             &ring,
@@ -174,15 +184,11 @@ pub fn from_seed(params: &FoldParams, seed: [u8; 32]) -> Result<Self, FoldError>
             k: 1,
             m: l_len,
             // Successor digits are bounded by the largest carried alphabet.
-            norm_bound: u32::try_from(
-                params
-                    .inner_base
-                    .max(params.response_base)
-                    .div_ceil(2),
-            )
-            .unwrap_or(u32::MAX),
+            norm_bound: u32::try_from(params.inner_base.max(params.response_base).div_ceil(2))
+                .unwrap_or(u32::MAX),
         };
-        let successor_pk = AjtaiPublicKey::from_seed(ajtai_params, seed).map_err(FoldError::Ajtai)?;
+        let successor_pk =
+            AjtaiPublicKey::from_seed(ajtai_params, seed).map_err(FoldError::Ajtai)?;
         Ok(FoldKeys {
             ring,
             a_matrix,
@@ -263,7 +269,10 @@ pub fn decompose_element(
             return Err(FoldError::Decomposition { coefficient: j });
         }
     }
-    Ok(out.into_iter().map(|cs| RingElement::from_coeffs(ring, cs)).collect())
+    Ok(out
+        .into_iter()
+        .map(|cs| RingElement::from_coeffs(ring, cs))
+        .collect())
 }
 
 /// `G_{base}` recomposition of one ring element's digits (the inverse of
@@ -281,9 +290,9 @@ pub fn recompose_element(
         let power = (base as i128).pow(u as u32) % q;
         for j in 0..n {
             let d = balanced(digits[u].coeffs()[j], ring.modulus.q) as i128;
-            coeffs[j] = ring.modulus.reduce_u64(
-                ((coeffs[j] as i128 + d * power).rem_euclid(q)) as u64,
-            );
+            coeffs[j] = ring
+                .modulus
+                .reduce_u64(((coeffs[j] as i128 + d * power).rem_euclid(q)) as u64);
         }
     }
     Ok(RingElement::from_coeffs(ring, coeffs))
@@ -330,14 +339,21 @@ pub fn recompose_block(
 /// (the premise Eq 9 certifies via item A3; the decomposer of
 /// [`decompose_element`] emits exactly this alphabet).
 #[allow(clippy::needless_range_loop)]
-pub fn digits_in_range(ring: &RingConfig, elems: &[RingElement], base: u64) -> Result<(), FoldError> {
+pub fn digits_in_range(
+    ring: &RingConfig,
+    elems: &[RingElement],
+    base: u64,
+) -> Result<(), FoldError> {
     let q = ring.modulus.q;
     let half = base as i64 / 2;
     for e in elems {
         for &c in e.coeffs() {
             let d = balanced(c, q);
             if d < -half || d > half {
-                return Err(FoldError::DigitOutOfRange { digit: d, bound: half });
+                return Err(FoldError::DigitOutOfRange {
+                    digit: d,
+                    bound: half,
+                });
             }
         }
     }
@@ -366,7 +382,7 @@ impl OpeningPoint {
     /// Within-block ring weights `a ∈ R^M` (eq over `ρ_pos`, embedded as
     /// ring constants).
     #[allow(clippy::needless_range_loop)]
-pub fn block_weights(&self, ring: &RingConfig) -> Vec<RingElement> {
+    pub fn block_weights(&self, ring: &RingConfig) -> Vec<RingElement> {
         let eq = DenseMle::eq_extension(&self.pos);
         (0..eq.evaluations.len())
             .map(|i| ring.constant(eq.evaluations[i].to_canonical_u64() as u32))
@@ -375,7 +391,7 @@ pub fn block_weights(&self, ring: &RingConfig) -> Vec<RingElement> {
 
     /// Block weights `χ_blk(i) = eq(ρ_blk, i)` embedded as ring constants.
     #[allow(clippy::needless_range_loop)]
-pub fn chi_blk(&self, ring: &RingConfig, num_blocks: usize) -> Vec<RingElement> {
+    pub fn chi_blk(&self, ring: &RingConfig, num_blocks: usize) -> Vec<RingElement> {
         let eq = DenseMle::eq_extension(&self.blk);
         (0..num_blocks)
             .map(|i| {
@@ -420,15 +436,16 @@ pub struct FoldProof {
 /// coefficient of `z = Σ_i c_i·s_i` satisfies
 /// `‖z‖∞ ≤ Σ_i Γ_{c_i}·⌈√n⌉·(b/2)`.
 #[allow(clippy::needless_range_loop)]
-pub fn certified_response_bound(
-    params: &FoldParams,
-    challenges: &[ShortChallenge],
-) -> u64 {
+pub fn certified_response_bound(params: &FoldParams, challenges: &[ShortChallenge]) -> u64 {
     let sqrt_n = lattice_core::norm_budget::ceil_sqrt(1u64 << params.log_n);
     let digit_bound = params.source_base / 2;
     challenges
         .iter()
-        .map(|c| c.gamma_c().saturating_mul(sqrt_n).saturating_mul(digit_bound))
+        .map(|c| {
+            c.gamma_c()
+                .saturating_mul(sqrt_n)
+                .saturating_mul(digit_bound)
+        })
         .sum()
 }
 
@@ -474,7 +491,7 @@ pub struct FoldSource {
 
 impl FoldSource {
     #[allow(clippy::needless_range_loop)]
-pub fn new(blocks: Vec<Vec<RingElement>>, digit_bound: u64) -> Self {
+    pub fn new(blocks: Vec<Vec<RingElement>>, digit_bound: u64) -> Self {
         FoldSource {
             blocks,
             budget: NormBudget::fresh(digit_bound),
@@ -525,7 +542,9 @@ pub fn prove_fold(
         // e_i = ⟨a, f_i⟩ (Eq 2).
         let mut e = ring.zero();
         for (aw, f) in a.iter().zip(block.iter()) {
-            e = e.add(&aw.mul(f).map_err(FoldError::Ring)?).map_err(FoldError::Ring)?;
+            e = e
+                .add(&aw.mul(f).map_err(FoldError::Ring)?)
+                .map_err(FoldError::Ring)?;
         }
         // t_i = A·s_i (Eq 4).
         let mut t = vec![ring.zero(); params.inner_rows];
@@ -541,7 +560,12 @@ pub fn prove_fold(
         // Digits of the inner images and the partial.
         let mut that = Vec::with_capacity(params.inner_rows * params.inner_digits);
         for te in &t {
-            that.extend(decompose_element(ring, te, params.inner_base, params.inner_digits)?);
+            that.extend(decompose_element(
+                ring,
+                te,
+                params.inner_base,
+                params.inner_digits,
+            )?);
         }
         let ehat = decompose_element(ring, &e, params.inner_base, params.inner_digits)?;
         s_blocks.push(s);
@@ -608,7 +632,9 @@ pub fn prove_fold(
     let mut z = vec![ring.zero(); md];
     for (c, s) in c_ring.iter().zip(s_blocks.iter()) {
         for (zj, sj) in z.iter_mut().zip(s.iter()) {
-            *zj = zj.add(&c.mul(sj).map_err(FoldError::Ring)?).map_err(FoldError::Ring)?;
+            *zj = zj
+                .add(&c.mul(sj).map_err(FoldError::Ring)?)
+                .map_err(FoldError::Ring)?;
         }
     }
     // Response bound: certified law, then the norm-budget hard gate.
@@ -618,11 +644,7 @@ pub fn prove_fold(
         return Err(FoldError::ResponseTooLarge { bound, capacity });
     }
     let budget = source.budget.fold(
-        challenges
-            .iter()
-            .map(|c| c.gamma_c())
-            .max()
-            .unwrap_or(0),
+        challenges.iter().map(|c| c.gamma_c()).max().unwrap_or(0),
         lattice_core::norm_budget::ceil_sqrt(ring.n() as u64),
         params.source_base / 2,
         ring.modulus.q as u64 / 2,
@@ -946,7 +968,9 @@ mod tests {
 
     #[test]
     fn gadget_roundtrip_exact() {
-        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4).ok().unwrap();
+        let ring = RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
+            .ok()
+            .unwrap();
         for seed in [b"a".as_slice(), b"b".as_slice(), b"c".as_slice()] {
             let f = ring.random(seed);
             let digits = decompose_element(&ring, &f, 256, 4).ok().unwrap();
@@ -994,7 +1018,15 @@ mod tests {
         let c: Vec<RingElement> = (0..p.num_blocks)
             .map(|i| {
                 let signed: Vec<i64> = (0..ring.n())
-                    .map(|j| if (i + j) % 5 == 0 { 1 } else if (i + j) % 7 == 0 { -1 } else { 0 })
+                    .map(|j| {
+                        if (i + j) % 5 == 0 {
+                            1
+                        } else if (i + j) % 7 == 0 {
+                            -1
+                        } else {
+                            0
+                        }
+                    })
                     .collect();
                 RingElement::from_signed(ring, &signed)
             })
@@ -1121,7 +1153,9 @@ mod tests {
         coeffs[0] = (ring.modulus.q / 2 + 5) % ring.modulus.q;
         proof.response_digits[0] = RingElement::from_coeffs(ring, coeffs);
         let mut vt = Transcript::new_default(b"lzx-akita-fold");
-        let err = verify_fold(&p, &keys, &point, &proof, &mut vt).err().unwrap();
+        let err = verify_fold(&p, &keys, &point, &proof, &mut vt)
+            .err()
+            .unwrap();
         assert!(matches!(err, FoldError::DigitOutOfRange { .. }));
     }
 
@@ -1143,7 +1177,9 @@ mod tests {
         // Substitute the stale challenges into the proof.
         proof.challenges = stale.iter().map(|c| embed(ring, c)).collect();
         let mut vt = Transcript::new_default(b"lzx-akita-fold");
-        let err = verify_fold(&p, &keys, &point, &proof, &mut vt).err().unwrap();
+        let err = verify_fold(&p, &keys, &point, &proof, &mut vt)
+            .err()
+            .unwrap();
         assert_eq!(err, FoldError::ChallengeMismatch);
     }
 

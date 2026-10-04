@@ -12,8 +12,8 @@
 
 use lattice_core::transcript::Transcript;
 use lattice_projsumcheck::fastprover::{
-    kappa_limbs, optimal_window, prove_baseline, prove_fast, take_last_stats, FastFpOpts,
-    FpFactor, FpVirtualPolynomial,
+    kappa_limbs, optimal_window, prove_baseline, prove_fast, take_last_stats, FastFpOpts, FpFactor,
+    FpVirtualPolynomial,
 };
 use lattice_projsumcheck::fp256::Fp256;
 
@@ -25,8 +25,8 @@ fn digit_table(log_vars: usize, digit_bound: i128, seed: u64) -> Vec<i128> {
                 b"fp-bench",
                 &[seed.to_le_bytes(), (i as u64).to_le_bytes()].concat(),
             );
-            (u64::from_le_bytes(h[..8].try_into().unwrap_or([0; 8]))
-                % (digit_bound as u64 * 2 + 1)) as i128
+            (u64::from_le_bytes(h[..8].try_into().unwrap_or([0; 8])) % (digit_bound as u64 * 2 + 1))
+                as i128
                 - digit_bound
         })
         .collect()
@@ -78,9 +78,7 @@ fn main() {
     );
 
     // ---- 2. Baseline vs window on digit-table instances ----
-    for &(log_vars, d, digit_bound) in
-        &[(14usize, 2usize, 255i128), (13, 3, 255), (14, 3, 15)]
-    {
+    for &(log_vars, d, digit_bound) in &[(14usize, 2usize, 255i128), (13, 3, 255), (14, 3, 15)] {
         let factors: Vec<FpFactor> = (0..d)
             .map(|k| FpFactor::Small(digit_table(log_vars, digit_bound, 40 + k as u64)))
             .collect();
@@ -110,12 +108,14 @@ fn main() {
                 &vp,
                 claim,
                 &mut ts1,
-                &FastFpOpts { window: w, collect_stats: true },
+                &FastFpOpts {
+                    window: w,
+                    collect_stats: true,
+                },
             )
             .expect("fast");
             let fast_ms = t1.elapsed().as_secs_f64() * 1e3;
-            let identical =
-                base.proof == fast.proof && base.challenges == fast.challenges;
+            let identical = base.proof == fast.proof && base.challenges == fast.challenges;
             let stats = take_last_stats().unwrap_or_default();
             let speedup = base_elapsed / fast_ms.max(0.001);
             if fast_ms < best.1 {

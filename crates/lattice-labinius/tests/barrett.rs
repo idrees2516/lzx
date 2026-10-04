@@ -27,7 +27,10 @@ fn check_q(q: u16) {
     let mut x = 0x9E37_79B9_7F4A_7C15u64 % hi;
     for _ in 0..4096 {
         assert_eq!(barrett_mod_u64(x, q), x % q64, "q={q} v={x}");
-        x = (x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)) % hi;
+        x = (x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407))
+            % hi;
     }
     for v in [hi - 1, hi - 2, hi - q64, hi - q64 - 1] {
         assert_eq!(barrett_mod_u64(v, q), v % q64, "q={q} v={v}");

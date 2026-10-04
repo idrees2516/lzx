@@ -62,7 +62,11 @@
 //! dependency.
 
 #![forbid(unsafe_code)]
-#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::double_parens)]
+#![allow(
+    clippy::needless_range_loop,
+    clippy::manual_div_ceil,
+    clippy::double_parens
+)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 

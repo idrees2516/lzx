@@ -62,7 +62,9 @@ fn main() {
             let _ = out.final_claim.to_canonical_u64();
         }
         let t_ref = t0.elapsed().as_secs_f64();
-        let hwm_ref = vm_hwm_bytes().unwrap_or(0).saturating_sub(hwm0.unwrap_or(0));
+        let hwm_ref = vm_hwm_bytes()
+            .unwrap_or(0)
+            .saturating_sub(hwm0.unwrap_or(0));
 
         println!("[sumcheck n={n}] fully-streamed (Algorithm 1): {t_ref:.3} s, ΔVmHWM {} (data held: {})", mb(hwm_ref), mb((1u64 << n) * 16));
 

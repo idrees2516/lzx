@@ -62,4 +62,4 @@ pub mod transcript;
 pub mod zk;
 
 pub use relation::{DotCnst, PrincipalStatement, PrincipalWitness, Term, VectorSpec};
-pub use ring::{Poly, Q, N};
+pub use ring::{Poly, N, Q};

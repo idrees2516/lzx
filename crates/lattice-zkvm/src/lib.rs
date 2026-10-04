@@ -23,32 +23,32 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod columns;
-pub mod memory;
-pub mod constraints;
-pub mod memproof;
 pub mod compact;
-pub mod ledger;
-pub mod norm_check;
+pub mod constraints;
 pub mod envelope;
-pub mod prove;
+pub mod ledger;
 pub mod legbatch;
-pub mod streaming;
+pub mod lookup_memory;
+pub mod memory;
+pub mod memproof;
+pub mod norm_check;
 pub mod pipeline;
 pub mod pipeline2;
-pub mod ttrp;
-pub mod lookup_memory;
 pub mod pipeline3;
-pub mod semantics;
+pub mod prove;
 pub mod second_fold;
+pub mod semantics;
+pub mod streaming;
+pub mod ttrp;
 pub mod width_fold {
     //! The extracted width-fold core (see the `lattice-widthfold` crate).
-    pub use lattice_widthfold::fold::{
-        prove_width_fold, prove_width_fold_ex, verify_width_fold, verify_width_fold_ex,
-        WidthFoldParams, WidthFoldProof,
-    };
     pub use lattice_widthfold::chain::{
         prove_width_fold_chain, verify_width_fold_chain, WidthChainParams, WidthChainProof,
         CHAIN_GRINDING_BITS,
+    };
+    pub use lattice_widthfold::fold::{
+        prove_width_fold, prove_width_fold_ex, verify_width_fold, verify_width_fold_ex,
+        WidthFoldParams, WidthFoldProof,
     };
 }
 

@@ -145,11 +145,7 @@ impl HidingAjtaiKey {
         let rho = sample_uniform_vec(self.pad.cols, transcript)?;
         let cw = self.base.commit(w)?;
         let cp = self.pad.commit(&rho)?;
-        let cm: Vec<FpBase> = cw
-            .iter()
-            .zip(cp.iter())
-            .map(|(a, b)| a.add(b))
-            .collect();
+        let cm: Vec<FpBase> = cw.iter().zip(cp.iter()).map(|(a, b)| a.add(b)).collect();
         Ok((cm, rho))
     }
 
@@ -159,7 +155,13 @@ impl HidingAjtaiKey {
             return false;
         }
         match (self.base.commit(w), self.pad.commit(rho)) {
-            (Ok(a), Ok(b)) => cm == a.iter().zip(b.iter()).map(|(x, y)| x.add(y)).collect::<Vec<_>>(),
+            (Ok(a), Ok(b)) => {
+                cm == a
+                    .iter()
+                    .zip(b.iter())
+                    .map(|(x, y)| x.add(y))
+                    .collect::<Vec<_>>()
+            }
             _ => false,
         }
     }
@@ -266,7 +268,9 @@ mod tests {
         let mut x = seed;
         (0..n)
             .map(|_| {
-                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 FpBase::from_canonical_u64((x >> 33) & FR_DIGIT_BOUND)
             })
             .collect()
@@ -295,11 +299,7 @@ mod tests {
     #[test]
     fn digit_roundtrip_and_shortness() {
         let f: Vec<FpBase> = (0..8u64)
-            .map(|i| {
-                FpBase::from_canonical_u64(
-                    i.wrapping_mul(0x9E3779B97F4A7C15) % (1u64 << 60),
-                )
-            })
+            .map(|i| FpBase::from_canonical_u64(i.wrapping_mul(0x9E3779B97F4A7C15) % (1u64 << 60)))
             .collect();
         let layers = digit_layers(&f);
         assert!(layers_are_short(&layers));

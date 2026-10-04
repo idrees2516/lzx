@@ -130,7 +130,9 @@ fn adversarial_ntt<const Q: u16>(bound: i32) -> Vec<[[i16; N]; 32]> {
     out.push(std::array::from_fn(|p| {
         std::array::from_fn(|j| if (j / 27 + p) % 2 == 0 { m } else { -m })
     }));
-    for &u in &[0usize, 1, 2, 26, 27, 53, 54, 80, 81, 161, 162, 323, 324, 485, 486, 647] {
+    for &u in &[
+        0usize, 1, 2, 26, 27, 53, 54, 80, 81, 161, 162, 323, 324, 485, 486, 647,
+    ] {
         let mut c = [[0i16; N]; 32];
         for p in 0..32 {
             c[p][u] = if p % 2 == 0 { m } else { -m };
@@ -303,19 +305,18 @@ fn shadow_large_inv<const Q: u16>(input: &[i16; N], lmax: &mut [i32; 7]) -> [i32
         // lookup Barrett's bound, below q for the large primes) is also accepted — every
         // butterfly reduces its inputs on arrival, so anything inside i16 is exactly as safe
         // (upstream's round-trip test feeds the same off-label input).
-        assert!(v[i].abs() < 32768, "q={Q} inverse input overflows i16: {}", v[i]);
+        assert!(
+            v[i].abs() < 32768,
+            "q={Q} inverse input overflows i16: {}",
+            v[i]
+        );
     }
     let om = Params::<Q>::OMEGA;
-    let zi = |level: usize, k: usize| -> u16 {
-        inv_mod(Params::<Q>::zeta(level, k) as u64, q) as u16
-    };
+    let zi =
+        |level: usize, k: usize| -> u16 { inv_mod(Params::<Q>::zeta(level, k) as u64, q) as u16 };
     // inverse radix-3: the three inputs and `u` are reduced, normalisation deferred
     let ir3 = |y0: i32, y1: i32, y2: i32, z: u16| -> (i32, i32, i32) {
-        let (y0, y1, y2) = (
-            Ops::<Q>::red(y0),
-            Ops::<Q>::red(y1),
-            Ops::<Q>::red(y2),
-        );
+        let (y0, y1, y2) = (Ops::<Q>::red(y0), Ops::<Q>::red(y1), Ops::<Q>::red(y2));
         let u = Ops::<Q>::red(Ops::<Q>::mont(Ops::<Q>::ck(y2 - y1), om));
         let s = Ops::<Q>::ck(y0 + y1 + y2);
         let z2 = (z as u64 * z as u64 % q) as u16;
@@ -493,11 +494,7 @@ fn check_large<const Q: u16>(cols: &[[i16; N]; 32], what: &str, worst: &mut [i32
     }
 }
 
-fn check_large_inv<const Q: u16>(
-    cols: &[[i16; N]; 32],
-    what: &str,
-    worst: &mut Option<[i32; 7]>,
-) {
+fn check_large_inv<const Q: u16>(cols: &[[i16; N]; 32], what: &str, worst: &mut Option<[i32; 7]>) {
     let mut b = to_batch(cols);
     unsafe { gen_large::intt_gen_batch32::<Q>(&mut b) };
     let half = (Q as i32 - 1) / 2;
@@ -546,7 +543,11 @@ fn run_large<const Q: u16>() {
         check_large::<Q>(&binary_cols(&mut rng), &format!("binary#{i}"), &mut worst);
     }
     for i in 0..16 {
-        check_large::<Q>(&random_cols::<Q>(&mut rng), &format!("random#{i}"), &mut worst);
+        check_large::<Q>(
+            &random_cols::<Q>(&mut rng),
+            &format!("random#{i}"),
+            &mut worst,
+        );
     }
     let (claim, peak) = gen_large::fwd_model(Q);
     for l in 0..5 {
@@ -644,7 +645,10 @@ fn run_large_inv<const Q: u16>() {
             "q={Q} inverse level {l}: observed {} > claimed {c}",
             worst[l]
         );
-        assert!(c < 32768, "q={Q} inverse level {l}: claimed {c} exceeds i16");
+        assert!(
+            c < 32768,
+            "q={Q} inverse level {l}: claimed {c} exceeds i16"
+        );
         println!(
             "q={Q} inverse level {l}: observed {} ({:.3} q), claimed {c} ({:.4} q)",
             worst[l],
@@ -852,20 +856,19 @@ fn shadow_quad_inv<const Q: u16>(input: &[i16; N], lmax: &mut [i32; 6]) -> [i32;
         v[i] = input[i] as i32;
         // the declared contract is |x| <= in_bound, the widest transform of this tree the
         // crate produces; the assertion below is the hard requirement (i16).
-        assert!(v[i].abs() < 32768, "q={Q} inverse input overflows i16: {}", v[i]);
+        assert!(
+            v[i].abs() < 32768,
+            "q={Q} inverse input overflows i16: {}",
+            v[i]
+        );
     }
     let om = ParamsQ::<Q>::OMEGA;
-    let zi = |level: usize, k: usize| -> u16 {
-        inv_mod(ParamsQ::<Q>::zeta(level, k) as u64, q) as u16
-    };
+    let zi =
+        |level: usize, k: usize| -> u16 { inv_mod(ParamsQ::<Q>::zeta(level, k) as u64, q) as u16 };
     // inverse radix-3: `IN` reduces the three loaded values, `BAR` the untwiddled sum
     let ir3 = |y0: i32, y1: i32, y2: i32, z: u16, iin: bool, bar: bool| -> (i32, i32, i32) {
         let (y0, y1, y2) = if iin {
-            (
-                OpsQ::<Q>::red(y0),
-                OpsQ::<Q>::red(y1),
-                OpsQ::<Q>::red(y2),
-            )
+            (OpsQ::<Q>::red(y0), OpsQ::<Q>::red(y1), OpsQ::<Q>::red(y2))
         } else {
             (y0, y1, y2)
         };
@@ -874,11 +877,7 @@ fn shadow_quad_inv<const Q: u16>(input: &[i16; N], lmax: &mut [i32; 6]) -> [i32;
         let z2 = (z as u64 * z as u64 % q) as u16;
         let a1 = OpsQ::<Q>::mont(OpsQ::<Q>::ck(y0 - y1 + u), z);
         let a2 = OpsQ::<Q>::mont(OpsQ::<Q>::ck(y0 - y2 - u), z2);
-        (
-            if bar { OpsQ::<Q>::red(s) } else { s },
-            a1,
-            a2,
-        )
+        (if bar { OpsQ::<Q>::red(s) } else { s }, a1, a2)
     };
     // inverse radix-2, `BAR` on the sum
     let ir2 = |y0: i32, y1: i32, z: u16, bar: bool| -> (i32, i32) {
@@ -980,10 +979,12 @@ fn shadow_quad_inv<const Q: u16>(input: &[i16; N], lmax: &mut [i32; 6]) -> [i32;
             .max(c3.abs());
         let d0 = OpsQ::<Q>::ck(c0 - c2);
         let a1 = OpsQ::<Q>::mont(d0, ka);
-        let a0 = OpsQ::<Q>::ck(OpsQ::<Q>::mont(OpsQ::<Q>::ck(c0 + c2), kb) + OpsQ::<Q>::mont(d0, kc));
+        let a0 =
+            OpsQ::<Q>::ck(OpsQ::<Q>::mont(OpsQ::<Q>::ck(c0 + c2), kb) + OpsQ::<Q>::mont(d0, kc));
         let d1 = OpsQ::<Q>::ck(c1 - c3);
         let b1 = OpsQ::<Q>::mont(d1, ka);
-        let b0 = OpsQ::<Q>::ck(OpsQ::<Q>::mont(OpsQ::<Q>::ck(c1 + c3), kb) + OpsQ::<Q>::mont(d1, kc));
+        let b0 =
+            OpsQ::<Q>::ck(OpsQ::<Q>::mont(OpsQ::<Q>::ck(c1 + c3), kb) + OpsQ::<Q>::mont(d1, kc));
         raw = raw.max(a0.abs()).max(a1.abs()).max(b0.abs()).max(b1.abs());
         out[i] = center(a0);
         out[i + 162] = center(b0);
@@ -1074,7 +1075,11 @@ fn run_quad<const Q: u16>() {
         check_quad::<Q>(&binary_cols(&mut rng), &format!("binary#{i}"), &mut worst);
     }
     for i in 0..16 {
-        check_quad::<Q>(&random_cols::<Q>(&mut rng), &format!("random#{i}"), &mut worst);
+        check_quad::<Q>(
+            &random_cols::<Q>(&mut rng),
+            &format!("random#{i}"),
+            &mut worst,
+        );
     }
     let flags = gen_quad::gen_flags(Q);
     let (claim, peak) = gen_quad::gen_model(Q, flags.0, flags.1, flags.2);
@@ -1141,7 +1146,10 @@ fn run_quad_inv<const Q: u16>() {
             "q={Q} inverse level {l}: observed {} > claimed {c}",
             worst[l]
         );
-        assert!(c < 32768, "q={Q} inverse level {l}: claimed {c} exceeds i16");
+        assert!(
+            c < 32768,
+            "q={Q} inverse level {l}: claimed {c} exceeds i16"
+        );
         println!(
             "q={Q} inverse level {l}: observed {} ({:.3} q), claimed {c} ({:.4} q)",
             worst[l],
@@ -1212,14 +1220,29 @@ fn schedules_match_upstream() {
     // gen_quad forward: 2917 nothing; 4861 the level-4 `a0`; 12637 the pass-A inputs and
     // output plus every level.
     assert_eq!(gen_quad::gen_flags(2917), (false, false, [false; 4]));
-    assert_eq!(gen_quad::gen_flags(4861), (false, false, [false, false, true, false]));
-    assert_eq!(gen_quad::gen_flags(12637), (true, true, [true, true, true, true]));
+    assert_eq!(
+        gen_quad::gen_flags(4861),
+        (false, false, [false, false, true, false])
+    );
+    assert_eq!(
+        gen_quad::gen_flags(12637),
+        (true, true, [true, true, true, true])
+    );
     // gen_quad inverse: 2917 the level-5 inputs and the sums of levels 5 and 3 (1080
     // reductions); 4861 the level-5 inputs and the sums of levels 4 and 2 (1080); 12637
     // everything (1836).
-    assert_eq!(gen_quad::inv_flags(2917), [true, true, false, true, false, false]);
-    assert_eq!(gen_quad::inv_flags(4861), [true, false, true, false, true, false]);
-    assert_eq!(gen_quad::inv_flags(12637), [true, true, true, true, true, true]);
+    assert_eq!(
+        gen_quad::inv_flags(2917),
+        [true, true, false, true, false, false]
+    );
+    assert_eq!(
+        gen_quad::inv_flags(4861),
+        [true, false, true, false, true, false]
+    );
+    assert_eq!(
+        gen_quad::inv_flags(12637),
+        [true, true, true, true, true, true]
+    );
 }
 
 // ------------------------------------------------------------------ round trips

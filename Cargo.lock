@@ -20,6 +20,7 @@ dependencies = [
  "lattice-ring",
  "lattice-salsa",
  "lattice-sumcheck",
+ "lattice-widthfold",
 ]
 
 [[package]]

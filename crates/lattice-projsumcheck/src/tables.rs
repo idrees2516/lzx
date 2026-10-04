@@ -138,7 +138,10 @@ pub fn lt_projective_eval(r: &[Goldilocks], y: &[Goldilocks]) -> Goldilocks {
     let mut acc = Goldilocks::ZERO;
     let mut prefix = Goldilocks::ONE; // Π_{u<v} (1 + r_u·y_u)
     for v in 0..n {
-        let term = y[v].mul(&prefix).mul(&r_suffix[v + 1]).mul(&y_suffix[v + 1]);
+        let term = y[v]
+            .mul(&prefix)
+            .mul(&r_suffix[v + 1])
+            .mul(&y_suffix[v + 1]);
         acc = acc.add(&term);
         prefix = prefix.mul(&Goldilocks::ONE.add(&r[v].mul(&y[v])));
     }
@@ -345,12 +348,7 @@ pub fn xorrot_projective_eval(x: &[Goldilocks], y: &[Goldilocks], rho: usize) ->
     for i in 0..w {
         let out_bit = (i + rho) % w;
         let weight = Goldilocks::from_u64(1u64 << (w - 1 - out_bit));
-        acc = acc.add(
-            &weight
-                .mul(&x[i].add(&y[i]))
-                .mul(&pre[i])
-                .mul(&suf[i + 1]),
-        );
+        acc = acc.add(&weight.mul(&x[i].add(&y[i])).mul(&pre[i]).mul(&suf[i + 1]));
     }
     acc
 }
@@ -543,10 +541,26 @@ mod tests {
             assert_eq!(c11, g(gate(true, true)), "{f:?} at (1,1)");
             // The Boolean factors agree with the gates on {0,1}^2
             // (Figure 1's bottom row, kept for cross-reference).
-            assert_eq!(f.eval_boolean(v(false), v(false)), g(gate(false, false)), "{f:?} bool (0,0)");
-            assert_eq!(f.eval_boolean(v(false), v(true)), g(gate(false, true)), "{f:?} bool (0,1)");
-            assert_eq!(f.eval_boolean(v(true), v(false)), g(gate(true, false)), "{f:?} bool (1,0)");
-            assert_eq!(f.eval_boolean(v(true), v(true)), g(gate(true, true)), "{f:?} bool (1,1)");
+            assert_eq!(
+                f.eval_boolean(v(false), v(false)),
+                g(gate(false, false)),
+                "{f:?} bool (0,0)"
+            );
+            assert_eq!(
+                f.eval_boolean(v(false), v(true)),
+                g(gate(false, true)),
+                "{f:?} bool (0,1)"
+            );
+            assert_eq!(
+                f.eval_boolean(v(true), v(false)),
+                g(gate(true, false)),
+                "{f:?} bool (1,0)"
+            );
+            assert_eq!(
+                f.eval_boolean(v(true), v(true)),
+                g(gate(true, true)),
+                "{f:?} bool (1,1)"
+            );
         }
     }
 
@@ -556,7 +570,12 @@ mod tests {
     #[test]
     fn bitwise_tables_match_discrete() {
         let w = 4usize;
-        for op in [BitwiseOp::And, BitwiseOp::Andn, BitwiseOp::Or, BitwiseOp::Xor] {
+        for op in [
+            BitwiseOp::And,
+            BitwiseOp::Andn,
+            BitwiseOp::Or,
+            BitwiseOp::Xor,
+        ] {
             let coeffs = moebius_coefficients(2 * w, |pt| {
                 let x: Vec<Goldilocks> = (0..w).map(|j| pt[2 * j]).collect();
                 let y: Vec<Goldilocks> = (0..w).map(|j| pt[2 * j + 1]).collect();
@@ -703,7 +722,9 @@ mod tests {
         let swap2 = |v: u64| ((v & 0xFF) << 8) | ((v >> 8) & 0xFF);
         let mut lcg: u64 = 0x9e37_79b9_7f4a_7c15;
         let mut next = || {
-            lcg = lcg.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            lcg = lcg
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             lcg >> 33
         };
         for _ in 0..64 {
@@ -749,7 +770,10 @@ mod tests {
         let r: Vec<Goldilocks> = (1..=5u64).map(|i| g(13 * i)).collect();
         let t = eq_projective_table(&r);
         let y: Vec<Goldilocks> = (1..=5u64).map(|i| g(7 * i + 3)).collect();
-        let mle = MonomialMle::from_truth_table(&t).unwrap().evaluate(&y).unwrap();
+        let mle = MonomialMle::from_truth_table(&t)
+            .unwrap()
+            .evaluate(&y)
+            .unwrap();
         assert_eq!(mle, MonomialMle::eq_projective_eval(&r, &y));
     }
 }

@@ -33,7 +33,9 @@ fn bench(num_vars: usize, factors_per_term: usize, tag: &str) {
         let f = rand_mle(num_vars, &mut seed, 1 << 20);
         vp.add_factor(f).ok().unwrap();
     }
-    vp.add_term(fe(1), (0..factors_per_term).collect()).ok().unwrap();
+    vp.add_term(fe(1), (0..factors_per_term).collect())
+        .ok()
+        .unwrap();
     let n = 1usize << num_vars;
     let mut claim = Goldilocks::ZERO;
     for i in 0..n {
@@ -51,16 +53,17 @@ fn bench(num_vars: usize, factors_per_term: usize, tag: &str) {
     let base_ms = t0.elapsed().as_secs_f64() * 1e3;
 
     // Fast, per window.
-    print!(
-        "{tag}: vars={num_vars} d={factors_per_term} M={n} | baseline {base_ms:.1} ms"
-    );
+    print!("{tag}: vars={num_vars} d={factors_per_term} M={n} | baseline {base_ms:.1} ms");
     for window in [1usize, 2, 3, 4] {
         if window > num_vars {
             continue;
         }
         let t0 = std::time::Instant::now();
         let mut t2 = Transcript::new_default(b"bench");
-        let opts = FastProverOpts { window, collect_stats: true };
+        let opts = FastProverOpts {
+            window,
+            collect_stats: true,
+        };
         let out2 = prove_fast_with_opts(&vp, claim, &mut t2, &opts, &[], &[])
             .ok()
             .unwrap();

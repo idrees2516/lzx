@@ -97,7 +97,10 @@ pub fn hvzk_constraint_row(
             // the G-recombination with the digit scaling
             let idx = d * w_len + i;
             if idx < w_len {
-                phi[idx] = x_bar.mul(slot).scale(alpha).scale(1i64 << (d as u32 * g_scale));
+                phi[idx] = x_bar
+                    .mul(slot)
+                    .scale(alpha)
+                    .scale(1i64 << (d as u32 * g_scale));
             }
         }
     }

@@ -51,8 +51,8 @@ use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
 use lattice_ring::{RingConfig, RingElement};
 use lattice_ttrp::cores::TtrpParams;
-use lattice_ttrp::protocol::{self, TtrpProof, TtrpVerified};
 use lattice_ttrp::projection::conj;
+use lattice_ttrp::protocol::{self, TtrpProof, TtrpVerified};
 
 use crate::ledger::{BaseClaim, BundleOpening, BundleProver, LedgerError};
 
@@ -64,7 +64,9 @@ pub enum NormCheckError {
     /// differs from the opened response — binding failure).
     EvalClaimMismatch,
     /// Response length not a power of two / empty.
-    BadLength { got: usize },
+    BadLength {
+        got: usize,
+    },
 }
 
 impl core::fmt::Display for NormCheckError {
@@ -118,7 +120,7 @@ fn bundle_params(m: usize) -> Result<TtrpParams, NormCheckError> {
     }
     let nu = m.trailing_zeros() as usize;
     const PHI_LOG: usize = 6; // Q_32 bundle ring, n = 64.
-    // ℓ divides both ν and φ_log when possible; ℓ = 1 always works.
+                              // ℓ divides both ν and φ_log when possible; ℓ = 1 always works.
     let ell = if nu % 2 == 0 { 2 } else { 1 };
     debug_assert!(nu >= 1);
     let mu1 = nu / ell;
@@ -257,7 +259,9 @@ pub fn eval_claim_relation(
     let one = ring.one();
     let mut weights: Vec<RingElement> = vec![one.clone()];
     for rj in conj_r.iter().take(nu) {
-        let one_minus = one.sub(rj).map_err(|e| NormCheckError::Ttrp(format!("{e:?}")))?;
+        let one_minus = one
+            .sub(rj)
+            .map_err(|e| NormCheckError::Ttrp(format!("{e:?}")))?;
         let mut next = Vec::with_capacity(weights.len() * 2);
         for w in &weights {
             next.push(w.mul(&one_minus).map_err(NormCheckError::ring)?);
@@ -310,8 +314,13 @@ impl BundleProver {
             self.coeff_bound(),
             &final_claim,
         );
-        let norm =
-            prove_norm_check_ttrp(&self.ring, &self.s, self.coeff_bound(), &context, transcript)?;
+        let norm = prove_norm_check_ttrp(
+            &self.ring,
+            &self.s,
+            self.coeff_bound(),
+            &context,
+            transcript,
+        )?;
         Ok(TtrpBundleOpening { carrier, norm })
     }
 
@@ -359,7 +368,14 @@ pub fn verify_bundle_opening_ttrp(
     };
     let context = norm_context_digest(commitment, m, coeff_bound, &final_claim);
     // 3. Π_TTRP verification -> the eval claim.
-    let verified = verify_norm_check_ttrp(&pk.params.ring, m, coeff_bound, &context, &opening.norm, transcript)?;
+    let verified = verify_norm_check_ttrp(
+        &pk.params.ring,
+        m,
+        coeff_bound,
+        &context,
+        &opening.norm,
+        transcript,
+    )?;
     // 4. The eval-claim cross-check: reconstruct the response from the
     //    digits (the same path verify_bundle_opening used) and check
     //    mle(response)(conj(r)) = w_r.
@@ -445,7 +461,10 @@ mod tests {
                 Goldilocks::from_u64((h[0] & 1) as u64)
             })
             .collect();
-        DenseMle { num_vars: log_vars, evaluations: evals }
+        DenseMle {
+            num_vars: log_vars,
+            evaluations: evals,
+        }
     }
 
     fn tensor_point(nvars: usize, seed: u64) -> Vec<Goldilocks> {
@@ -460,7 +479,10 @@ mod tests {
         let t0 = bit_tensor(5, 7);
         let t1 = bit_tensor(4, 11);
         let prover = bits_bundle_commit(
-            &[(Factor::InstrBits, t0.clone()), (Factor::DigitBits { inst: 0 }, t1)],
+            &[
+                (Factor::InstrBits, t0.clone()),
+                (Factor::DigitBits { inst: 0 }, t1),
+            ],
             [9u8; 32],
         )
         .ok()
@@ -509,8 +531,9 @@ mod tests {
     #[test]
     fn tampered_digits_rejected() {
         let t0 = bit_tensor(4, 21);
-        let prover =
-            bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [5u8; 32]).ok().unwrap();
+        let prover = bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [5u8; 32])
+            .ok()
+            .unwrap();
         let pt = tensor_point(4, 13);
         let claim = BaseClaim {
             factor: Factor::InstrBits,
@@ -545,8 +568,9 @@ mod tests {
     #[test]
     fn tampered_ttrp_proof_rejected() {
         let t0 = bit_tensor(4, 31);
-        let prover =
-            bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [7u8; 32]).ok().unwrap();
+        let prover = bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [7u8; 32])
+            .ok()
+            .unwrap();
         let pt = tensor_point(4, 17);
         let claim = BaseClaim {
             factor: Factor::InstrBits,
@@ -580,8 +604,9 @@ mod tests {
     #[test]
     fn wrong_context_rejected() {
         let t0 = bit_tensor(4, 41);
-        let prover =
-            bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [9u8; 32]).ok().unwrap();
+        let prover = bits_bundle_commit(&[(Factor::InstrBits, t0.clone())], [9u8; 32])
+            .ok()
+            .unwrap();
         // A different bundle (different tensor AND seed) => a different
         // commitment => a different context digest.
         let other_tensor = bit_tensor(4, 99);
@@ -603,7 +628,12 @@ mod tests {
         // digest mismatch breaks the TTRP verification (the cores are
         // derived from the digest).
         let final_claim = opening.carrier.carrier_terminal_claim();
-        let ctx = norm_context_digest(&other.commitment, opening.carrier.m, BITS_NORM_BOUND, &final_claim);
+        let ctx = norm_context_digest(
+            &other.commitment,
+            opening.carrier.m,
+            BITS_NORM_BOUND,
+            &final_claim,
+        );
 
         let mut t3 = Transcript::new_default(b"ttrp-ctx");
         let verified = verify_norm_check_ttrp(
@@ -665,4 +695,3 @@ mod tests {
         assert_eq!(got, verified.w_r);
     }
 }
-

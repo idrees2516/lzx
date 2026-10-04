@@ -581,7 +581,9 @@ mod tests {
     #[test]
     fn digit_roundtrip() {
         let cube = LayeredCube::new(4, 4);
-        let f: Vec<Fq> = (0..16u64).map(|i| Fq::from_u64(i * 1_000_003 + 7)).collect();
+        let f: Vec<Fq> = (0..16u64)
+            .map(|i| Fq::from_u64(i * 1_000_003 + 7))
+            .collect();
         let w = cube.digit_layers(&f);
         assert!(w.iter().all(|x| x.0 <= 0xFFFF));
         assert_eq!(cube.recompose(&w), f);
@@ -625,7 +627,9 @@ mod tests {
     fn srs_commit_linearity() {
         let srs = Srs::from_seed(2, 64, 64, b"seed-A");
         let w: Vec<Fq> = (0..64).map(|i| Fq::from_u64((i * 7919) % 0xFFFF)).collect();
-        let w2: Vec<Fq> = (0..64).map(|i| Fq::from_u64((i * 104729) % 0xFFFF)).collect();
+        let w2: Vec<Fq> = (0..64)
+            .map(|i| Fq::from_u64((i * 104729) % 0xFFFF))
+            .collect();
         let cm = srs.commit_scalars(&w);
         let cm2 = srs.commit_scalars(&w2);
         let sum: Vec<Fq> = w.iter().zip(w2.iter()).map(|(a, b)| a.add(b)).collect();
@@ -640,7 +644,9 @@ mod tests {
     fn srs_generator_mle_matches_naive() {
         let n_vars = 5;
         let srs = Srs::from_seed(1, 64, 32, b"seed-B");
-        let r: Vec<Fq> = (0..n_vars).map(|i| Fq::from_u64(1000 + i as u64 * 7717)).collect();
+        let r: Vec<Fq> = (0..n_vars)
+            .map(|i| Fq::from_u64(1000 + i as u64 * 7717))
+            .collect();
         let folded = srs.eval_generator_mle(&r);
         let mut naive = ModulePoint::zero(srs.module_dim());
         for b in 0..32usize {

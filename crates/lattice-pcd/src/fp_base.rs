@@ -257,7 +257,10 @@ impl FpBase {
 
     /// Montgomery → canonical limbs (multiply by 1: `ã·R⁻¹`).
     pub fn from_mont(&self) -> [u64; 4] {
-        self.mul(&FpBase { limbs: [1, 0, 0, 0] }).limbs
+        self.mul(&FpBase {
+            limbs: [1, 0, 0, 0],
+        })
+        .limbs
     }
 
     /// CIOS multiplication (the 6-limb accumulator of `fp256::Fp256::mul`):
@@ -450,8 +453,8 @@ mod tests {
         assert_eq!(m.from_mont(), v);
         let m2 = FpBase::from_canonical_limbs(BN254_FP);
         assert!(m2.is_zero()); // p ≡ 0
-        // R_C constant cross-check: one_mont's limbs ARE the canonical
-        // limbs of R (the Montgomery form of 1).
+                               // R_C constant cross-check: one_mont's limbs ARE the canonical
+                               // limbs of R (the Montgomery form of 1).
         assert_eq!(FpBase::one_mont(), FpBase { limbs: R_C });
     }
 
@@ -460,14 +463,8 @@ mod tests {
         let a = small(0xdead_beefu64);
         let b = small(0x1234_5678u64);
         let c = small(0xfeed_faceu64);
-        assert_eq!(
-            a.add(&b.add(&c)).from_mont(),
-            a.add(&b).add(&c).from_mont()
-        );
-        assert_eq!(
-            a.mul(&b.mul(&c)).from_mont(),
-            a.mul(&b).mul(&c).from_mont()
-        );
+        assert_eq!(a.add(&b.add(&c)).from_mont(), a.add(&b).add(&c).from_mont());
+        assert_eq!(a.mul(&b.mul(&c)).from_mont(), a.mul(&b).mul(&c).from_mont());
         assert_eq!(
             a.mul(&b.add(&c)).from_mont(),
             a.mul(&b).add(&a.mul(&c)).from_mont()
@@ -545,42 +542,66 @@ mod tests {
         assert_eq!(lhs, rhs);
     }
 
-
-
     #[test]
     fn be_probe() {
         let a = FpBase::from_canonical_u64(0x0123_4567_89ab_cdef);
         let c = a.from_mont();
-        println!("canon = {:016x}{:016x}{:016x}{:016x}", c[3], c[2], c[1], c[0]);
+        println!(
+            "canon = {:016x}{:016x}{:016x}{:016x}",
+            c[3], c[2], c[1], c[0]
+        );
         let bytes = a.to_be_bytes();
-        println!("bytes = {}", bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>());
+        println!(
+            "bytes = {}",
+            bytes
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
+        );
         // manual wide
         let mut wide = [0u64; 8];
         wide[4] = 0x0123_4567_89ab_cdef;
         let canon2 = crate::fp_base::canonical_reduce_512(&wide);
-        println!("canon2 = {:016x}{:016x}{:016x}{:016x}", canon2[3], canon2[2], canon2[1], canon2[0]);
-        let m = FpBase { limbs: canon2 }.mul(&FpBase { limbs: crate::fp_base::R2_C });
-        println!("montified = {:016x}{:016x}{:016x}{:016x}", m.limbs[3], m.limbs[2], m.limbs[1], m.limbs[0]);
+        println!(
+            "canon2 = {:016x}{:016x}{:016x}{:016x}",
+            canon2[3], canon2[2], canon2[1], canon2[0]
+        );
+        let m = FpBase { limbs: canon2 }.mul(&FpBase {
+            limbs: crate::fp_base::R2_C,
+        });
+        println!(
+            "montified = {:016x}{:016x}{:016x}{:016x}",
+            m.limbs[3], m.limbs[2], m.limbs[1], m.limbs[0]
+        );
         let b = FpBase::from_be_bytes_wide(&bytes);
-        println!("b limbs = {:016x}{:016x}{:016x}{:016x}", b.limbs[3], b.limbs[2], b.limbs[1], b.limbs[0]);
+        println!(
+            "b limbs = {:016x}{:016x}{:016x}{:016x}",
+            b.limbs[3], b.limbs[2], b.limbs[1], b.limbs[0]
+        );
     }
 
     #[test]
     fn differential_probe() {
         // (p−1)·R mod p from Python:
-        let expected_pm1_mont = [
-            0x0e0a_77c1_9a07_df2fu64,
-            0, 0, 0,
-        ];
+        let expected_pm1_mont = [0x0e0a_77c1_9a07_df2fu64, 0, 0, 0];
         let _ = expected_pm1_mont;
         let mut pm1 = BN254_FP;
         pm1[0] -= 1;
         let a = FpBase::from_canonical_limbs(pm1);
-        println!("a limbs = {:016x}{:016x}{:016x}{:016x}", a.limbs[3], a.limbs[2], a.limbs[1], a.limbs[0]);
+        println!(
+            "a limbs = {:016x}{:016x}{:016x}{:016x}",
+            a.limbs[3], a.limbs[2], a.limbs[1], a.limbs[0]
+        );
         let one = FpBase::one_mont();
-        println!("one limbs = {:016x}{:016x}{:016x}{:016x}", one.limbs[3], one.limbs[2], one.limbs[1], one.limbs[0]);
+        println!(
+            "one limbs = {:016x}{:016x}{:016x}{:016x}",
+            one.limbs[3], one.limbs[2], one.limbs[1], one.limbs[0]
+        );
         let sq = a.mul(&a);
-        println!("a*a limbs = {:016x}{:016x}{:016x}{:016x}", sq.limbs[3], sq.limbs[2], sq.limbs[1], sq.limbs[0]);
+        println!(
+            "a*a limbs = {:016x}{:016x}{:016x}{:016x}",
+            sq.limbs[3], sq.limbs[2], sq.limbs[1], sq.limbs[0]
+        );
         // small-value sanity: (2^128)² = 2^256 ≡ R
         let big = FpBase::from_canonical_u64(1u64 << 63).double(); // 2^64
         let b2 = big.mul(&big); // 2^128 Montgomery
@@ -593,11 +614,7 @@ mod tests {
     #[test]
     fn pow_matches_repeated_mul() {
         let a = small(3);
-        let a5 = a
-            .mul(&a)
-            .mul(&a)
-            .mul(&a)
-            .mul(&a);
+        let a5 = a.mul(&a).mul(&a).mul(&a).mul(&a);
         assert_eq!(a.pow_limbs(&[5, 0, 0, 0]), a5);
     }
 }

@@ -31,13 +31,23 @@ use lattice_core::transcript::{Transcript, TranscriptError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Fq2SumcheckError {
     /// A factor's evaluation table does not have `2^num_vars` entries.
-    BadFactorShape { factor: usize, got: usize },
+    BadFactorShape {
+        factor: usize,
+        got: usize,
+    },
     /// A term references an unknown factor.
-    BadTerm { factor: usize },
+    BadTerm {
+        factor: usize,
+    },
     /// Round polynomial length/degree invalid.
-    BadRoundShape { round: usize, got: usize },
+    BadRoundShape {
+        round: usize,
+        got: usize,
+    },
     /// Round-sum identity failed.
-    RoundCheckFailed { round: usize },
+    RoundCheckFailed {
+        round: usize,
+    },
     /// Terminal identity failed.
     FinalCheckFailed,
     /// Declared claim does not match the polynomial.
@@ -88,7 +98,11 @@ impl Fq2VirtualPoly {
 
     /// Maximum individual degree of the virtual polynomial.
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 }
 
@@ -366,8 +380,12 @@ mod tests {
         let f = vp.add_factor(random_fq2_vec(num_vars, b"f")).ok().unwrap();
         let g = vp.add_factor(random_fq2_vec(num_vars, b"g")).ok().unwrap();
         let h = vp.add_factor(random_fq2_vec(num_vars, b"h")).ok().unwrap();
-        vp.add_term(Fq2::new(fe(3), fe(5)), vec![f, g]).ok().unwrap();
-        vp.add_term(Fq2::new(fe(0), fe(7)), vec![g, h, f]).ok().unwrap();
+        vp.add_term(Fq2::new(fe(3), fe(5)), vec![f, g])
+            .ok()
+            .unwrap();
+        vp.add_term(Fq2::new(fe(0), fe(7)), vec![g, h, f])
+            .ok()
+            .unwrap();
         vp.add_term(Fq2::from_base(fe(11)), vec![h]).ok().unwrap();
         vp
     }
@@ -476,7 +494,13 @@ mod tests {
         let mut t2 = Transcript::new_default(b"fq2-sc-test");
         assert!(out
             .proof
-            .verify(3, vp.max_degree(), claim, &mut t2, Some(out.final_claim.add(&Fq2::I)))
+            .verify(
+                3,
+                vp.max_degree(),
+                claim,
+                &mut t2,
+                Some(out.final_claim.add(&Fq2::I))
+            )
             .is_err());
     }
 
@@ -497,7 +521,11 @@ mod tests {
     fn interpolation_matches_direct() {
         // g evaluated at 0,1,2 (degree-2): interpolate at 5 → 31 for
         // x² + x + 1.
-        let evals = [Fq2::from_base(fe(1)), Fq2::from_base(fe(3)), Fq2::from_base(fe(7))];
+        let evals = [
+            Fq2::from_base(fe(1)),
+            Fq2::from_base(fe(3)),
+            Fq2::from_base(fe(7)),
+        ];
         let r = Fq2::from_base(fe(5));
         assert_eq!(interpolate_fq2(&evals, &r), Fq2::from_base(fe(31)));
     }

@@ -51,7 +51,10 @@ pub fn prove_hybrid(
     let ell = oracles.len();
     let d = terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1);
     if ell == 0 {
-        return Err(SmallSpaceError::BadShape { expected: 1, got: 0 });
+        return Err(SmallSpaceError::BadShape {
+            expected: 1,
+            got: 0,
+        });
     }
     if oracles.iter().any(|o| o.len() != 1u64 << n) {
         return Err(SmallSpaceError::BadShape {
@@ -251,12 +254,14 @@ mod tests {
             let mut o1 = OwnedOracle::new(dh.evaluations.clone());
             let mut oracles: [&mut dyn IndexOracle; 2] = [&mut o0, &mut o1];
             let mut ts = Transcript::new_default(b"h-seed");
-            let out =
-                prove_hybrid(n, &terms, &mut oracles, claim, c, &mut ts).unwrap();
+            let out = prove_hybrid(n, &terms, &mut oracles, claim, c, &mut ts).unwrap();
             assert_eq!(out.rounds, reference.rounds, "rounds at c={c}");
             assert_eq!(out.challenges, reference.challenges, "challenges at c={c}");
             assert_eq!(out.final_claim, reference.final_claim, "final at c={c}");
-            assert_eq!(out.factor_claims, reference.factor_claims, "claims at c={c}");
+            assert_eq!(
+                out.factor_claims, reference.factor_claims,
+                "claims at c={c}"
+            );
         }
     }
 
@@ -270,7 +275,11 @@ mod tests {
         let claim: Goldilocks = (0..(1usize << n))
             .map(|i| {
                 Goldilocks::from_u64(2)
-                    .mul(&df0.evaluations[i].mul(&df1.evaluations[i]).mul(&df2.evaluations[i]))
+                    .mul(
+                        &df0.evaluations[i]
+                            .mul(&df1.evaluations[i])
+                            .mul(&df2.evaluations[i]),
+                    )
                     .add(&Goldilocks::from_u64(7).mul(&df0.evaluations[i]))
             })
             .fold(Goldilocks::ZERO, |a, v| a.add(&v));

@@ -50,8 +50,7 @@ impl std::fmt::Debug for Rq2 {
 impl Rq2 {
     /// Construct from two ring elements (lengths must match the config).
     pub fn new(c0: RingElement, c1: RingElement) -> Result<Self, RingError> {
-        if c0.config().modulus.q != c1.config().modulus.q
-            || c0.config().log_n != c1.config().log_n
+        if c0.config().modulus.q != c1.config().modulus.q || c0.config().log_n != c1.config().log_n
         {
             return Err(RingError::LengthMismatch {
                 expected: c0.coeffs().len(),
@@ -120,10 +119,7 @@ impl Rq2 {
     pub fn mul(&self, other: &Self) -> Result<Self, RingError> {
         let p0 = self.c0.mul(&other.c0)?;
         let p1 = self.c1.mul(&other.c1)?;
-        let pc = self
-            .c0
-            .add(&self.c1)?
-            .mul(&other.c0.add(&other.c1)?)?;
+        let pc = self.c0.add(&self.c1)?.mul(&other.c0.add(&other.c1)?)?;
         Ok(Rq2 {
             c0: p0.sub(&p1)?,
             c1: pc.sub(&p0)?.sub(&p1)?,
@@ -213,9 +209,7 @@ pub fn sample_rq2_challenge(
     let c0 = RingElement::from_signed(ring, &c0_signed);
     let c1 = RingElement::from_signed(ring, &c1_signed);
     // Per-half certified Γ (each half carries at most half the mass).
-    let l2sq = |v: &[i64]| -> u128 {
-        v.iter().map(|c| (*c as i128 * *c as i128) as u128).sum()
-    };
+    let l2sq = |v: &[i64]| -> u128 { v.iter().map(|c| (*c as i128 * *c as i128) as u128).sum() };
     let g0 = ceil_sqrt_u128(l2sq(&c0_signed));
     let g1 = ceil_sqrt_u128(l2sq(&c1_signed));
     Ok((Rq2 { c0, c1 }, g0, g1))
@@ -289,7 +283,12 @@ mod tests {
         );
         assert_eq!(
             a.mul(&b.add(&c).ok().unwrap()).ok().unwrap(),
-            a.mul(&b).ok().unwrap().add(&a.mul(&c).ok().unwrap()).ok().unwrap()
+            a.mul(&b)
+                .ok()
+                .unwrap()
+                .add(&a.mul(&c).ok().unwrap())
+                .ok()
+                .unwrap()
         );
         assert_eq!(a.mul(&Rq2::one(&r)).ok().unwrap(), a);
         assert!(a.mul(&Rq2::zero(&r)).ok().unwrap().is_zero());
@@ -311,7 +310,12 @@ mod tests {
         let b = Rq2::new(elem(&r, b"m0"), elem(&r, b"m1")).ok().unwrap();
         assert_eq!(
             a.mul(&b).ok().unwrap().norm().ok().unwrap(),
-            a.norm().ok().unwrap().mul(&b.norm().ok().unwrap()).ok().unwrap()
+            a.norm()
+                .ok()
+                .unwrap()
+                .mul(&b.norm().ok().unwrap())
+                .ok()
+                .unwrap()
         );
     }
 
@@ -339,8 +343,20 @@ mod tests {
         let a = Rq2::new(elem(&r, b"k0"), elem(&r, b"k1")).ok().unwrap();
         let b = Rq2::new(elem(&r, b"l0"), elem(&r, b"l1")).ok().unwrap();
         // Schoolbook: c0 = a0b0 - a1b1, c1 = a0b1 + a1b0.
-        let c0 = a.c0.mul(&b.c0).ok().unwrap().sub(&a.c1.mul(&b.c1).ok().unwrap()).ok().unwrap();
-        let c1 = a.c0.mul(&b.c1).ok().unwrap().add(&a.c1.mul(&b.c0).ok().unwrap()).ok().unwrap();
+        let c0 =
+            a.c0.mul(&b.c0)
+                .ok()
+                .unwrap()
+                .sub(&a.c1.mul(&b.c1).ok().unwrap())
+                .ok()
+                .unwrap();
+        let c1 =
+            a.c0.mul(&b.c1)
+                .ok()
+                .unwrap()
+                .add(&a.c1.mul(&b.c0).ok().unwrap())
+                .ok()
+                .unwrap();
         let expected = Rq2::new(c0, c1).ok().unwrap();
         assert_eq!(a.mul(&b).ok().unwrap(), expected);
     }
@@ -401,7 +417,11 @@ mod tests {
         let (z, _, _) = sample_rq2_challenge(&r, &spec, b"sym-seed").ok().unwrap();
         let q = r.modulus.q;
         for c in z.c0.coeffs().iter().chain(z.c1.coeffs().iter()) {
-            let balanced = if *c <= q / 2 { *c as i64 } else { *c as i64 - q as i64 };
+            let balanced = if *c <= q / 2 {
+                *c as i64
+            } else {
+                *c as i64 - q as i64
+            };
             assert!(balanced.abs() <= 2, "coeff {balanced}");
         }
     }

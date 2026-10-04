@@ -5,6 +5,7 @@
 //! Run: `cargo run -p lattice-lookup-ring --example lookup_bench`
 
 use lattice_core::transcript::Transcript;
+use lattice_lookup_ring::carrier::CarrierKey;
 use lattice_lookup_ring::compile::{prove_logup_committed, verify_logup_committed};
 use lattice_lookup_ring::fp256_port;
 use lattice_lookup_ring::ram::{prove_ram_batch, verify_ram_batch, RamOp};
@@ -12,11 +13,12 @@ use lattice_lookup_ring::ring_d::{Elem, RingD};
 use lattice_lookup_ring::ring_logup;
 use lattice_lookup_ring::ring_plookup;
 use lattice_lookup_ring::windowed;
-use lattice_lookup_ring::carrier::{CarrierKey, CarrierParams};
 use std::time::Instant;
 
 fn build_case(r: &RingD, m: usize, n: usize, seed: &str) -> (Vec<Elem>, Vec<Elem>, Vec<Elem>) {
-    let b: Vec<Elem> = (0..n).map(|j| r.random(format!("{seed}-b{j}").as_bytes())).collect();
+    let b: Vec<Elem> = (0..n)
+        .map(|j| r.random(format!("{seed}-b{j}").as_bytes()))
+        .collect();
     let mut a = Vec::with_capacity(m);
     let mut c = Vec::with_capacity(m);
     for i in 0..m {
@@ -40,16 +42,24 @@ fn main() {
         let (a, b, c) = build_case(&r, m, n, "bench");
         bench(&format!("Ring-LogUp  prove+verify M={m} N={n}"), || {
             let mut tr = Transcript::new_default(b"bench");
-            let (p, o) = ring_logup::prove_ring_logup(&r, &a, &b, &c, &mut tr).ok().unwrap();
+            let (p, o) = ring_logup::prove_ring_logup(&r, &a, &b, &c, &mut tr)
+                .ok()
+                .unwrap();
             let mut tr2 = Transcript::new_default(b"bench");
-            ring_logup::verify_ring_logup(&r, m, n, &p, &o, &mut tr2).ok().unwrap();
+            ring_logup::verify_ring_logup(&r, m, n, &p, &o, &mut tr2)
+                .ok()
+                .unwrap();
         });
         if m + n <= 16 {
             bench(&format!("Ring-Plookup prove+verify M={m} N={n}"), || {
                 let mut tr = Transcript::new_default(b"bench2");
-                let (p, o) = ring_plookup::prove_ring_plookup(&r, &a, &b, &c, &mut tr).ok().unwrap();
+                let (p, o) = ring_plookup::prove_ring_plookup(&r, &a, &b, &c, &mut tr)
+                    .ok()
+                    .unwrap();
                 let mut tr2 = Transcript::new_default(b"bench2");
-                ring_plookup::verify_ring_plookup(&r, m, n, &p, &o, &mut tr2).ok().unwrap();
+                ring_plookup::verify_ring_plookup(&r, m, n, &p, &o, &mut tr2)
+                    .ok()
+                    .unwrap();
             });
         }
     }
@@ -57,7 +67,9 @@ fn main() {
     println!("=== The windowed engine's binding pass (ring carrier) ===");
     for n in [8usize, 32, 128] {
         let r = RingD::new(8).ok().unwrap();
-        let v: Vec<Elem> = (0..n).map(|i| r.random(format!("w{i}").as_bytes())).collect();
+        let v: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("w{i}").as_bytes()))
+            .collect();
         let params = windowed::carrier_params_for(&r, n, 2, 1 << 14);
         let key = CarrierKey::from_seed(params, [9u8; 32]);
         bench(&format!("windowed commit+bind N={n}"), || {
@@ -68,8 +80,12 @@ fn main() {
                 .collect();
             let y = r.mle_eval(&v, &point).ok().unwrap();
             let proof =
-                windowed::prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"s").ok().unwrap();
-            windowed::verify_windowed_eval(&r, &key, &commitment, &point, &y, &proof).ok().unwrap();
+                windowed::prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"s")
+                    .ok()
+                    .unwrap();
+            windowed::verify_windowed_eval(&r, &key, &commitment, &point, &y, &proof)
+                .ok()
+                .unwrap();
         });
     }
     println!();
@@ -98,7 +114,9 @@ fn main() {
                 .collect();
             let y = fp256_port::fp_linear_image(&slots, &point).ok().unwrap();
             let proof =
-                fp256_port::prove_fp_binding(&carrier, &slots, &point, &y, &commitment, b"s").ok().unwrap();
+                fp256_port::prove_fp_binding(&carrier, &slots, &point, &y, &commitment, b"s")
+                    .ok()
+                    .unwrap();
             fp256_port::verify_fp_binding(&carrier, n, &point, &y, &commitment, b"s", &proof)
                 .ok()
                 .unwrap();
@@ -121,7 +139,9 @@ fn main() {
     for (m, k) in [(4usize, 8usize), (8, 16)] {
         // d=8: the record count 2M+k needs |C| = 2^d distinct tags
         let r = RingD::new(8).ok().unwrap();
-        let initial: Vec<Elem> = (0..m).map(|i| r.random(format!("ri{i}").as_bytes())).collect();
+        let initial: Vec<Elem> = (0..m)
+            .map(|i| r.random(format!("ri{i}").as_bytes()))
+            .collect();
         let mut ops = Vec::new();
         let mut cur = initial.clone();
         for i in 0..k {
@@ -131,7 +151,11 @@ fn main() {
             ops.push(RamOp {
                 write,
                 addr,
-                value: if write { val.clone() } else { cur[addr as usize].clone() },
+                value: if write {
+                    val.clone()
+                } else {
+                    cur[addr as usize].clone()
+                },
             });
             if write {
                 cur[addr as usize] = val;
@@ -139,9 +163,13 @@ fn main() {
         }
         bench(&format!("RAM batch verify M={m} k={k}"), || {
             let mut tr = Transcript::new_default(b"ram");
-            let (p, o) = prove_ram_batch(&r, &initial, &ops, &cur, &mut tr).ok().unwrap();
+            let (p, o) = prove_ram_batch(&r, &initial, &ops, &cur, &mut tr)
+                .ok()
+                .unwrap();
             let mut tr2 = Transcript::new_default(b"ram");
-            verify_ram_batch(&r, m, k, &initial, &cur, &p, &o, &mut tr2).ok().unwrap();
+            verify_ram_batch(&r, m, k, &initial, &cur, &p, &o, &mut tr2)
+                .ok()
+                .unwrap();
         });
     }
 }

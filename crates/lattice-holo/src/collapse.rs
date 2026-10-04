@@ -108,7 +108,11 @@ pub fn collapse(
         },
         right: GbfRight {
             constants: ccs.constants.clone(),
-            sets: ccs.sets.iter().map(|s| s.iter().map(|&j| (j, 0)).collect()).collect(),
+            sets: ccs
+                .sets
+                .iter()
+                .map(|s| s.iter().map(|&j| (j, 0)).collect())
+                .collect(),
         },
         u_commitments: Vec::new(),
         v_commitments: vec![wc],
@@ -147,6 +151,10 @@ mod tests {
             us: Vec::new(),
             vs: vec![col.z_encoding.clone()],
         };
-        assert!(col.gbf.check_with(&domain, &wit, &ccs.matrices).ok().unwrap());
+        assert!(col
+            .gbf
+            .check_with(&domain, &wit, &ccs.matrices)
+            .ok()
+            .unwrap());
     }
 }

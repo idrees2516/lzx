@@ -36,17 +36,32 @@ pub struct ExtensionCommitment {
 pub enum CycloError {
     Ajtai(AjtaiError),
     Ring(lattice_ring::RingError),
-    ChunkCountMismatch { expected: usize, got: usize },
-    NormTooLargeForRefresh { norm: u64, chunkable: u64 },
-    FoldBudgetExceeded { folds: usize, max: usize },
+    ChunkCountMismatch {
+        expected: usize,
+        got: usize,
+    },
+    NormTooLargeForRefresh {
+        norm: u64,
+        chunkable: u64,
+    },
+    FoldBudgetExceeded {
+        folds: usize,
+        max: usize,
+    },
     PartialRangeFailed,
     /// Wave 6.2: the fold would push the witness norm past
     /// `min(q/2, β*)` — refusing beats wrapping mod q (wraparound silently
     /// destroys the SIS binding argument).
-    NormGateExceeded { beta_after: u128, cap: u64 },
+    NormGateExceeded {
+        beta_after: u128,
+        cap: u64,
+    },
     /// Wave 6.4: the accumulator witness length no longer matches the
     /// commitment key dimension (the latent post-refresh truncation bug).
-    WitnessLengthMismatch { expected: usize, got: usize },
+    WitnessLengthMismatch {
+        expected: usize,
+        got: usize,
+    },
     /// Short-challenge sampling failed (budget/parameters).
     ShortChallenge(lattice_core::short_challenge::ShortChallengeError),
 }
@@ -136,9 +151,7 @@ impl ExtensionCommitment {
         for e in w {
             all_chunks.extend(chunk_element(ring, e, chunk_log));
         }
-        let padded = pk
-            .pad_to_m(&all_chunks)
-            .map_err(CycloError::Ajtai)?;
+        let padded = pk.pad_to_m(&all_chunks).map_err(CycloError::Ajtai)?;
         let commitment = pk.commit(&padded).map_err(CycloError::Ajtai)?;
         Ok((
             ExtensionCommitment {
@@ -188,10 +201,7 @@ pub struct CycloFoldResult {
 pub const MAX_FOLDS_BEFORE_REFRESH: usize = 64;
 impl CycloAccumulator {
     /// Initialize from a fresh (range-checked) input witness.
-    pub fn new(
-        pk: &AjtaiPublicKey,
-        w: &[RingElement],
-    ) -> Result<Self, CycloError> {
+    pub fn new(pk: &AjtaiPublicKey, w: &[RingElement]) -> Result<Self, CycloError> {
         // Cyclo range-checks the INPUT witness only.
         let bound = 1 << 20;
         for e in w {
@@ -207,7 +217,11 @@ impl CycloAccumulator {
         }
         let padded = pk.pad_to_m(w).map_err(CycloError::Ajtai)?;
         let commitment = pk.commit(&padded).map_err(CycloError::Ajtai)?;
-        let norm = padded.iter().map(|e| e.infinity_norm() as u64).max().unwrap_or(0);
+        let norm = padded
+            .iter()
+            .map(|e| e.infinity_norm() as u64)
+            .max()
+            .unwrap_or(0);
         // Wave 6.2: fresh budgets are gated against the SIS bound too —
         // an input already over β* cannot be opened.
         if norm > pk.params.norm_bound as u64 {
@@ -309,10 +323,17 @@ impl CycloAccumulator {
         let q_half = (ring.modulus.q / 2) as u64;
         let budget = self
             .norm_budget
-            .fold_scalar(r_int.unsigned_abs(), input_norm, q_half, pk.params.norm_bound as u64)
+            .fold_scalar(
+                r_int.unsigned_abs(),
+                input_norm,
+                q_half,
+                pk.params.norm_bound as u64,
+            )
             .map_err(|e| CycloError::NormGateExceeded {
                 beta_after: match e {
-                    lattice_core::norm_budget::NormBudgetError::Wraparound { beta_after, .. } => beta_after,
+                    lattice_core::norm_budget::NormBudgetError::Wraparound {
+                        beta_after, ..
+                    } => beta_after,
                 },
                 cap: q_half.min(pk.params.norm_bound as u64),
             })?;
@@ -325,7 +346,12 @@ impl CycloAccumulator {
         let commitment = {
             let mut rows = Vec::with_capacity(self.commitment.rows.len());
             // t' = t_acc + r·t_in (commitment homomorphism).
-            for (t, b) in self.commitment.rows.iter().zip(input_commitment.rows.iter()) {
+            for (t, b) in self
+                .commitment
+                .rows
+                .iter()
+                .zip(input_commitment.rows.iter())
+            {
                 rows.push(t.add(&b.scale_i64(r_int)).map_err(CycloError::Ring)?);
             }
             AjtaiCommitment { rows }
@@ -402,10 +428,18 @@ impl CycloAccumulator {
         let sqrt_n = lattice_core::norm_budget::ceil_sqrt(ring.n() as u64);
         let budget = self
             .norm_budget
-            .fold(gamma_c, sqrt_n, input_norm, q_half, pk.params.norm_bound as u64)
+            .fold(
+                gamma_c,
+                sqrt_n,
+                input_norm,
+                q_half,
+                pk.params.norm_bound as u64,
+            )
             .map_err(|e| CycloError::NormGateExceeded {
                 beta_after: match e {
-                    lattice_core::norm_budget::NormBudgetError::Wraparound { beta_after, .. } => beta_after,
+                    lattice_core::norm_budget::NormBudgetError::Wraparound {
+                        beta_after, ..
+                    } => beta_after,
                 },
                 cap: q_half.min(pk.params.norm_bound as u64),
             })?;
@@ -413,11 +447,19 @@ impl CycloAccumulator {
         // w' = w_acc + d·w_in (ring multiplication).
         let mut folded = Vec::with_capacity(self.witness.len());
         for (a, b) in self.witness.iter().zip(padded_input.iter()) {
-            folded.push(a.add(&d.mul(b).map_err(CycloError::Ring)?).map_err(CycloError::Ring)?);
+            folded.push(
+                a.add(&d.mul(b).map_err(CycloError::Ring)?)
+                    .map_err(CycloError::Ring)?,
+            );
         }
         // t' = t_acc + d·t_in.
         let mut rows = Vec::with_capacity(self.commitment.rows.len());
-        for (t, b) in self.commitment.rows.iter().zip(input_commitment.rows.iter()) {
+        for (t, b) in self
+            .commitment
+            .rows
+            .iter()
+            .zip(input_commitment.rows.iter())
+        {
             rows.push(
                 t.add(&d.mul(b).map_err(CycloError::Ring)?)
                     .map_err(CycloError::Ring)?,
@@ -485,11 +527,7 @@ impl CycloAccumulator {
 /// their worst case while its high part exceeds `β − low_worst` is
 /// rejected (the paper's trade for skipping the low-chunk inspection —
 /// irrelevant for folded witnesses, whose digits are uniform-ish).
-pub fn partial_range_check(
-    e: &RingElement,
-    beta: u64,
-    chunk_log: u32,
-) -> Result<bool, CycloError> {
+pub fn partial_range_check(e: &RingElement, beta: u64, chunk_log: u32) -> Result<bool, CycloError> {
     let ring = e.config();
     let chunk_log = chunk_log.max(1);
     let num_chunks = 32usize.div_ceil(chunk_log as usize);
@@ -501,7 +539,7 @@ pub fn partial_range_check(
     }
     let b: u64 = 1 << (chunk_log - 1); // the signed digit bound
     let base: u64 = 1 << chunk_log; // 2b
-    // The free prefix: the largest j with b·Σ_{i<j} base^i ≤ β.
+                                    // The free prefix: the largest j with b·Σ_{i<j} base^i ≤ β.
     let mut low_worst: u64 = 0;
     let mut j = 0usize;
     while j < num_chunks {
@@ -517,8 +555,8 @@ pub fn partial_range_check(
         return Ok(true);
     }
     let slack = beta - low_worst; // ≥ 0 by j's construction
-    // Decompose (the shared digit substrate — the Π^range caller
-    // constrains only the chunks ≥ j).
+                                  // Decompose (the shared digit substrate — the Π^range caller
+                                  // constrains only the chunks ≥ j).
     let chunks = chunk_element(ring, e, chunk_log);
     if chunks.len() != num_chunks {
         return Err(CycloError::ChunkCountMismatch {
@@ -590,8 +628,7 @@ mod tests {
         // the chunk geometry, not from the padded length.)
         let num_chunks = ((32 + 8 - 1) / 8) as usize;
         for (i, orig) in w.iter().enumerate() {
-            let chunks: Vec<RingElement> =
-                chunked[i * num_chunks..(i + 1) * num_chunks].to_vec();
+            let chunks: Vec<RingElement> = chunked[i * num_chunks..(i + 1) * num_chunks].to_vec();
             let rec = unchunk_elements(&ring, &chunks, 8);
             assert_eq!(rec, *orig, "element {i} recomposition failed");
         }
@@ -602,7 +639,9 @@ mod tests {
     #[test]
     fn fold_additive_norm_growth() {
         let (pk, ring) = setup(4, 3);
-        let acc0 = CycloAccumulator::new(&pk, &small_w(&ring, b"a0")).ok().unwrap();
+        let acc0 = CycloAccumulator::new(&pk, &small_w(&ring, b"a0"))
+            .ok()
+            .unwrap();
         let mut acc = acc0;
         let base_norm = acc.norm_budget.beta();
         for i in 0..4u64 {
@@ -626,7 +665,9 @@ mod tests {
         // The extension key needs num_chunks x the base slot count.
         let (pk, ring) = setup(4, 64);
         let (pk_ext, _) = setup(4, 256);
-        let acc0 = CycloAccumulator::new(&pk, &small_w(&ring, b"r0")).ok().unwrap();
+        let acc0 = CycloAccumulator::new(&pk, &small_w(&ring, b"r0"))
+            .ok()
+            .unwrap();
         let res = acc0.fold(&pk, &small_w(&ring, b"r1")).ok().unwrap();
         assert_eq!(res.accumulator.norm_budget.folds(), 1);
         let (refreshed, _ext) = res.accumulator.refresh(&pk_ext, 8).ok().unwrap();
@@ -638,7 +679,10 @@ mod tests {
         // bug — refresh produces a pk_ext.m-length witness).
         assert!(matches!(
             refreshed.fold(&pk, &small_w(&ring, b"r2")),
-            Err(CycloError::WitnessLengthMismatch { expected: 64, got: 256 })
+            Err(CycloError::WitnessLengthMismatch {
+                expected: 64,
+                got: 256
+            })
         ));
     }
 
@@ -647,7 +691,9 @@ mod tests {
         // Wave 6.4: the challenge is a function of BOTH commitments (grind
         // resistance w.r.t. the input) and the fold counter.
         let (pk, ring) = setup(4, 3);
-        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"fs-a")).ok().unwrap();
+        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"fs-a"))
+            .ok()
+            .unwrap();
         let in1 = small_w(&ring, b"fs-in1");
         let in2 = small_w(&ring, b"fs-in2");
         let r1 = acc.fold(&pk, &in1).ok().unwrap();
@@ -664,15 +710,19 @@ mod tests {
         let ra = acc2.fold(&pk, &in1).ok().unwrap(); // fold #1
         let rb = r1.accumulator.fold(&pk, &in1).ok().unwrap(); // fold #1 too
         assert_eq!(ra.challenge, rb.challenge);
-        let acc_once = CycloAccumulator::new(&pk, &small_w(&ring, b"fs-b")).ok().unwrap();
+        let acc_once = CycloAccumulator::new(&pk, &small_w(&ring, b"fs-b"))
+            .ok()
+            .unwrap();
         let rc = acc_once.fold(&pk, &in1).ok().unwrap(); // fold #0
-        // Different accumulator commitment → different challenge anyway;
-        // the counter test: fold the SAME accumulator twice in a row.
+                                                         // Different accumulator commitment → different challenge anyway;
+                                                         // the counter test: fold the SAME accumulator twice in a row.
         let rd = acc2.fold(&pk, &in1).ok().unwrap();
         let re = r1.accumulator.fold(&pk, &in1).ok().unwrap();
         assert_eq!(rd.challenge, re.challenge);
         // rc used a different accumulator; both must still verify.
-        assert!(pk.verify_opening(&rc.input_commitment, &pk.pad_to_m(&in1).ok().unwrap()).is_ok());
+        assert!(pk
+            .verify_opening(&rc.input_commitment, &pk.pad_to_m(&in1).ok().unwrap())
+            .is_ok());
     }
 
     #[test]
@@ -683,14 +733,15 @@ mod tests {
         // Biased-ternary D over R_q (n = 16, matching the ring).
         let spec = ShortChallengeSpec {
             n: ring.n(),
-            family: ShortChallengeFamily::BiasedTernary { p_nonzero_permille: 500 },
+            family: ShortChallengeFamily::BiasedTernary {
+                p_nonzero_permille: 500,
+            },
         };
-        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"d-a")).ok().unwrap();
-        let input = small_w(&ring, b"d-in");
-        let res = acc
-            .fold_ring_challenge(&pk, &input, &spec, 8)
+        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"d-a"))
             .ok()
             .unwrap();
+        let input = small_w(&ring, b"d-in");
+        let res = acc.fold_ring_challenge(&pk, &input, &spec, 8).ok().unwrap();
         assert!(res.accumulator.norm_budget.gamma_max <= 8);
         assert_eq!(res.accumulator.norm_budget.folds(), 1);
         // Rigorous growth law with the ACTUAL input norm.
@@ -704,12 +755,12 @@ mod tests {
         let expected = beta_before + res.accumulator.norm_budget.gamma_max * 4 * input_norm;
         assert_eq!(res.accumulator.norm_budget.beta(), expected);
         // Deterministic replay: identical witness, commitment, and budget.
-        let res2 = acc
-            .fold_ring_challenge(&pk, &input, &spec, 8)
-            .ok()
-            .unwrap();
+        let res2 = acc.fold_ring_challenge(&pk, &input, &spec, 8).ok().unwrap();
         assert_eq!(res2.accumulator.witness, res.accumulator.witness);
-        assert_eq!(res2.accumulator.commitment.rows, res.accumulator.commitment.rows);
+        assert_eq!(
+            res2.accumulator.commitment.rows,
+            res.accumulator.commitment.rows
+        );
         assert_eq!(res2.accumulator.norm_budget, res.accumulator.norm_budget);
         // Structural homomorphism: commit(w_acc + d·w_in) == t_acc + d·t_in
         // for the transcript-derived d — verified by re-deriving d from the
@@ -721,7 +772,12 @@ mod tests {
         let challenge = spec.sample_with_gamma_cap(&seed, 8, 16).ok().unwrap();
         let d = RingElement::from_signed(&ring, &challenge.coefficients);
         let mut expect_rows = Vec::with_capacity(acc.commitment.rows.len());
-        for (ta, tb) in acc.commitment.rows.iter().zip(res.input_commitment.rows.iter()) {
+        for (ta, tb) in acc
+            .commitment
+            .rows
+            .iter()
+            .zip(res.input_commitment.rows.iter())
+        {
             expect_rows.push(ta.add(&d.mul(tb).ok().unwrap()).ok().unwrap());
         }
         assert_eq!(res.accumulator.commitment.rows, expect_rows);
@@ -735,9 +791,13 @@ mod tests {
         let (pk, ring) = setup(4, 6);
         let spec = ShortChallengeSpec {
             n: ring.n(),
-            family: ShortChallengeFamily::BiasedTernary { p_nonzero_permille: 999 },
+            family: ShortChallengeFamily::BiasedTernary {
+                p_nonzero_permille: 999,
+            },
         };
-        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"gate")).ok().unwrap();
+        let acc = CycloAccumulator::new(&pk, &small_w(&ring, b"gate"))
+            .ok()
+            .unwrap();
         let input = small_w(&ring, b"gate-in");
         // Dense ternary over n = 16 has Γ ≈ ⌈√16⌉ = 4; cap 1 is unreachable.
         assert!(matches!(
@@ -747,7 +807,9 @@ mod tests {
         // Wrong spec dimension rejected.
         let bad_spec = ShortChallengeSpec {
             n: 8,
-            family: ShortChallengeFamily::BiasedTernary { p_nonzero_permille: 500 },
+            family: ShortChallengeFamily::BiasedTernary {
+                p_nonzero_permille: 500,
+            },
         };
         assert!(matches!(
             acc.fold_ring_challenge(&pk, &input, &bad_spec, 8),

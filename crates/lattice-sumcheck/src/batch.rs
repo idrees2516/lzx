@@ -285,17 +285,23 @@ pub fn verify_batch_star_with_rhos(
     if rhos.len() != claimed_sums.len() {
         return Err(BatchError::ChallengeCount);
     }
-    let max_vars = num_vars.iter().copied().max().ok_or(BatchError::EmptyBatch)?;
-    let mut combined = Goldilocks::ZERO;
-    for ((rho, c), nv) in rhos
+    let max_vars = num_vars
         .iter()
-        .zip(claimed_sums.iter())
-        .zip(num_vars.iter())
-    {
+        .copied()
+        .max()
+        .ok_or(BatchError::EmptyBatch)?;
+    let mut combined = Goldilocks::ZERO;
+    for ((rho, c), nv) in rhos.iter().zip(claimed_sums.iter()).zip(num_vars.iter()) {
         combined = combined.add(&rho.mul(&pow2(max_vars - nv)).mul(c));
     }
     proof
-        .verify(max_vars, max_degree, combined, transcript, expected_combined_final)
+        .verify(
+            max_vars,
+            max_degree,
+            combined,
+            transcript,
+            expected_combined_final,
+        )
         .map(|v| v.point)
         .map_err(BatchError::Sumcheck)
 }
@@ -435,7 +441,12 @@ mod tests {
     fn batch_star_row_count_is_max_not_sum() {
         // Theorem-4 property: m claims with heterogeneous variable counts
         // fold into ONE sumcheck with rounds == max(num_vars).
-        let vps = [build(3, b"a"), build(5, b"b"), build(5, b"c"), build(4, b"d")];
+        let vps = [
+            build(3, b"a"),
+            build(5, b"b"),
+            build(5, b"c"),
+            build(4, b"d"),
+        ];
         let sums: Vec<Goldilocks> = vps.iter().map(|vp| vp.sum_over_hypercube()).collect();
         let claims: Vec<BatchClaim> = vps
             .iter()
@@ -453,16 +464,9 @@ mod tests {
 
         // Verify with the same transcript.
         let mut vt = Transcript::new_default(b"lzx-batch-star-test");
-        let point = verify_batch_star(
-            &out.proof,
-            &[3, 5, 5, 4],
-            2,
-            &sums,
-            &mut vt,
-            None,
-        )
-        .ok()
-        .unwrap();
+        let point = verify_batch_star(&out.proof, &[3, 5, 5, 4], 2, &sums, &mut vt, None)
+            .ok()
+            .unwrap();
         assert_eq!(point, out.challenges);
 
         // Per-claim claims: factor claims at the truncated points.
@@ -497,24 +501,14 @@ mod tests {
             // doubles per ignored variable); the TERMINAL never scales —
             // the padded factor's value at the shared point equals the
             // original factor's MLE at the truncated point.
-            let pj = vp
-                .evaluate(&out.per_claim[j].point)
-                .ok()
-                .unwrap();
+            let pj = vp.evaluate(&out.per_claim[j].point).ok().unwrap();
             expected = expected.add(&rho.mul(&pj));
         }
 
         let mut vt = Transcript::new_default(b"lzx-batch-star-test");
-        let point = verify_batch_star(
-            &out.proof,
-            &[3, 5, 5],
-            2,
-            &sums,
-            &mut vt,
-            Some(expected),
-        )
-        .ok()
-        .unwrap();
+        let point = verify_batch_star(&out.proof, &[3, 5, 5], 2, &sums, &mut vt, Some(expected))
+            .ok()
+            .unwrap();
         assert_eq!(point, out.challenges);
     }
 

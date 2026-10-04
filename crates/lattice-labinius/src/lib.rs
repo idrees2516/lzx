@@ -40,11 +40,11 @@ pub mod hw;
 pub mod key;
 pub mod params;
 pub mod recursion;
-pub mod wire;
 pub mod ring;
 pub mod scalar;
 pub mod scheme;
 pub mod simd;
+pub mod wire;
 
 pub use binfield::{B128, F162};
 pub use challenge::{Transcript, DEFAULT_BOUND, DEFAULT_WEIGHT};
@@ -52,7 +52,7 @@ pub use ring::{Modulus, PowerOfThreeRing as RingElement162};
 pub use scheme::{
     basic, Commitment, CommitmentOpening, CommitmentValue, EvaluationPoint, FoldedCommitment,
     FoldedWitness, Opening, ParamError, Params, Prover, PublicParameters, RowEvaluation, Suite,
-    SUITES, Verifier, VerificationError, Witness,
+    VerificationError, Verifier, Witness, SUITES,
 };
 
 /// The upstream reference round, as an executable example and a smoke test:
@@ -76,7 +76,9 @@ pub fn reference_round(witness_log_len: u32, column_log_len: u32) -> Result<(), 
     let row = witness.row_evaluate(&point);
     let challenges = verifier.derive_folding_challenges(&mut t, &row);
     let folded = prover.fold(opening, &challenges);
-    verifier.verify_evaluation(&point, &claimed, &row).map_err(|e| e.to_string())?;
+    verifier
+        .verify_evaluation(&point, &claimed, &row)
+        .map_err(|e| e.to_string())?;
     let folded_commitment = verifier.fold_commitment(&commitment, &challenges);
     let folded_row = verifier.fold_row_evaluation(&row, &challenges);
     verifier

@@ -126,7 +126,11 @@ impl CapabilitySet {
 
     /// Require a capability for a protocol; error unless granted for
     /// exactly this digest.
-    pub fn require(&self, capability: SecurityCapability, protocol: &[u8; 32]) -> Result<(), CapabilityError> {
+    pub fn require(
+        &self,
+        capability: SecurityCapability,
+        protocol: &[u8; 32],
+    ) -> Result<(), CapabilityError> {
         for (c, d) in &self.granted {
             if *c == capability {
                 if d == protocol {
@@ -183,7 +187,10 @@ impl PrivacySpec {
                 set.grant(SecurityCapability::PostQuantumBinding, protocol);
             }
             SecurityCapability::ZeroKnowledge => {
-                if matches!(self.simulator_status, SimulatorStatus::MachineChecked { .. }) {
+                if matches!(
+                    self.simulator_status,
+                    SimulatorStatus::MachineChecked { .. }
+                ) {
                     set.grant(SecurityCapability::ZeroKnowledge, protocol);
                 }
             }
@@ -223,7 +230,9 @@ mod tests {
             Err(CapabilityError::NotGranted(_))
         ));
         set.grant(SecurityCapability::ZeroKnowledge, proto);
-        assert!(set.require(SecurityCapability::ZeroKnowledge, &proto).is_ok());
+        assert!(set
+            .require(SecurityCapability::ZeroKnowledge, &proto)
+            .is_ok());
         // Wrong protocol digest: mismatch, not silent acceptance.
         let other = protocol_digest(STAGES_B);
         assert!(matches!(
@@ -249,7 +258,9 @@ mod tests {
         ));
         spec.simulator_status = SimulatorStatus::MachineChecked { kat_tests: 6 };
         let ok = spec.capabilities(SecurityCapability::ZeroKnowledge, proto);
-        assert!(ok.require(SecurityCapability::ZeroKnowledge, &proto).is_ok());
+        assert!(ok
+            .require(SecurityCapability::ZeroKnowledge, &proto)
+            .is_ok());
     }
 
     #[test]

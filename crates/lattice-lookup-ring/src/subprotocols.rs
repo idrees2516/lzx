@@ -37,8 +37,7 @@
 
 use crate::ring_d::{Elem, RingD};
 use crate::ring_sumcheck::{
-    prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm,
-    RingVirtualPoly,
+    prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly,
 };
 use lattice_core::transcript::Transcript;
 
@@ -109,8 +108,16 @@ pub fn prove_scalar_product(
     };
     let sc = prove_sumcheck(ring, &poly, transcript)?;
     let queries = vec![
-        EvalQuery { label: "a".into(), point: sc.point.clone(), value: eval_mle(ring, a, &sc.point)? },
-        EvalQuery { label: "b".into(), point: sc.point.clone(), value: eval_mle(ring, b, &sc.point)? },
+        EvalQuery {
+            label: "a".into(),
+            point: sc.point.clone(),
+            value: eval_mle(ring, a, &sc.point)?,
+        },
+        EvalQuery {
+            label: "b".into(),
+            point: sc.point.clone(),
+            value: eval_mle(ring, b, &sc.point)?,
+        },
     ];
     Ok((ScalarProductProof { sc }, tau, queries))
 }
@@ -133,16 +140,24 @@ pub fn verify_scalar_product(
             num_factors: 2,
         }],
     };
-    verify_sumcheck(ring, &shape, tau, &proof.sc, transcript, &mut |ti, fi, pt| {
-        let _ = ti;
-        let label = if fi == 0 { "a" } else { "b" };
-        oracle(label, pt)
-    })
+    verify_sumcheck(
+        ring,
+        &shape,
+        tau,
+        &proof.sc,
+        transcript,
+        &mut |ti, fi, pt| {
+            let _ = ti;
+            let label = if fi == 0 { "a" } else { "b" };
+            oracle(label, pt)
+        },
+    )
     .map_err(SubError::from)
 }
 
 fn eval_mle(ring: &RingD, v: &[Elem], point: &[Elem]) -> Result<Elem, SubError> {
-    ring.mle_eval(v, point).map_err(|e| SubError::Shape(format!("{e:?}")))
+    ring.mle_eval(v, point)
+        .map_err(|e| SubError::Shape(format!("{e:?}")))
 }
 
 /// Settle an oracle query, lifting the resolver's error.
@@ -203,9 +218,21 @@ pub fn prove_hadamard(
     let sc = prove_sumcheck(ring, &poly, transcript)?;
     let pt = sc.point.clone();
     let queries = vec![
-        EvalQuery { label: "a".into(), point: pt.clone(), value: eval_mle(ring, a, &pt)? },
-        EvalQuery { label: "b".into(), point: pt.clone(), value: eval_mle(ring, b, &pt)? },
-        EvalQuery { label: "c".into(), point: pt.clone(), value: eval_mle(ring, c, &pt)? },
+        EvalQuery {
+            label: "a".into(),
+            point: pt.clone(),
+            value: eval_mle(ring, a, &pt)?,
+        },
+        EvalQuery {
+            label: "b".into(),
+            point: pt.clone(),
+            value: eval_mle(ring, b, &pt)?,
+        },
+        EvalQuery {
+            label: "c".into(),
+            point: pt.clone(),
+            value: eval_mle(ring, c, &pt)?,
+        },
     ];
     Ok((HadamardProof { sc }, queries))
 }
@@ -239,15 +266,20 @@ pub fn verify_hadamard(
             },
         ],
     };
-    verify_sumcheck(ring, &shape, &ring.zero(), &proof.sc, transcript, &mut |ti, fi, pt| {
-        match (ti, fi) {
+    verify_sumcheck(
+        ring,
+        &shape,
+        &ring.zero(),
+        &proof.sc,
+        transcript,
+        &mut |ti, fi, pt| match (ti, fi) {
             (0, 0) | (1, 0) => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
             (0, 1) => oracle("a", pt),
             (0, 2) => oracle("b", pt),
             (1, 1) => oracle("c", pt),
             _ => Err("bad factor index".into()),
-        }
-    })
+        },
+    )
     .map_err(SubError::from)
 }
 
@@ -315,14 +347,31 @@ pub fn prove_cyclic_shift(
         // The 'b'-side query label must not collide with the witness b:
         // rename to shift-a / shift-b.
         let label = if q.label == "a" { "shift-a" } else { "shift-b" };
-        queries.push(EvalQuery { label: label.into(), point: q.point.clone(), value: q.value.clone() });
+        queries.push(EvalQuery {
+            label: label.into(),
+            point: q.point.clone(),
+            value: q.value.clone(),
+        });
     }
     // The b_N query at the all-ones point.
     let log_n = log2_exact(n)?;
     let ones = vec![ring.one(); log_n];
     let b_n = eval_mle(ring, b, &ones)?;
-    queries.push(EvalQuery { label: "shift-b".into(), point: ones, value: b_n });
-    Ok((CyclicShiftProof { gamma, sp_a, nu0, sp_b, nu1 }, queries))
+    queries.push(EvalQuery {
+        label: "shift-b".into(),
+        point: ones,
+        value: b_n,
+    });
+    Ok((
+        CyclicShiftProof {
+            gamma,
+            sp_a,
+            nu0,
+            sp_b,
+            nu1,
+        },
+        queries,
+    ))
 }
 
 /// Verify the cyclic-shift proof. The oracle answers `shift-a` /
@@ -342,21 +391,33 @@ pub fn verify_cyclic_shift(
     }
     // Replay both scalar products. Their internal challenge streams
     // follow the transcript order (a-side first, then b-side).
-    verify_scalar_product(ring, n, &proof.nu0, &proof.sp_a, transcript, &|label, pt| {
-        match label {
-            "a" => oracle("shift-a", pt),
-            // the geometric side is public
-            "b" => Ok(gamma_mle_eval(ring, &proof.gamma, pt)),
-            _ => Err("bad label".into()),
-        }
-    })?;
-    verify_scalar_product(ring, n, &proof.nu1, &proof.sp_b, transcript, &|label, pt| {
-        match label {
+    verify_scalar_product(
+        ring,
+        n,
+        &proof.nu0,
+        &proof.sp_a,
+        transcript,
+        &|label, pt| {
+            match label {
+                "a" => oracle("shift-a", pt),
+                // the geometric side is public
+                "b" => Ok(gamma_mle_eval(ring, &proof.gamma, pt)),
+                _ => Err("bad label".into()),
+            }
+        },
+    )?;
+    verify_scalar_product(
+        ring,
+        n,
+        &proof.nu1,
+        &proof.sp_b,
+        transcript,
+        &|label, pt| match label {
             "a" => oracle("shift-b", pt),
             "b" => Ok(gamma_mle_eval(ring, &proof.gamma, pt)),
             _ => Err("bad label".into()),
-        }
-    })?;
+        },
+    )?;
     // The Lemma-B.8 check: ν0 − γ·ν1 = (1 − γ^N)·b_N.
     let ones = vec![ring.one(); log_n];
     let b_n = ask(oracle, "shift-b", &ones)?;
@@ -366,7 +427,9 @@ pub fn verify_cyclic_shift(
     let gamma_nu1 = ring.mul(&proof.gamma, &proof.nu1);
     let lhs = ring.sub(&proof.nu0, &gamma_nu1);
     if lhs != rhs {
-        return Err(SubError::Verify("cyclic-shift univariate check failed".into()));
+        return Err(SubError::Verify(
+            "cyclic-shift univariate check failed".into(),
+        ));
     }
     Ok(())
 }
@@ -412,10 +475,18 @@ pub fn prove_entry_product(
     let (shift, qs_s) = prove_cyclic_shift(ring, &c, &e, transcript)?;
     let mut queries = Vec::new();
     for q in qs_h {
-        queries.push(EvalQuery { label: format!("ep-{}", q.label), point: q.point, value: q.value });
+        queries.push(EvalQuery {
+            label: format!("ep-{}", q.label),
+            point: q.point,
+            value: q.value,
+        });
     }
     for q in qs_s {
-        queries.push(EvalQuery { label: format!("ep-{}", q.label), point: q.point, value: q.value });
+        queries.push(EvalQuery {
+            label: format!("ep-{}", q.label),
+            point: q.point,
+            value: q.value,
+        });
     }
     // Final check at a random η (sampled AFTER the sub-protocols, from
     // the shared transcript — the verifier replays in the same slot):
@@ -425,8 +496,16 @@ pub fn prove_entry_product(
         .collect();
     let dv = eval_mle(ring, &d, &eta)?;
     let ev = eval_mle(ring, &e, &eta)?;
-    queries.push(EvalQuery { label: "ep-d".into(), point: eta.clone(), value: dv });
-    queries.push(EvalQuery { label: "ep-e".into(), point: eta, value: ev });
+    queries.push(EvalQuery {
+        label: "ep-d".into(),
+        point: eta.clone(),
+        value: dv,
+    });
+    queries.push(EvalQuery {
+        label: "ep-e".into(),
+        point: eta,
+        value: ev,
+    });
     Ok((EntryProductProof { hadamard, shift }, queries))
 }
 
@@ -442,19 +521,31 @@ pub fn verify_entry_product(
 ) -> Result<(), SubError> {
     let log_n = log2_exact(n)?;
     // Hadamard on (a, c, d): labels ep-a, ep-b (=c), ep-c (=d), ep-eq
-    verify_hadamard(ring, n, &proof.hadamard, transcript, &|label, pt| match label {
-        "a" => oracle("ep-a", pt),
-        "b" => oracle("ep-b", pt),
-        "c" => oracle("ep-d", pt),
-        "eq" => oracle("ep-eq", pt),
-        _ => Err("bad label".into()),
-    })?;
+    verify_hadamard(
+        ring,
+        n,
+        &proof.hadamard,
+        transcript,
+        &|label, pt| match label {
+            "a" => oracle("ep-a", pt),
+            "b" => oracle("ep-b", pt),
+            "c" => oracle("ep-d", pt),
+            "eq" => oracle("ep-eq", pt),
+            _ => Err("bad label".into()),
+        },
+    )?;
     // Cyclic shift on (c, e): labels ep-shift-a (=c), ep-shift-b (=e)
-    verify_cyclic_shift(ring, n, &proof.shift, transcript, &|label, pt| match label {
-        "shift-a" => oracle("ep-b", pt), // c
-        "shift-b" => oracle("ep-e", pt), // e
-        _ => Err("bad label".into()),
-    })?;
+    verify_cyclic_shift(
+        ring,
+        n,
+        &proof.shift,
+        transcript,
+        &|label, pt| match label {
+            "shift-a" => oracle("ep-b", pt), // c
+            "shift-b" => oracle("ep-e", pt), // e
+            _ => Err("bad label".into()),
+        },
+    )?;
     // e_N = 1: the all-ones query on e must return 1.
     let ones = vec![ring.one(); log_n];
     let e_n = ask(oracle, "ep-e", &ones)?;
@@ -476,7 +567,9 @@ pub fn verify_entry_product(
     let rhs = ring.mul(&eq_ones_eta, &tau_minus_1);
     let lhs = ring.sub(&dv, &ev);
     if lhs != rhs {
-        return Err(SubError::Verify("entry-product closing check failed".into()));
+        return Err(SubError::Verify(
+            "entry-product closing check failed".into(),
+        ));
     }
     Ok(())
 }
@@ -493,8 +586,15 @@ pub struct IntegerCheckProof {
 
 /// Sample a random *scalar* point `ρ ∈ Z_q^{logN}` (full-entropy
 /// degree-0 ring elements — NOT from the binary challenge space).
-fn sample_scalar_point(ring: &RingD, log_n: usize, transcript: &mut Transcript, label: &[u8]) -> Vec<Elem> {
-    let bytes = transcript.challenge_bytes(label, log_n * 8).unwrap_or_default();
+fn sample_scalar_point(
+    ring: &RingD,
+    log_n: usize,
+    transcript: &mut Transcript,
+    label: &[u8],
+) -> Vec<Elem> {
+    let bytes = transcript
+        .challenge_bytes(label, log_n * 8)
+        .unwrap_or_default();
     (0..log_n)
         .map(|i| {
             let mut w = [0u8; 8];
@@ -518,7 +618,11 @@ pub fn prove_integer_check(
     for t in 0..rounds {
         let rho = sample_scalar_point(ring, log_n, transcript, format!("ic-rho{t}").as_bytes());
         let v = eval_mle(ring, a, &rho)?;
-        queries.push(EvalQuery { label: "ic-a".into(), point: rho.clone(), value: v.clone() });
+        queries.push(EvalQuery {
+            label: "ic-a".into(),
+            point: rho.clone(),
+            value: v.clone(),
+        });
         claims.push((rho, v));
     }
     Ok((IntegerCheckProof { claims }, queries))
@@ -540,7 +644,9 @@ pub fn verify_integer_check(
         }
         let v = ask(oracle, "ic-a", rho)?;
         if !v.is_integer() {
-            return Err(SubError::Verify("â(ρ) has non-constant coefficients".into()));
+            return Err(SubError::Verify(
+                "â(ρ) has non-constant coefficients".into(),
+            ));
         }
     }
     Ok(())
@@ -607,7 +713,9 @@ pub fn prove_binary_check(
     let d = ring.d;
     for e in f {
         if !e.is_binary() {
-            return Err(SubError::Verify("f has non-binary coefficients (fail-closed)".into()));
+            return Err(SubError::Verify(
+                "f has non-binary coefficients (fail-closed)".into(),
+            ));
         }
     }
     // CF rows as constant ring elements.
@@ -633,10 +741,17 @@ pub fn prove_binary_check(
         });
         terms.push(RingTerm {
             coeff: ring.neg(&alpha_j),
-            factors: vec![RingFactor::Eq(eq.clone()), RingFactor::Mle(cf_rows[j].clone())],
+            factors: vec![
+                RingFactor::Eq(eq.clone()),
+                RingFactor::Mle(cf_rows[j].clone()),
+            ],
         });
     }
-    let poly = RingVirtualPoly { num_vars: log_n, claimed_sum: ring.zero(), terms };
+    let poly = RingVirtualPoly {
+        num_vars: log_n,
+        claimed_sum: ring.zero(),
+        terms,
+    };
     let binary_sc = prove_sumcheck(ring, &poly, transcript)?;
     // The consistency tensor point r ∈ C^{logN}.
     let r: Vec<Elem> = (0..log_n)
@@ -653,14 +768,22 @@ pub fn prove_binary_check(
         cf_sps.push(sp);
         for q in qs {
             if q.label == "a" {
-                queries.push(EvalQuery { label: format!("bc-cf{j}"), point: q.point, value: q.value });
+                queries.push(EvalQuery {
+                    label: format!("bc-cf{j}"),
+                    point: q.point,
+                    value: q.value,
+                });
             }
         }
     }
     let (f_sp, w, qs_f) = prove_scalar_product(ring, f, &tensor, transcript)?;
     for q in qs_f {
         if q.label == "a" {
-            queries.push(EvalQuery { label: "bc-f".into(), point: q.point, value: q.value });
+            queries.push(EvalQuery {
+                label: "bc-f".into(),
+                point: q.point,
+                value: q.value,
+            });
         }
     }
     Ok((
@@ -708,23 +831,33 @@ pub fn verify_binary_check(
             num_factors: 2,
         });
     }
-    let shape = crate::ring_sumcheck::RingSumcheckShape { num_vars: log_n, terms: terms_shape };
-    verify_sumcheck(ring, &shape, &ring.zero(), &proof.binary_sc, transcript, &mut |ti, fi, pt| {
-        let j = ti / 2;
-        if ti % 2 == 0 {
-            match fi {
-                0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
-                1 | 2 => oracle(&format!("bc-cf{j}"), pt),
-                _ => Err("bad factor".into()),
+    let shape = crate::ring_sumcheck::RingSumcheckShape {
+        num_vars: log_n,
+        terms: terms_shape,
+    };
+    verify_sumcheck(
+        ring,
+        &shape,
+        &ring.zero(),
+        &proof.binary_sc,
+        transcript,
+        &mut |ti, fi, pt| {
+            let j = ti / 2;
+            if ti % 2 == 0 {
+                match fi {
+                    0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
+                    1 | 2 => oracle(&format!("bc-cf{j}"), pt),
+                    _ => Err("bad factor".into()),
+                }
+            } else {
+                match fi {
+                    0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
+                    1 => oracle(&format!("bc-cf{j}"), pt),
+                    _ => Err("bad factor".into()),
+                }
             }
-        } else {
-            match fi {
-                0 => ring.mle_eval(&eq, pt).map_err(|e| format!("{e:?}")),
-                1 => oracle(&format!("bc-cf{j}"), pt),
-                _ => Err("bad factor".into()),
-            }
-        }
-    })?;
+        },
+    )?;
     // Replay r.
     let r: Vec<Elem> = (0..log_n)
         .map(|i| ring.sample_challenge(transcript, format!("bc-r{i}").as_bytes()))
@@ -743,11 +876,18 @@ pub fn verify_binary_check(
     }
     // ⟨f, ⊗r⟩ = w.
     let w = proof.w.clone();
-    verify_scalar_product(ring, n, &w, &proof.f_sp, transcript, &|label, pt| match label {
-        "a" => oracle("bc-f", pt),
-        "b" => Ok(eq_row_at(ring, &r, pt)),
-        _ => Err("bad label".into()),
-    })?;
+    verify_scalar_product(
+        ring,
+        n,
+        &w,
+        &proof.f_sp,
+        transcript,
+        &|label, pt| match label {
+            "a" => oracle("bc-f", pt),
+            "b" => Ok(eq_row_at(ring, &r, pt)),
+            _ => Err("bad label".into()),
+        },
+    )?;
     // Step 12: w == Σ_j v_j·X^j.
     let mut v_poly = ring.zero();
     for (j, vj) in proof.v.iter().enumerate() {
@@ -815,14 +955,20 @@ mod tests {
     fn scalar_product_roundtrip() {
         let r = ring();
         let n = 8;
-        let a: Vec<Elem> = (0..n).map(|i| r.random(format!("sp-a{i}").as_bytes())).collect();
-        let b: Vec<Elem> = (0..n).map(|i| r.random(format!("sp-b{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("sp-a{i}").as_bytes()))
+            .collect();
+        let b: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("sp-b{i}").as_bytes()))
+            .collect();
         let mut tr = Transcript::new_default(b"sp");
         let (proof, tau, _qs) = prove_scalar_product(&r, &a, &b, &mut tr).ok().unwrap();
         let mut tr = Transcript::new_default(b"sp");
         let table = [("a", a.as_slice()), ("b", b.as_slice())];
         let res = resolver_from(&r, &table);
-        verify_scalar_product(&r, n, &tau, &proof, &mut tr, &res).ok().unwrap();
+        verify_scalar_product(&r, n, &tau, &proof, &mut tr, &res)
+            .ok()
+            .unwrap();
         // wrong tau rejected
         let bad_tau = r.add(&tau, &r.one());
         let mut tr = Transcript::new_default(b"sp");
@@ -833,8 +979,12 @@ mod tests {
     fn hadamard_roundtrip_and_tamper() {
         let r = ring();
         let n = 4;
-        let a: Vec<Elem> = (0..n).map(|i| r.random(format!("h-a{i}").as_bytes())).collect();
-        let b: Vec<Elem> = (0..n).map(|i| r.random(format!("h-b{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("h-a{i}").as_bytes()))
+            .collect();
+        let b: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("h-b{i}").as_bytes()))
+            .collect();
         let c: Vec<Elem> = (0..n).map(|i| r.mul(&a[i], &b[i])).collect();
         let mut tr = Transcript::new_default(b"had");
         let (proof, _qs) = prove_hadamard(&r, &a, &b, &c, &mut tr).ok().unwrap();
@@ -845,7 +995,12 @@ mod tests {
             .map(|i| r.sample_challenge(&mut tr_v, format!("had-y{i}").as_bytes()))
             .collect();
         let eq = r.eq_row(&y);
-        let table = [("a", a.as_slice()), ("b", b.as_slice()), ("c", c.as_slice()), ("eq", eq.as_slice())];
+        let table = [
+            ("a", a.as_slice()),
+            ("b", b.as_slice()),
+            ("c", c.as_slice()),
+            ("eq", eq.as_slice()),
+        ];
         let res = resolver_from(&r, &table);
         let mut tr2 = Transcript::new_default(b"had");
         verify_hadamard(&r, n, &proof, &mut tr2, &res).ok().unwrap();
@@ -861,14 +1016,18 @@ mod tests {
     fn cyclic_shift_roundtrip_and_reject() {
         let r = ring();
         let n = 8;
-        let a: Vec<Elem> = (0..n).map(|i| r.random(format!("cs-a{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("cs-a{i}").as_bytes()))
+            .collect();
         let b: Vec<Elem> = (0..n).map(|i| a[(i + 1) % n].clone()).collect();
         let mut tr = Transcript::new_default(b"cs");
         let (proof, _qs) = prove_cyclic_shift(&r, &a, &b, &mut tr).ok().unwrap();
         let table = [("shift-a", a.as_slice()), ("shift-b", b.as_slice())];
         let res = resolver_from(&r, &table);
         let mut tr2 = Transcript::new_default(b"cs");
-        verify_cyclic_shift(&r, n, &proof, &mut tr2, &res).ok().unwrap();
+        verify_cyclic_shift(&r, n, &proof, &mut tr2, &res)
+            .ok()
+            .unwrap();
         // non-shift rejected by the fail-closed prover
         let mut bad = b.clone();
         bad[0] = r.add(&bad[0], &r.one());
@@ -893,7 +1052,9 @@ mod tests {
         let r = ring();
         let n = 4;
         // nonzero entries (units, whp)
-        let a: Vec<Elem> = (0..n).map(|i| r.random(format!("ep-a{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("ep-a{i}").as_bytes()))
+            .collect();
         let mut tau = r.one();
         for e in &a {
             tau = r.mul(&tau, e);
@@ -937,7 +1098,9 @@ mod tests {
         let table = [("ic-a", a.as_slice())];
         let res = resolver_from(&r, &table);
         let mut tr2 = Transcript::new_default(b"ic");
-        verify_integer_check(&r, n, &proof, &mut tr2, &res).ok().unwrap();
+        verify_integer_check(&r, n, &proof, &mut tr2, &res)
+            .ok()
+            .unwrap();
         // a non-integral vector fails
         let mut bad = a.clone();
         bad[1] = r.add(&bad[1], &r.x_gen());
@@ -993,7 +1156,9 @@ mod tests {
         let res_bad = move |label: &str, pt: &[Elem]| -> Result<Elem, String> {
             if let Some(j) = label.strip_prefix("bc-cf") {
                 let j: usize = j.parse().map_err(|_| "bad index")?;
-                return r_ref.mle_eval(&cf_bad_ref[j], pt).map_err(|e| format!("{e:?}"));
+                return r_ref
+                    .mle_eval(&cf_bad_ref[j], pt)
+                    .map_err(|e| format!("{e:?}"));
             }
             match label {
                 "bc-f" => r_ref.mle_eval(f_ref, pt).map_err(|e| format!("{e:?}")),

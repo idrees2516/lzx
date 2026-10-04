@@ -59,12 +59,7 @@ fn lgsa_stable_dimension(n: u64, q: u128, beta: u32) -> Option<u64> {
 
 /// Compact LGSA profile facts for dimension `d` with `identity_vectors`
 /// zero-norm coordinates (the q-ary embedding structure).
-pub fn lgsa_summary(
-    d: u64,
-    identity_vectors: i128,
-    q: u128,
-    beta: u32,
-) -> Option<LgsaSummary> {
+pub fn lgsa_summary(d: u64, identity_vectors: i128, q: u128, beta: u32) -> Option<LgsaSummary> {
     if beta < 2 || u64::from(beta) > d {
         return None;
     }

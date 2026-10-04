@@ -67,9 +67,7 @@ fn bench_carrier(k: usize) {
     let fast = Carrier::fast(&params, &q, &sources, &interp);
     let fast_ms = t1.elapsed().as_secs_f64() * 1e3;
     let agree = fast.coeffs == carrier.coeffs;
-    println!(
-        "k={k:2} | carrier direct {direct_ms:6.2} ms | fast {fast_ms:6.2} ms | agree={agree}"
-    );
+    println!("k={k:2} | carrier direct {direct_ms:6.2} ms | fast {fast_ms:6.2} ms | agree={agree}");
 }
 
 fn bench_boundary(k: usize) {

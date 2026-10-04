@@ -173,8 +173,7 @@ pub fn evaluate_mle(evals: &[Fq], point: &[Fq]) -> Fq {
 
 /// The bundle ring: R_{Q_32} with n = 64 (X^64+1 negacyclic).
 pub fn column_ring() -> Result<RingConfig, LedgerError> {
-    lattice_widthfold::codec::q32_ring()
-        .map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
+    lattice_widthfold::codec::q32_ring().map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -290,22 +289,19 @@ pub struct PackedWitness {
 /// Pack the bundle factors into the r-aligned column layout.
 ///
 /// Requires: r ≤ every factor length (powers of two ⇒ r-aligned regions).
-pub fn pack_columns(
-    entries: &[(u32, &DenseMle)],
-    r: usize,
-) -> Result<PackedWitness, LedgerError> {
+pub fn pack_columns(entries: &[(u32, &DenseMle)], r: usize) -> Result<PackedWitness, LedgerError> {
     let mut factor_lens = Vec::with_capacity(entries.len());
     let mut widths = Vec::with_capacity(entries.len());
     let mut flat_len = 0usize;
     for (_, mle) in entries {
         let len = mle.evaluations.len();
         if len.count_ones() != 1 {
-            return Err(LedgerError::Layout("factor length not a power of two".into()));
+            return Err(LedgerError::Layout(
+                "factor length not a power of two".into(),
+            ));
         }
         if len < r {
-            return Err(LedgerError::Layout(format!(
-                "factor length {len} < r {r}"
-            )));
+            return Err(LedgerError::Layout(format!("factor length {len} < r {r}")));
         }
         let mut max: u64 = 0;
         for v in &mle.evaluations {
@@ -581,7 +577,6 @@ fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldi
     out
 }
 
-
 /// The balanced-representative Goldilocks term (moved to
 /// `lattice-widthfold::helpers`; re-exported).
 pub use lattice_widthfold::helpers::phi_term;
@@ -689,9 +684,9 @@ impl CompactBundleProver {
             }
             for i in 0..n_bar {
                 let prod = self.columns[j][i].scale_i64(dj);
-                v[i] = v[i].add(&prod).map_err(|e| {
-                    LedgerError::Layout(format!("ring add: {e:?}"))
-                })?;
+                v[i] = v[i]
+                    .add(&prod)
+                    .map_err(|e| LedgerError::Layout(format!("ring add: {e:?}")))?;
             }
         }
         for elem in &v {
@@ -728,7 +723,11 @@ impl CompactBundleProver {
             for (j, &dj) in d.iter().enumerate() {
                 if dj != 0 {
                     let term = u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
-                    rhs = if dj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                    rhs = if dj < 0 {
+                        rhs.sub(&term)
+                    } else {
+                        rhs.add(&term)
+                    };
                 }
             }
             if phi_v != rhs {
@@ -870,7 +869,11 @@ pub fn verify_compact_opening(
     for (j, &dj) in d.iter().enumerate() {
         if dj != 0 {
             let term = opening.u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
-            rhs = if dj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+            rhs = if dj < 0 {
+                rhs.sub(&term)
+            } else {
+                rhs.add(&term)
+            };
         }
     }
     if phi_v != rhs {
@@ -985,10 +988,8 @@ pub fn sound_fold_params_for(
     // The packing constraint (r ≤ every factor length). When the
     // re-packing route cannot land n̄ ≤ 16, park at the cap: the
     // recursive width-collapse chain takes over from there.
-    let cap = min_factor_len.next_power_of_two().min(128).max(1);
-    if r > cap {
-        r = cap;
-    }
+    let cap = min_factor_len.next_power_of_two().clamp(1, 128);
+    r = r.min(cap);
     let n_bar = stream.div_ceil(r * 64).max(1);
     // β₁ must sit under the staged sound ceiling (the chain's budget
     // runs from β₁ to the final row's gate — the estimator's verdict
@@ -1028,7 +1029,12 @@ impl CompactBundleProver {
         (0..self.n_bar)
             .map(|c| {
                 (0..self.params.k)
-                    .map(|rr| self.key.entry(rr, c).cloned().unwrap_or_else(|| self.ring.zero()))
+                    .map(|rr| {
+                        self.key
+                            .entry(rr, c)
+                            .cloned()
+                            .unwrap_or_else(|| self.ring.zero())
+                    })
                     .collect()
             })
             .collect()
@@ -1126,9 +1132,9 @@ impl CompactBundleProver {
             }
             for i in 0..n_bar {
                 let prod = self.columns[j][i].scale_i64(dj);
-                v[i] = v[i].add(&prod).map_err(|e| {
-                    LedgerError::Layout(format!("ring add: {e:?}"))
-                })?;
+                v[i] = v[i]
+                    .add(&prod)
+                    .map_err(|e| LedgerError::Layout(format!("ring add: {e:?}")))?;
             }
         }
         for elem in &v {
@@ -1179,7 +1185,11 @@ impl CompactBundleProver {
             for (j, &dj) in d.iter().enumerate() {
                 if dj != 0 {
                     let term = u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
-                    rhs = if dj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                    rhs = if dj < 0 {
+                        rhs.sub(&term)
+                    } else {
+                        rhs.add(&term)
+                    };
                 }
             }
             if u_target != rhs {
@@ -1195,13 +1205,9 @@ impl CompactBundleProver {
         //    n̄ ≤ 16; the staging takes the coverage to the benchmark
         //    streams.
         let beta1 = self.params.gate as u64;
-        let chain_params = crate::width_fold::WidthChainParams::sound_chain_for(
-            n_bar,
-            beta1,
-            q,
-            n as u64,
-        )
-        .map_err(|e| LedgerError::Layout(format!("width-chain schedule: {e}")))?;
+        let chain_params =
+            crate::width_fold::WidthChainParams::sound_chain_for(n_bar, beta1, q, n as u64)
+                .map_err(|e| LedgerError::Layout(format!("width-chain schedule: {e}")))?;
         let width_proof = crate::width_fold::prove_width_fold_chain(
             &self.ring,
             &v,
@@ -1334,7 +1340,11 @@ pub fn verify_sound_opening(
     for (j, &dj) in d.iter().enumerate() {
         if dj != 0 {
             let term = opening.u_tilde[j].mul(&Goldilocks::from_u64(dj.unsigned_abs()));
-            u_target = if dj < 0 { u_target.sub(&term) } else { u_target.add(&term) };
+            u_target = if dj < 0 {
+                u_target.sub(&term)
+            } else {
+                u_target.add(&term)
+            };
         }
     }
     let _ = functional_of; // (the functional enters through (W0') only)
@@ -1558,14 +1568,8 @@ mod tests {
         let seed = [9u8; 32];
         let r = 4usize;
         let k = 4usize;
-        let prover = compact_bundle_commit_with_params(
-            &refs,
-            seed,
-            r,
-            k,
-            FoldParams::sound(r, k),
-        )
-        .unwrap();
+        let prover =
+            compact_bundle_commit_with_params(&refs, seed, r, k, FoldParams::sound(r, k)).unwrap();
         let commitment = prover.commitment_bytes();
         let factor_lens: Vec<usize> = entries.iter().map(|(_, m)| m.evaluations.len()).collect();
         let flat_len: usize = factor_lens.iter().sum();
@@ -1663,8 +1667,7 @@ mod tests {
         let mut bad_z = opening.clone();
         {
             let last = bad_z.width_proof.stages.len() - 1;
-            let mut coeffs =
-                decode_response(&bad_z.width_proof.stages[last].response).unwrap();
+            let mut coeffs = decode_response(&bad_z.width_proof.stages[last].response).unwrap();
             assert!(!coeffs.is_empty());
             coeffs[0] = coeffs[0].wrapping_add(1);
             bad_z.width_proof.stages[last].response = encode_response(&coeffs).unwrap();

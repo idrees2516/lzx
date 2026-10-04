@@ -65,20 +65,33 @@ use lattice_core::transcript::{Transcript, TranscriptError};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SvscError {
     /// A coefficient exceeds the declared small-value bit bound.
-    ValueTooLarge { value: u64, bits: u32 },
+    ValueTooLarge {
+        value: u64,
+        bits: u32,
+    },
     /// The u128 bit-width precondition failed for this (d, v, ℓ, κ_v).
-    BitWidthPrecondition { bits_needed: u32, window: usize },
+    BitWidthPrecondition {
+        bits_needed: u32,
+        window: usize,
+    },
     /// The claimed sum does not match the polynomial.
     ClaimMismatch,
     /// Round shape invalid.
-    BadRoundShape { round: usize, got: usize, expected: usize },
+    BadRoundShape {
+        round: usize,
+        got: usize,
+        expected: usize,
+    },
     /// Terminal identity failed.
     FinalCheckFailed,
     Transcript(TranscriptError),
     /// The instance is empty or malformed.
     EmptyInstance,
     /// Mixed-degree instances are out of scope (see the module doc).
-    MixedDegree { max: usize, min: usize },
+    MixedDegree {
+        max: usize,
+        min: usize,
+    },
 }
 
 impl From<TranscriptError> for SvscError {
@@ -145,7 +158,11 @@ impl SmallFactor {
             let mut input = seed.to_vec();
             input.extend_from_slice(&ctr.to_le_bytes());
             let digest = Transcript::hash_domain(b"svsc-factor", &input);
-            let mask = if bits >= 64 { u64::MAX } else { (1u64 << bits) - 1 };
+            let mask = if bits >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << bits) - 1
+            };
             for chunk in digest.chunks(8) {
                 if coeffs.len() >= n {
                     break;
@@ -176,7 +193,10 @@ pub struct SvscInstance {
 impl SvscInstance {
     /// A single `d`-way product (the canonical instance).
     pub fn product(factors: Vec<SmallFactor>, value_bits: u32) -> Result<Self, SvscError> {
-        let num_vars = factors.first().map(|f| f.num_vars()).ok_or(SvscError::EmptyInstance)?;
+        let num_vars = factors
+            .first()
+            .map(|f| f.num_vars())
+            .ok_or(SvscError::EmptyInstance)?;
         for f in &factors {
             if f.num_vars() != num_vars {
                 return Err(SvscError::EmptyInstance);
@@ -184,17 +204,31 @@ impl SvscInstance {
             f.validate(value_bits)?;
         }
         let ids: Vec<usize> = (0..factors.len()).collect();
-        Ok(SvscInstance { num_vars, factors, terms: vec![(1, ids)], value_bits })
+        Ok(SvscInstance {
+            num_vars,
+            factors,
+            terms: vec![(1, ids)],
+            value_bits,
+        })
     }
 
     pub fn degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 
     /// The pure-product shape check.
     pub fn validate(&self) -> Result<usize, SvscError> {
         let d = self.degree();
-        let min = self.terms.iter().map(|(_, ids)| ids.len()).min().unwrap_or(0);
+        let min = self
+            .terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .min()
+            .unwrap_or(0);
         if min != d {
             return Err(SvscError::MixedDegree { max: d, min });
         }
@@ -277,7 +311,9 @@ fn absorb_round(transcript: &mut Transcript, msg: &[Fp256]) -> Result<(), SvscEr
             bytes.extend_from_slice(&limb.to_le_bytes());
         }
     }
-    transcript.append_bytes(b"svsc-round", &bytes).map_err(SvscError::Transcript)
+    transcript
+        .append_bytes(b"svsc-round", &bytes)
+        .map_err(SvscError::Transcript)
 }
 
 fn sample_challenge(transcript: &mut Transcript) -> Result<Fp256, SvscError> {
@@ -318,9 +354,7 @@ fn interpolate_with_infinity_fp(
             let num = r.sub(&xj);
             // den = xk − xj = ±(k−j), a small integer.
             let diff = (k as i64 - j as i64).unsigned_abs() as usize;
-            let den_inv = inv_small
-                .get(diff)
-                .and_then(|x| x.as_ref().copied());
+            let den_inv = inv_small.get(diff).and_then(|x| x.as_ref().copied());
             let den = match den_inv {
                 Some(inv) => {
                     if k > j {
@@ -338,14 +372,10 @@ fn interpolate_with_infinity_fp(
     lead_term.add(&lag)
 }
 
-
 /// `Σ_{suffix} Σ_j c_j · Π_k bound_k[bound-point values][suffix]` — the
 /// round value at a given materialized bound-value slice per factor.
 #[allow(clippy::needless_range_loop)] // indexes several slices in lockstep
-fn sum_term_products(
-    slices: &[&[Fp256]],
-    terms: &[(u64, Vec<usize>)],
-) -> Fp256 {
+fn sum_term_products(slices: &[&[Fp256]], terms: &[(u64, Vec<usize>)]) -> Fp256 {
     let n = slices.first().map(|s| s.len()).unwrap_or(0);
     let mut acc = Fp256::ZERO;
     for idx in 0..n {
@@ -397,7 +427,12 @@ pub fn prove_reference(
     let mut bound: Vec<Vec<Fp256>> = inst
         .factors
         .iter()
-        .map(|f| f.coeffs.iter().map(|&c| Fp256::from_canonical_u64(c)).collect())
+        .map(|f| {
+            f.coeffs
+                .iter()
+                .map(|&c| Fp256::from_canonical_u64(c))
+                .collect()
+        })
         .collect();
     let mut current = *claim;
     let mut rounds = Vec::with_capacity(inst.num_vars);
@@ -479,7 +514,12 @@ pub fn prove_reference(
     if final_claim != current {
         return Err(SvscError::FinalCheckFailed);
     }
-    Ok(SvscOutput { proof: SvscProof { rounds }, challenges, final_claim, factor_claims })
+    Ok(SvscOutput {
+        proof: SvscProof { rounds },
+        challenges,
+        final_claim,
+        factor_claims,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +566,10 @@ pub fn prove_svsc(
     // The fail-closed bit-width precondition.
     let needed = inst.grid_bit_width(v);
     if needed > 128 {
-        return Err(SvscError::BitWidthPrecondition { bits_needed: needed, window: v });
+        return Err(SvscError::BitWidthPrecondition {
+            bits_needed: needed,
+            window: v,
+        });
     }
     let inv_small = small_inverse_table(d);
     let pts = grid_points(d);
@@ -687,7 +730,12 @@ pub fn prove_svsc(
     let mut bound: Vec<Vec<Fp256>> = inst
         .factors
         .iter()
-        .map(|f| f.coeffs.iter().map(|&c| Fp256::from_canonical_u64(c)).collect())
+        .map(|f| {
+            f.coeffs
+                .iter()
+                .map(|&c| Fp256::from_canonical_u64(c))
+                .collect()
+        })
         .collect();
     for &r in &challenges {
         for f in bound.iter_mut() {
@@ -772,7 +820,12 @@ pub fn prove_svsc(
     if final_claim != current {
         return Err(SvscError::FinalCheckFailed);
     }
-    Ok(SvscOutput { proof: SvscProof { rounds }, challenges, final_claim, factor_claims })
+    Ok(SvscOutput {
+        proof: SvscProof { rounds },
+        challenges,
+        final_claim,
+        factor_claims,
+    })
 }
 
 impl SvscProof {
@@ -813,7 +866,10 @@ impl SvscProof {
             current = interpolate_with_infinity_fp(&finite, &s_inf, &r, &inv_small);
             point.push(r);
         }
-        Ok(SvscVerifier { point, final_claim: current })
+        Ok(SvscVerifier {
+            point,
+            final_claim: current,
+        })
     }
 }
 
@@ -846,7 +902,13 @@ mod tests {
             let inst = SvscInstance::product(factors, bits).ok().unwrap();
             let claim = claim_of(&inst);
             let mut t1 = Transcript::new_default(b"svsc-test");
-            let out = prove_reference(&inst, &claim, &mut t1).map_err(|e| { println!("PROVE REF ERR {d} {ell}: {e:?}", ell = ell); e }).ok().unwrap();
+            let out = prove_reference(&inst, &claim, &mut t1)
+                .map_err(|e| {
+                    println!("PROVE REF ERR {d} {ell}: {e:?}", ell = ell);
+                    e
+                })
+                .ok()
+                .unwrap();
             let mut t2 = Transcript::new_default(b"svsc-test");
             let v = out
                 .proof
@@ -875,14 +937,9 @@ mod tests {
             let mut t_ref = Transcript::new_default(b"svsc-test");
             let out_ref = prove_reference(&inst, &claim, &mut t_ref).ok().unwrap();
             let mut t_win = Transcript::new_default(b"svsc-test");
-            let out_win = prove_svsc(
-                &inst,
-                &claim,
-                &mut t_win,
-                &WindowSchedule::Early { v },
-            )
-            .ok()
-            .unwrap();
+            let out_win = prove_svsc(&inst, &claim, &mut t_win, &WindowSchedule::Early { v })
+                .ok()
+                .unwrap();
             assert_eq!(out_win.proof, out_ref.proof, "d={d} ell={ell} v={v}");
             assert_eq!(out_win.challenges, out_ref.challenges);
             assert_eq!(out_win.final_claim, out_ref.final_claim);
@@ -936,7 +993,11 @@ mod tests {
         let mut t2 = Transcript::new_default(b"svsc-test");
         // A tampered message derives a different terminal claim (the
         // caller's PCS check fires in practice).
-        let v = out.proof.verify(&claim, inst.num_vars, 2, &mut t2).ok().unwrap();
+        let v = out
+            .proof
+            .verify(&claim, inst.num_vars, 2, &mut t2)
+            .ok()
+            .unwrap();
         assert_ne!(v.final_claim, out.final_claim);
     }
 
@@ -949,10 +1010,7 @@ mod tests {
         assert_eq!(a.add(&a.neg()), Fp256::ZERO);
         let ainv = a.inverse().unwrap();
         assert_eq!(a.mul(&ainv), Fp256::one_mont());
-        assert_eq!(
-            a.sub(&b).add(&b),
-            a
-        );
+        assert_eq!(a.sub(&b).add(&b), a);
         let big = Fp256::from_canonical_u128(u128::MAX - 7);
         assert_eq!(big.add(&big.neg()), Fp256::ZERO);
         let binv = big.inverse().unwrap();
@@ -970,7 +1028,8 @@ mod interp_check {
         let finite = [Fp256::from_canonical_u64(5), Fp256::from_canonical_u64(15)];
         let lead = Fp256::from_canonical_u64(7);
         for (r, want) in [(2u64, 39u64), (3, 77), (5, 195)] {
-            let got = interpolate_with_infinity_fp(&finite, &lead, &Fp256::from_canonical_u64(r), &inv);
+            let got =
+                interpolate_with_infinity_fp(&finite, &lead, &Fp256::from_canonical_u64(r), &inv);
             // Montgomery form of `want`.
             assert_eq!(got, Fp256::from_canonical_u64(want), "r={r}");
         }
@@ -982,4 +1041,3 @@ mod interp_check {
         assert_eq!(got, Fp256::from_canonical_u64(17));
     }
 }
-

@@ -92,7 +92,10 @@ pub enum Structure {
 fn eq_eval(r: &[Goldilocks], x: &[Goldilocks]) -> Goldilocks {
     let mut acc = Goldilocks::ONE;
     for (a, b) in r.iter().zip(x.iter()) {
-        acc = acc.mul(&a.mul(b).add(&Goldilocks::ONE.sub(a).mul(&Goldilocks::ONE.sub(b))));
+        acc = acc.mul(
+            &a.mul(b)
+                .add(&Goldilocks::ONE.sub(a).mul(&Goldilocks::ONE.sub(b))),
+        );
     }
     acc
 }
@@ -161,7 +164,11 @@ impl Structure {
     /// * Shift: `a_1 = eq(r_y)`, `b_1 = shift(r_z)`;
     ///   `a_2 = shift(r_y)·∏(1−r_z)`, `b_2 = all-ones(z) indicator`.
     /// * Eq: `a_1 = eq(r_y)`, `b_1 = eq(r_z)` (k=1; a zero second term).
-    pub fn decompose_tables(&self, n: usize, c: usize) -> (Vec<Vec<Goldilocks>>, Vec<Vec<Goldilocks>>) {
+    pub fn decompose_tables(
+        &self,
+        n: usize,
+        c: usize,
+    ) -> (Vec<Vec<Goldilocks>>, Vec<Vec<Goldilocks>>) {
         let r = match self {
             Structure::Lt { r } | Structure::Shift { r } | Structure::Eq { r } => r,
         };
@@ -181,13 +188,10 @@ impl Structure {
         match self {
             Structure::Lt { .. } => {
                 // a_1 = LT(r_y, ·) over the y-cube; b_1 = 1 over z.
-                let a1: Vec<Goldilocks> = (0..y_len)
-                    .map(|y| lt_bool_eval(r_y, &bits(y, c)))
-                    .collect();
+                let a1: Vec<Goldilocks> =
+                    (0..y_len).map(|y| lt_bool_eval(r_y, &bits(y, c))).collect();
                 let b1 = vec![Goldilocks::ONE; z_len];
-                let a2: Vec<Goldilocks> = (0..y_len)
-                    .map(|y| eq_eval(r_y, &bits(y, c)))
-                    .collect();
+                let a2: Vec<Goldilocks> = (0..y_len).map(|y| eq_eval(r_y, &bits(y, c))).collect();
                 let b2: Vec<Goldilocks> = (0..z_len)
                     .map(|z| lt_bool_eval(r_z, &bits(z, n - c)))
                     .collect();
@@ -195,9 +199,7 @@ impl Structure {
             }
             Structure::Shift { .. } => {
                 // a_1 = eq(r_y, ·); b_1 = shift(r_z, ·).
-                let a1: Vec<Goldilocks> = (0..y_len)
-                    .map(|y| eq_eval(r_y, &bits(y, c)))
-                    .collect();
+                let a1: Vec<Goldilocks> = (0..y_len).map(|y| eq_eval(r_y, &bits(y, c))).collect();
                 let b1: Vec<Goldilocks> = (0..z_len)
                     .map(|z| shift_bool_eval(r_z, &bits(z, n - c)))
                     .collect();
@@ -220,13 +222,13 @@ impl Structure {
                 (vec![a1, a2], vec![b1, b2])
             }
             Structure::Eq { .. } => {
-                let a1: Vec<Goldilocks> = (0..y_len)
-                    .map(|y| eq_eval(r_y, &bits(y, c)))
-                    .collect();
-                let b1: Vec<Goldilocks> = (0..z_len)
-                    .map(|z| eq_eval(r_z, &bits(z, n - c)))
-                    .collect();
-                (vec![a1, vec![Goldilocks::ZERO; y_len]], vec![b1, vec![Goldilocks::ZERO; z_len]])
+                let a1: Vec<Goldilocks> = (0..y_len).map(|y| eq_eval(r_y, &bits(y, c))).collect();
+                let b1: Vec<Goldilocks> =
+                    (0..z_len).map(|z| eq_eval(r_z, &bits(z, n - c))).collect();
+                (
+                    vec![a1, vec![Goldilocks::ZERO; y_len]],
+                    vec![b1, vec![Goldilocks::ZERO; z_len]],
+                )
             }
         }
     }
@@ -263,7 +265,10 @@ pub fn prove_prefix_suffix(
     transcript: &mut Transcript,
 ) -> Result<PrefixSuffixOutput, PrefixSuffixError> {
     if n < 2 || n % 2 != 0 {
-        return Err(PrefixSuffixError::BadShape { expected: 2, got: n });
+        return Err(PrefixSuffixError::BadShape {
+            expected: 2,
+            got: n,
+        });
     }
     let c = n / 2;
     let z_bits = n - c;
@@ -336,7 +341,9 @@ pub fn prove_prefix_suffix(
         let evals = two_factor_round(&bound_a, &bound_q);
         let sum01 = evals[0].add(&evals[1]);
         if sum01 != current_claim {
-            return Err(PrefixSuffixError::RoundCheckFailed { round: bound_r.len() });
+            return Err(PrefixSuffixError::RoundCheckFailed {
+                round: bound_r.len(),
+            });
         }
         transcript
             .append_field_slice(b"sumcheck-round", &evals)
@@ -413,7 +420,9 @@ pub fn prove_prefix_suffix(
         let evals = two_factor_round(&[ub.clone()], &[ab.clone()]);
         let sum01 = evals[0].add(&evals[1]);
         if sum01 != current_claim {
-            return Err(PrefixSuffixError::RoundCheckFailed { round: bound_r.len() });
+            return Err(PrefixSuffixError::RoundCheckFailed {
+                round: bound_r.len(),
+            });
         }
         transcript
             .append_field_slice(b"sumcheck-round", &evals)
@@ -563,12 +572,18 @@ mod tests {
                 let mut stream = OwnedOracle::new(u.clone());
                 let mut ts2 = Transcript::new_default(b"ps-seed");
                 let out =
-                    prove_prefix_suffix(&mut stream, &structure, n, Some(claim), &mut ts2)
-                        .unwrap();
+                    prove_prefix_suffix(&mut stream, &structure, n, Some(claim), &mut ts2).unwrap();
 
                 assert_eq!(out.rounds, reference.proof.rounds, "{tag} rounds n={n}");
-                assert_eq!(out.challenges, reference.challenges, "{tag} challenges n={n}");
-                assert_eq!(out.u_claim, du.evaluate(&out.challenges).unwrap(), "{tag} u(r)");
+                assert_eq!(
+                    out.challenges, reference.challenges,
+                    "{tag} challenges n={n}"
+                );
+                assert_eq!(
+                    out.u_claim,
+                    du.evaluate(&out.challenges).unwrap(),
+                    "{tag} u(r)"
+                );
                 // a(r): the verifier recomputes it directly.
                 assert_eq!(
                     out.a_claim,
@@ -614,8 +629,8 @@ mod tests {
         let out_none = prove_prefix_suffix(&mut stream, &structure, n, None, &mut ts).unwrap();
         let mut stream2 = OwnedOracle::new(u);
         let mut ts2 = Transcript::new_default(b"cc-seed");
-        let out_some = prove_prefix_suffix(&mut stream2, &structure, n, Some(claim), &mut ts2)
-            .unwrap();
+        let out_some =
+            prove_prefix_suffix(&mut stream2, &structure, n, Some(claim), &mut ts2).unwrap();
         assert_eq!(out_none.rounds, out_some.rounds);
         assert_eq!(out_none.challenges, out_some.challenges);
         assert_eq!(out_none.final_claim(), out_some.final_claim());
@@ -625,9 +640,10 @@ mod tests {
         );
         assert_eq!(
             out_none.u_claim,
-            DenseMle::new(random_u(n, b"cc-u")).unwrap().evaluate(&out_none.challenges).unwrap()
+            DenseMle::new(random_u(n, b"cc-u"))
+                .unwrap()
+                .evaluate(&out_none.challenges)
+                .unwrap()
         );
     }
 }
-
-

@@ -44,11 +44,7 @@ impl ProjectionMatrix {
     /// 1/2 and ±1 with probability 1/4 each (the biased-ternary
     /// distribution the paper's JL analysis covers).
     pub fn from_seed(target_dim: usize, source_dim: usize, seed: &[u8]) -> Self {
-        let bytes = Transcript::xof(
-            b"pikkufold-pi",
-            seed,
-            target_dim * source_dim,
-        );
+        let bytes = Transcript::xof(b"pikkufold-pi", seed, target_dim * source_dim);
         let mut entries = Vec::with_capacity(target_dim * source_dim);
         for &b in bytes.iter().take(target_dim * source_dim) {
             // 2 bits decide: 00 -> 0, 01 -> 0, 10 -> +1, 11 -> -1.
@@ -99,13 +95,19 @@ impl ProjectionMatrix {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PikkuError {
-    DimensionMismatch { expected: usize, got: usize },
+    DimensionMismatch {
+        expected: usize,
+        got: usize,
+    },
     Ring(lattice_ring::RingError),
     Ajtai(AjtaiError),
     LinearProof(LinearProofError),
     /// Norm concentration failure (should not happen for honest witnesses
     /// within the certified JL parameters).
-    NormConcentration { projected: u64, bound: u64 },
+    NormConcentration {
+        projected: u64,
+        bound: u64,
+    },
     /// Wave 6.2: the fold would exceed the hard norm gate
     /// `min(q/2, β*)` — refused instead of wrapping mod q.
     NormGateExceeded,
@@ -153,13 +155,23 @@ pub fn fold(
     let mut transcript = Transcript::new_default(b"lzx-pikkufold");
     transcript
         .append_bytes(b"c1", commitment1)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+        .map_err(|_| PikkuError::DimensionMismatch {
+            expected: 0,
+            got: 0,
+        })?;
     transcript
         .append_bytes(b"c2", commitment2)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
-    let seed = transcript
-        .challenge_bytes(b"fold-r", 32)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+        .map_err(|_| PikkuError::DimensionMismatch {
+            expected: 0,
+            got: 0,
+        })?;
+    let seed =
+        transcript
+            .challenge_bytes(b"fold-r", 32)
+            .map_err(|_| PikkuError::DimensionMismatch {
+                expected: 0,
+                got: 0,
+            })?;
     let bytes = Transcript::xof(b"pikku-chal", &seed, 8);
     let mut arr = [0u8; 8];
     arr.copy_from_slice(&bytes[..8]);
@@ -207,13 +219,23 @@ pub fn fold_bounded(
     let mut transcript = Transcript::new_default(b"lzx-pikkufold");
     transcript
         .append_bytes(b"c1", commitment1)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+        .map_err(|_| PikkuError::DimensionMismatch {
+            expected: 0,
+            got: 0,
+        })?;
     transcript
         .append_bytes(b"c2", commitment2)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
-    let seed = transcript
-        .challenge_bytes(b"fold-r", 32)
-        .map_err(|_| PikkuError::DimensionMismatch { expected: 0, got: 0 })?;
+        .map_err(|_| PikkuError::DimensionMismatch {
+            expected: 0,
+            got: 0,
+        })?;
+    let seed =
+        transcript
+            .challenge_bytes(b"fold-r", 32)
+            .map_err(|_| PikkuError::DimensionMismatch {
+                expected: 0,
+                got: 0,
+            })?;
     let bytes = Transcript::xof(b"pikku-chal", &seed, 8);
     let mut arr = [0u8; 8];
     arr.copy_from_slice(&bytes[..8]);
@@ -260,13 +282,7 @@ pub fn fold_with_binding(
     }
     let t1 = pk.commit(w1).map_err(PikkuError::Ajtai)?;
     let t2 = pk.commit(w2).map_err(PikkuError::Ajtai)?;
-    let mut step = fold(
-        w1,
-        w2,
-        projection,
-        &t1.to_bytes(),
-        &t2.to_bytes(),
-    )?;
+    let mut step = fold(w1, w2, projection, &t1.to_bytes(), &t2.to_bytes())?;
     // Bind the image: prove the linear relations
     // ⟨Π_j, w'⟩ = image_j for every projection row j, where
     // w' = w1 + r·w2 is the folded secret. The coefficients are the PUBLIC
@@ -288,17 +304,14 @@ pub fn fold_with_binding(
     // Prove knowledge of (w1, w2) folded: use the folded witness directly.
     let mut folded = Vec::with_capacity(pk.params.m);
     for (a, b) in w1.iter().zip(w2.iter()) {
-        folded.push(a.add(&b.scale_i64(step.challenge)).map_err(PikkuError::Ring)?);
+        folded.push(
+            a.add(&b.scale_i64(step.challenge))
+                .map_err(PikkuError::Ring)?,
+        );
     }
     let folded_commitment = pk.commit(&folded).map_err(PikkuError::Ajtai)?;
-    let proof = LinearProof::prove(
-        pk,
-        &relations,
-        &folded,
-        &folded_commitment,
-        prover_seed,
-    )
-    .map_err(PikkuError::LinearProof)?;
+    let proof = LinearProof::prove(pk, &relations, &folded, &folded_commitment, prover_seed)
+        .map_err(PikkuError::LinearProof)?;
     step.binding = Some(proof);
     Ok(step)
 }
@@ -336,20 +349,49 @@ mod tests {
         let t2 = pk.commit(&w2).ok().unwrap();
         let q_half = (ring.modulus.q / 2) as u64;
         // Comfortable gate: fold succeeds and the budget tracks the law.
-        let (step, budget) =
-            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), 128, 128, q_half, 1 << 24)
-                .ok()
-                .unwrap();
+        let (step, budget) = fold_bounded(
+            &w1,
+            &w2,
+            &pi,
+            &t1.to_bytes(),
+            &t2.to_bytes(),
+            128,
+            128,
+            q_half,
+            1 << 24,
+        )
+        .ok()
+        .unwrap();
         assert_eq!(budget.beta(), 128 + step.challenge.unsigned_abs() * 128);
         assert_eq!(budget.folds(), 1);
         // Tight β*: β' ≥ 128 + 128 = 256 > 200 → refused.
         assert!(matches!(
-            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), 128, 128, q_half, 200),
+            fold_bounded(
+                &w1,
+                &w2,
+                &pi,
+                &t1.to_bytes(),
+                &t2.to_bytes(),
+                128,
+                128,
+                q_half,
+                200
+            ),
             Err(PikkuError::NormGateExceeded)
         ));
         // q/2 dominance: β* huge but β + |r|·β_in past q/2 → refused.
         assert!(matches!(
-            fold_bounded(&w1, &w2, &pi, &t1.to_bytes(), &t2.to_bytes(), q_half - 2, 8, q_half, u64::MAX),
+            fold_bounded(
+                &w1,
+                &w2,
+                &pi,
+                &t1.to_bytes(),
+                &t2.to_bytes(),
+                q_half - 2,
+                8,
+                q_half,
+                u64::MAX
+            ),
             Err(PikkuError::NormGateExceeded)
         ));
     }
@@ -430,7 +472,9 @@ mod tests {
         let w1 = small_w(&ring, b"fb-1");
         let w2 = small_w(&ring, b"fb-2");
         let pi = ProjectionMatrix::from_seed(2, 4, b"pi-bind");
-        let step = fold_with_binding(&pk, &w1, &w2, &pi, b"prover").ok().unwrap();
+        let step = fold_with_binding(&pk, &w1, &w2, &pi, b"prover")
+            .ok()
+            .unwrap();
         let proof = step.binding.as_ref().ok_or(()).ok().unwrap();
 
         // Recompute the public statement: folded commitment + relations.

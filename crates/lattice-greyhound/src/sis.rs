@@ -104,7 +104,11 @@ pub fn init_proof(
             }
         }
         let nn = best_block.div_ceil(k).max(1);
-        let r_total: usize = boundary_ranks.iter().map(|&n| n.div_ceil(nn)).sum::<usize>().max(1);
+        let r_total: usize = boundary_ranks
+            .iter()
+            .map(|&n| n.div_ceil(nn))
+            .sum::<usize>()
+            .max(1);
 
         // z variance: the amortized opening's per-coefficient variance.
         // The fold z = Σ_i c_i·part_i has variance Σ_i ‖c_i‖²·var(part) =
@@ -117,13 +121,21 @@ pub fn init_proof(
         let decompose = !tail
             && !sis_secure(
                 13,
-                6.0 * T * SLACK * (2.0 * (TAU1 as f64 + 4.0 * TAU2 as f64) * varz * (nn * N) as f64).sqrt(),
+                6.0 * T
+                    * SLACK
+                    * (2.0 * (TAU1 as f64 + 4.0 * TAU2 as f64) * varz * (nn * N) as f64).sqrt(),
             )
             || 64.0 * varz > (1u64 << 28) as f64;
         let (f, b) = if decompose {
-            (2usize, (((12.0f64).log2() + varz.log2()) / 4.0).round().max(1.0) as u32)
+            (
+                2usize,
+                (((12.0f64).log2() + varz.log2()) / 4.0).round().max(1.0) as u32,
+            )
         } else {
-            (1usize, (((12.0f64).log2() + varz.log2()) / 2.0).round().max(1.0) as u32)
+            (
+                1usize,
+                (((12.0f64).log2() + varz.log2()) / 2.0).round().max(1.0) as u32,
+            )
         };
         const DIGITBITS: u32 = 14;
         let (f, b) = if b > DIGITBITS {
@@ -177,8 +189,8 @@ pub fn init_proof(
                 // the reference's exact formula: fg = ceil((log2(12·varg))/(2b)),
                 // clamped at 1 — NO LOGQ-cover (the g-garbage is short, not
                 // uniform mod q; a LOGQ cover would overshoot fg)
-                let fg =
-                    (((12.0f64).log2() + varg.max(1e-300).log2()) / (2.0 * bg as f64)).ceil() as usize;
+                let fg = (((12.0f64).log2() + varg.max(1e-300).log2()) / (2.0 * bg as f64)).ceil()
+                    as usize;
                 fg.max(1)
             };
             (bg, fg)
@@ -218,7 +230,10 @@ pub fn init_proof(
                     / 2.0;
             }
             let total = val * N as f64;
-            if sis_secure(k_try, 6.0 * T * SLACK * 2f64.powi((f as i32 - 1) * b as i32) * total.sqrt()) {
+            if sis_secure(
+                k_try,
+                6.0 * T * SLACK * 2f64.powi((f as i32 - 1) * b as i32) * total.sqrt(),
+            ) {
                 kappa = k_try;
                 normsq_out = total as u64;
                 break;
@@ -258,11 +273,21 @@ pub fn init_proof(
             eprintln!("[sis] k={k} nn={nn} rr={r_total} kappa={kappa} kappa1={kappa1} f={f} fu={fu} fg={fg} b={b} bu={bu} m={} vs {nn}", fu * r_total * kappa + (fu + fg) * (r_total * r_total + r_total) / 2);
         }
         if !tail {
-            if fu * r_total * kappa + (fu + fg) * (r_total * r_total + r_total) / 2
-                <= 11 * nn / 10
+            if fu * r_total * kappa + (fu + fg) * (r_total * r_total + r_total) / 2 <= 11 * nn / 10
             {
                 return Ok((
-                    ComParams { f, fu, fg, b, bu, bg, kappa, kappa1, u1len, u2len },
+                    ComParams {
+                        f,
+                        fu,
+                        fg,
+                        b,
+                        bu,
+                        bg,
+                        kappa,
+                        kappa1,
+                        u1len,
+                        u2len,
+                    },
                     nn,
                     r_total,
                     normsq_out,
@@ -275,7 +300,18 @@ pub fn init_proof(
             let ent = varz.max(1e-300).log2() / 2.0 + 2.05;
             if (u1len + u2len) * LOGQ <= (nn as f64 * ent) as usize {
                 return Ok((
-                    ComParams { f, fu, fg, b, bu, bg, kappa, kappa1, u1len, u2len },
+                    ComParams {
+                        f,
+                        fu,
+                        fg,
+                        b,
+                        bu,
+                        bg,
+                        kappa,
+                        kappa1,
+                        u1len,
+                        u2len,
+                    },
                     nn,
                     r_total,
                     normsq_out,
@@ -312,11 +348,19 @@ impl ComKey {
                     v |= (buf[base + k] as u64) << (8 * k);
                 }
                 v %= crate::ring::Q as u64;
-                *c = if v > crate::ring::Q as u64 / 2 { v as i64 - crate::ring::Q } else { v as i64 };
+                *c = if v > crate::ring::Q as u64 / 2 {
+                    v as i64 - crate::ring::Q
+                } else {
+                    v as i64
+                };
             }
             rows.push(Poly(p));
         }
-        ComKey { rows, len, seed: *seed }
+        ComKey {
+            rows,
+            len,
+            seed: *seed,
+        }
     }
 
     /// The matrix-vector product `t = A·s` with A the window `[off, off + height·n)`,
@@ -337,14 +381,13 @@ impl ComKey {
 mod tests {
     use super::*;
 
-
-#[test]
-fn key_expansion_timing() {
-    let t0 = std::time::Instant::now();
-    let key = crate::sis::ComKey::expand(1 << 16, &[7u8; 32]);
-    println!("expand 2^16 took {:?}", t0.elapsed());
-    assert_eq!(key.len, 1 << 16);
-}
+    #[test]
+    fn key_expansion_timing() {
+        let t0 = std::time::Instant::now();
+        let key = crate::sis::ComKey::expand(1 << 16, &[7u8; 32]);
+        println!("expand 2^16 took {:?}", t0.elapsed());
+        assert_eq!(key.len, 1 << 16);
+    }
 
     #[test]
     fn sis_secure_matches_reference_regime() {

@@ -88,7 +88,10 @@ pub fn build_twist_matrices(
     let t = layout.t();
     let n = layout.n();
     if init.len() != k {
-        return Err(PiopError::Shape { expected: k, got: init.len() });
+        return Err(PiopError::Shape {
+            expected: k,
+            got: init.len(),
+        });
     }
     let mut current = init.to_vec();
     // Val(k, j): the value of address k at cycle j (before cycle j's write).
@@ -236,7 +239,10 @@ pub fn prove_twist(
                 evals[kk * t + j] = wv;
             }
         }
-        DenseMle::new(evals).map_err(|_| PiopError::Shape { expected: 0, got: 0 })?
+        DenseMle::new(evals).map_err(|_| PiopError::Shape {
+            expected: 0,
+            got: 0,
+        })?
     };
     let mut vp2 = VirtualPolynomial::new(log_k + log_t);
     let eq_id = vp2.add_factor(eq_full)?;
@@ -365,7 +371,6 @@ fn absorb_twist_meta(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,14 +385,54 @@ mod tests {
         // Read values are the values the memory actually holds at the
         // read cycle (the ground-truth semantics of twist_check).
         vec![
-            Access { address: 0, timestamp: 0, value: 10, is_write: true },
-            Access { address: 1, timestamp: 1, value: 0, is_write: false },
-            Access { address: 0, timestamp: 2, value: 10, is_write: false },
-            Access { address: 2, timestamp: 3, value: 30, is_write: true },
-            Access { address: 2, timestamp: 4, value: 30, is_write: false },
-            Access { address: 1, timestamp: 5, value: 5, is_write: true },
-            Access { address: 1, timestamp: 6, value: 5, is_write: false },
-            Access { address: 3, timestamp: 7, value: 0, is_write: false },
+            Access {
+                address: 0,
+                timestamp: 0,
+                value: 10,
+                is_write: true,
+            },
+            Access {
+                address: 1,
+                timestamp: 1,
+                value: 0,
+                is_write: false,
+            },
+            Access {
+                address: 0,
+                timestamp: 2,
+                value: 10,
+                is_write: false,
+            },
+            Access {
+                address: 2,
+                timestamp: 3,
+                value: 30,
+                is_write: true,
+            },
+            Access {
+                address: 2,
+                timestamp: 4,
+                value: 30,
+                is_write: false,
+            },
+            Access {
+                address: 1,
+                timestamp: 5,
+                value: 5,
+                is_write: true,
+            },
+            Access {
+                address: 1,
+                timestamp: 6,
+                value: 5,
+                is_write: false,
+            },
+            Access {
+                address: 3,
+                timestamp: 7,
+                value: 0,
+                is_write: false,
+            },
         ]
     }
 
@@ -395,8 +440,9 @@ mod tests {
     fn twist_honest_trace_proves_and_verifies() {
         let accesses = honest_trace();
         let init = vec![fe(0); 4];
-        let witness =
-            build_twist_matrices(&accesses, &init, 2, 3, 1).ok().unwrap();
+        let witness = build_twist_matrices(&accesses, &init, 2, 3, 1)
+            .ok()
+            .unwrap();
         // Ground truth first: initial/final as (addr, value) pairs — the
         // final state comes from the witness materialization itself.
         let init_pairs: Vec<(u64, u64)> = (0..4).map(|a| (a, 0u64)).collect();
@@ -451,7 +497,11 @@ mod tests {
             &resolver,
             &mut vt2,
         );
-        assert!(res.is_ok(), "honest twist trace must verify: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "honest twist trace must verify: {:?}",
+            res.err()
+        );
     }
 
     #[test]
@@ -460,14 +510,34 @@ mod tests {
         // stale read followed by a consistent final state.
         let init = vec![fe(0); 4];
         let stale = vec![
-            Access { address: 0, timestamp: 0, value: 10, is_write: true },
+            Access {
+                address: 0,
+                timestamp: 0,
+                value: 10,
+                is_write: true,
+            },
             // STALE read: observes the OLD value 0 after address 0 was
             // written to 10 (then rewritten to the final value 10 —
             // final state consistent with the writes).
-            Access { address: 0, timestamp: 1, value: 0, is_write: false },
-            Access { address: 0, timestamp: 2, value: 10, is_write: true },
+            Access {
+                address: 0,
+                timestamp: 1,
+                value: 0,
+                is_write: false,
+            },
+            Access {
+                address: 0,
+                timestamp: 2,
+                value: 10,
+                is_write: true,
+            },
             // Pad to a power-of-two cycle count.
-            Access { address: 3, timestamp: 3, value: 0, is_write: false },
+            Access {
+                address: 3,
+                timestamp: 3,
+                value: 0,
+                is_write: false,
+            },
         ];
         // The deterministic ground truth rejects it...
         let init_pairs: Vec<(u64, u64)> = (0..4).map(|a| (a, 0u64)).collect();
@@ -488,8 +558,9 @@ mod tests {
     fn twist_tampered_inc_fails_telescoping() {
         let accesses = honest_trace();
         let init = vec![fe(0); 4];
-        let mut witness =
-            build_twist_matrices(&accesses, &init, 2, 3, 1).ok().unwrap();
+        let mut witness = build_twist_matrices(&accesses, &init, 2, 3, 1)
+            .ok()
+            .unwrap();
         // Tamper one increment: the telescoping claim breaks (Final −
         // Init no longer matches the summed increments).
         witness.inc.evaluations[0] = witness.inc.evaluations[0].add(&fe(1));
@@ -499,7 +570,12 @@ mod tests {
         // (final − init) per address, weighted by eq at a fixed point.
         let r = vec![fe(1), fe(0)];
         let eq = DenseMle::eq_extension(&r);
-        for (kk, dv) in witness.final_state.iter().zip(witness.init.iter()).enumerate() {
+        for (kk, dv) in witness
+            .final_state
+            .iter()
+            .zip(witness.init.iter())
+            .enumerate()
+        {
             claim = claim.add(&eq.evaluations[kk].mul(&dv.0.sub(dv.1)));
         }
         // The tampered Inc sum over the hypercube:

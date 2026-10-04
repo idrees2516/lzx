@@ -93,11 +93,11 @@ pub use boundary::{analyze, k4_rank, BoundaryAnalysis};
 pub use cauchy::{
     carrier_identity_holds, discrepancy_poly, w_poly, Carrier, CauchyParams, QuadraticMap,
 };
-pub use commit::{
-    AjtaiKey, Level1Encoding, Level2Encoding, split_radix16,
+pub use commit::{split_radix16, AjtaiKey, Level1Encoding, Level2Encoding};
+pub use field_k::{Fq48, KPoly, K4, Q48};
+pub use node::{
+    honest_witness, prove, verify, NodeError, NodeInstance, NodeParams, NodeProof, NodeWitness,
 };
-pub use field_k::{Fq48, K4, KPoly, Q48};
-pub use node::{honest_witness, prove, verify, NodeError, NodeInstance, NodeParams, NodeProof, NodeWitness};
 pub use reduce_chain::{
     digit_energy, radix_recompose, radix_split, sample_short_challenge, ChainError, ChainProof,
 };

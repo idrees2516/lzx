@@ -5,7 +5,9 @@ use lattice_greyhound::greyhound::{commit, eval_polynomial, eval_prove, eval_ver
 use lattice_greyhound::r1cs::{binary_r1cs_reduce, r1cs_mod_reduce};
 use lattice_greyhound::recursion::prove as labrador_prove;
 use lattice_greyhound::recursion::verify as labrador_verify;
-use lattice_greyhound::relation::{DotCnst, PrincipalStatement, PrincipalWitness, Term, VectorSpec};
+use lattice_greyhound::relation::{
+    DotCnst, PrincipalStatement, PrincipalWitness, Term, VectorSpec,
+};
 use lattice_greyhound::ring::{sprod, Poly, N};
 use lattice_greyhound::sis::ComKey;
 
@@ -208,13 +210,21 @@ fn labrador_engine_standalone_roundtrip() {
     let stmt = PrincipalStatement::new(
         vec![VectorSpec::plain(512), VectorSpec::plain(512)],
         vec![DotCnst {
-            terms: vec![Term { idx: 0, off: 0, phi }],
+            terms: vec![Term {
+                idx: 0,
+                off: 0,
+                phi,
+            }],
             a: vec![(0, 1, Poly::constant(5))],
             b: Some(b),
             ct_only: false,
         }],
         vec![DotCnst {
-            terms: vec![Term { idx: 1, off: 0, phi: phi2 }],
+            terms: vec![Term {
+                idx: 1,
+                off: 0,
+                phi: phi2,
+            }],
             a: vec![],
             b: Some(b2),
             ct_only: true,
@@ -246,6 +256,9 @@ fn size_model_reproduces_the_paper_regime() {
     // 2^26..2^30 (the paper's 46/53/53 KB regime)
     let totals = lattice_greyhound::sizes::table4_total_bytes();
     let kbs: Vec<f64> = totals.iter().map(|&t| t as f64 / 1024.0).collect();
-    assert!(kbs.iter().all(|&kb| (20.0..130.0).contains(&kb)), "totals out of regime: {kbs:?}");
+    assert!(
+        kbs.iter().all(|&kb| (20.0..130.0).contains(&kb)),
+        "totals out of regime: {kbs:?}"
+    );
     assert!(kbs[2] / kbs[0] < 2.5, "not near-constant: {kbs:?}");
 }

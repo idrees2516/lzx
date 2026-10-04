@@ -135,18 +135,31 @@ pub fn prove_lookup_memory(
                 let idx = touched
                     .iter()
                     .position(|&x| x == a)
-                    .ok_or(LookupMemoryError::Shape("op address outside the touched set".into()))?
-                    as u64;
-                ops.push(RamOp { write: w, addr: idx, value: pack_u64(ring, v) });
+                    .ok_or(LookupMemoryError::Shape(
+                        "op address outside the touched set".into(),
+                    ))? as u64;
+                ops.push(RamOp {
+                    write: w,
+                    addr: idx,
+                    value: pack_u64(ring, v),
+                });
             }
             while ops.len() < k {
                 // sentinel reads appended at the END of the stream: the
                 // live value at sub-address 0 is then the FINAL value
                 let v0 = sub_final[0].clone();
-                ops.push(RamOp { write: false, addr: 0, value: v0 });
+                ops.push(RamOp {
+                    write: false,
+                    addr: 0,
+                    value: v0,
+                });
             }
             let (proof, oracles) = prove_ram_batch(ring, &sub_init, &ops, &sub_final, transcript)?;
-            Ok(LookupMemoryProof::Ram { proof, oracles, touched })
+            Ok(LookupMemoryProof::Ram {
+                proof,
+                oracles,
+                touched,
+            })
         }
         Some(table) => {
             // ---- the ROM path: one Ring-LogUp ----
@@ -186,7 +199,11 @@ pub fn verify_lookup_memory(
     transcript: &mut Transcript,
 ) -> Result<(), LookupMemoryError> {
     match proof {
-        LookupMemoryProof::Ram { proof, oracles, touched } => {
+        LookupMemoryProof::Ram {
+            proof,
+            oracles,
+            touched,
+        } => {
             let m = inst.window.len();
             if !m.is_power_of_two() {
                 return Err(LookupMemoryError::Shape("window not a power of two".into()));
@@ -195,22 +212,31 @@ pub fn verify_lookup_memory(
             // every address must lie in the window
             for &a in touched {
                 if a >= m as u64 {
-                    return Err(LookupMemoryError::Verify("touched address out of window".into()));
+                    return Err(LookupMemoryError::Verify(
+                        "touched address out of window".into(),
+                    ));
                 }
             }
             let n_sub = touched.len().next_power_of_two().max(2);
             let k = 2 * n_sub;
             if inst.ops.len() > k {
-                return Err(LookupMemoryError::Shape("op count exceeds the record shape".into()));
+                return Err(LookupMemoryError::Shape(
+                    "op count exceeds the record shape".into(),
+                ));
             }
             // the op stream: the real ops form a prefix of the padded
             // stream; the padding is sentinel reads of sub-address 0
             if oracles.ops.len() < inst.ops.len() {
-                return Err(LookupMemoryError::Verify("op stream shorter than the statement".into()));
+                return Err(LookupMemoryError::Verify(
+                    "op stream shorter than the statement".into(),
+                ));
             }
             for (i, &(w, a, v)) in inst.ops.iter().enumerate() {
                 let op = &oracles.ops[i];
-                let idx = touched.iter().position(|&x| x == a).unwrap_or(u64::MAX as usize);
+                let idx = touched
+                    .iter()
+                    .position(|&x| x == a)
+                    .unwrap_or(u64::MAX as usize);
                 if op.write != w || op.addr != idx as u64 || unpack_u64(ring, &op.value) != v {
                     return Err(LookupMemoryError::Verify("op stream mismatch".into()));
                 }
@@ -221,7 +247,9 @@ pub fn verify_lookup_memory(
                     break;
                 }
                 if unpack_u64(ring, &oracles.initial[si]) != inst.window[a as usize] {
-                    return Err(LookupMemoryError::Verify("sub-image initial mismatch".into()));
+                    return Err(LookupMemoryError::Verify(
+                        "sub-image initial mismatch".into(),
+                    ));
                 }
                 if unpack_u64(ring, &oracles.final_[si]) != inst.final_window[a as usize] {
                     return Err(LookupMemoryError::Verify("sub-image final mismatch".into()));
@@ -236,8 +264,17 @@ pub fn verify_lookup_memory(
                     return Err(LookupMemoryError::Verify("untouched word changed".into()));
                 }
             }
-            verify_ram_batch(ring, n_sub, k, &oracles.initial, &oracles.final_, proof, oracles, transcript)
-                .map_err(|e| LookupMemoryError::Ring(format!("{e:?}")))?;
+            verify_ram_batch(
+                ring,
+                n_sub,
+                k,
+                &oracles.initial,
+                &oracles.final_,
+                proof,
+                oracles,
+                transcript,
+            )
+            .map_err(|e| LookupMemoryError::Ring(format!("{e:?}")))?;
             Ok(())
         }
         LookupMemoryProof::Rom { proof, oracles } => {
@@ -255,12 +292,7 @@ pub fn verify_lookup_memory(
             }
             let n_q = oracles.a.len();
             lattice_lookup_ring::ring_logup::verify_ring_logup(
-                ring,
-                n_q,
-                n_tab,
-                proof,
-                oracles,
-                transcript,
+                ring, n_q, n_tab, proof, oracles, transcript,
             )
             .map_err(|e| LookupMemoryError::Ring(format!("{e:?}")))?;
             Ok(())
@@ -299,11 +331,18 @@ mod tests {
             (false, 2u64, 30u64),
         ];
         final_window[1] = 99;
-        let inst = LookupMemoryInstance { window: window.clone(), final_window, ops, table: None };
+        let inst = LookupMemoryInstance {
+            window: window.clone(),
+            final_window,
+            ops,
+            table: None,
+        };
         let mut tr = Transcript::new_default(b"lm");
-        let proof = prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let proof =
+            prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
         let mut tr2 = Transcript::new_default(b"lm");
-        verify_lookup_memory(&r, &inst, &proof, &mut tr2).unwrap_or_else(|e| panic!("verify: {e:?}"));
+        verify_lookup_memory(&r, &inst, &proof, &mut tr2)
+            .unwrap_or_else(|e| panic!("verify: {e:?}"));
     }
 
     #[test]
@@ -318,9 +357,11 @@ mod tests {
             table: Some(table),
         };
         let mut tr = Transcript::new_default(b"rom");
-        let proof = prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let proof =
+            prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
         let mut tr2 = Transcript::new_default(b"rom");
-        verify_lookup_memory(&r, &inst, &proof, &mut tr2).unwrap_or_else(|e| panic!("verify: {e:?}"));
+        verify_lookup_memory(&r, &inst, &proof, &mut tr2)
+            .unwrap_or_else(|e| panic!("verify: {e:?}"));
     }
 
     #[test]
@@ -330,9 +371,15 @@ mod tests {
         let mut final_window = window.clone();
         let ops = vec![(true, 1u64, 99u64)];
         final_window[1] = 99;
-        let inst = LookupMemoryInstance { window, final_window, ops, table: None };
+        let inst = LookupMemoryInstance {
+            window,
+            final_window,
+            ops,
+            table: None,
+        };
         let mut tr = Transcript::new_default(b"lm2");
-        let proof = prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let proof =
+            prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
         // tamper the public final image
         let mut bad = inst.clone();
         bad.final_window[2] = 777;
@@ -357,7 +404,8 @@ mod tests {
             table: Some(table),
         };
         let mut tr = Transcript::new_default(b"rom2");
-        let proof = prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        let proof =
+            prove_lookup_memory(&r, &inst, &mut tr).unwrap_or_else(|e| panic!("prove: {e:?}"));
         let mut bad = inst.clone();
         if let Some(t) = bad.table.as_mut() {
             t[1] = 999;

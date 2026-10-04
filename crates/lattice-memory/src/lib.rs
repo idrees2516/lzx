@@ -63,10 +63,9 @@ pub use onehot_check::{verify_onehot, OneHotProof};
 pub use shout::{verify_shout, verify_shout_core_d1, ShoutProof};
 pub use sparse::{SparseOneHotFactor, SparseShoutInstance, SparseStats};
 pub use sparse_engine::{
-    build_twist_ports, prove_onehot_sparse, prove_shout_sparse,
-    prove_twist_ports_sparse, verify_twist_ports_checked, FactorClaim,
-    ProjectedDense, SparseFactor, SparseInstance, SparseOutput, SparseTerm,
-    TwistPortsWitness,
+    build_twist_ports, prove_onehot_sparse, prove_shout_sparse, prove_twist_ports_sparse,
+    verify_twist_ports_checked, FactorClaim, ProjectedDense, SparseFactor, SparseInstance,
+    SparseOutput, SparseTerm, TwistPortsWitness,
 };
 pub use twist::{build_twist_matrices, prove_twist, verify_twist, TwistProof, TwistWitness};
 
@@ -163,9 +162,11 @@ impl<'a> WitnessResolver<'a> {
         idx: usize,
         factor: FactorId,
     ) -> Result<&'a DenseMle, PiopError> {
-        slots.get(idx).copied().flatten().ok_or(PiopError::MissingFactor {
-            factor,
-        })
+        slots
+            .get(idx)
+            .copied()
+            .flatten()
+            .ok_or(PiopError::MissingFactor { factor })
     }
 }
 
@@ -176,12 +177,12 @@ impl<'a> FactorResolver for WitnessResolver<'a> {
             FactorId::Wa(i) => Self::lookup_opt(&self.wa, i, factor)?,
             FactorId::Inc => self.inc.ok_or(PiopError::MissingFactor { factor })?,
             FactorId::Val => self.val.ok_or(PiopError::MissingFactor { factor })?,
-            FactorId::ReadValues => {
-                self.read_values.ok_or(PiopError::MissingFactor { factor })?
-            }
-            FactorId::WriteValues => {
-                self.write_values.ok_or(PiopError::MissingFactor { factor })?
-            }
+            FactorId::ReadValues => self
+                .read_values
+                .ok_or(PiopError::MissingFactor { factor })?,
+            FactorId::WriteValues => self
+                .write_values
+                .ok_or(PiopError::MissingFactor { factor })?,
             FactorId::ReadAddr => self.read_addr.ok_or(PiopError::MissingFactor { factor })?,
             FactorId::WriteAddr => self.write_addr.ok_or(PiopError::MissingFactor { factor })?,
             FactorId::Table => self.table.ok_or(PiopError::MissingFactor { factor })?,
@@ -198,18 +199,29 @@ pub enum PiopError {
     Mle(lattice_core::mle::MleError),
     Virtual(lattice_sumcheck::VirtualPolyError),
     /// Instance shape mismatch (layout vs factor arity).
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// Layout parameters inconsistent (e.g. log_k not divisible by d).
-    BadLayout { log_k: usize, d: usize },
+    BadLayout {
+        log_k: usize,
+        d: usize,
+    },
     /// Address out of range for the layout.
-    AddressOutOfRange { address: u64, k: usize },
+    AddressOutOfRange {
+        address: u64,
+        k: usize,
+    },
     /// Prover-side fail-closed: the witness violates the statement
     /// (stale read, inconsistent increments, wrong final state...).
     WitnessInconsistent(&'static str),
     /// Verifier-side: a terminal identity failed.
     FinalCheckFailed(&'static str),
     /// A factor the protocol needed was not supplied to the resolver.
-    MissingFactor { factor: FactorId },
+    MissingFactor {
+        factor: FactorId,
+    },
     /// The 2^-1 point trick is unavailable (field of characteristic 2).
     InverseOfTwo,
 }
@@ -271,8 +283,7 @@ pub fn shout_fingerprint(
         .challenge_field(b"shout-r")
         .map_err(MemoryError::Transcript)?;
     // Multiplicities: how many times each table entry is read.
-    let mut counts: std::collections::BTreeMap<(u64, u64), u64> =
-        std::collections::BTreeMap::new();
+    let mut counts: std::collections::BTreeMap<(u64, u64), u64> = std::collections::BTreeMap::new();
     for access in reads {
         *counts.entry((access.address, access.value)).or_insert(0) += 1;
     }
@@ -280,8 +291,7 @@ pub fn shout_fingerprint(
     let mut table_product = Goldilocks::ONE;
     for (addr, value) in table {
         let count = counts.get(&(*addr, *value)).copied().unwrap_or(0);
-        let factor = Goldilocks::from_u64(*addr)
-            .add(&r.mul(&Goldilocks::from_u64(*value)));
+        let factor = Goldilocks::from_u64(*addr).add(&r.mul(&Goldilocks::from_u64(*value)));
         for _ in 0..count {
             table_product = table_product.mul(&factor);
         }
@@ -289,8 +299,8 @@ pub fn shout_fingerprint(
     // Reads product: Π_reads (a + r·v).
     let mut reads_product = Goldilocks::ONE;
     for access in reads {
-        let factor = Goldilocks::from_u64(access.address)
-            .add(&r.mul(&Goldilocks::from_u64(access.value)));
+        let factor =
+            Goldilocks::from_u64(access.address).add(&r.mul(&Goldilocks::from_u64(access.value)));
         reads_product = reads_product.mul(&factor);
     }
     if reads_product != table_product {
@@ -321,8 +331,7 @@ pub fn twist_check(
         }
     }
     // Final state must match.
-    let mut final_map: std::collections::BTreeMap<u64, u64> =
-        std::collections::BTreeMap::new();
+    let mut final_map: std::collections::BTreeMap<u64, u64> = std::collections::BTreeMap::new();
     for (addr, value) in final_state {
         final_map.insert(*addr, *value);
     }
@@ -345,8 +354,7 @@ pub fn twist_fingerprint(
         .challenge_field(b"twist-w")
         .map_err(MemoryError::Transcript)?;
     // Last write per address.
-    let mut last_write: std::collections::BTreeMap<u64, u64> =
-        std::collections::BTreeMap::new();
+    let mut last_write: std::collections::BTreeMap<u64, u64> = std::collections::BTreeMap::new();
     for access in accesses {
         if access.is_write {
             last_write.insert(access.address, access.value);
@@ -358,8 +366,7 @@ pub fn twist_fingerprint(
     let mut weight = Goldilocks::ONE;
     for (addr, final_value) in final_state {
         let expected = last_write.get(addr).copied().unwrap_or(*final_value);
-        let diff = Goldilocks::from_u64(*final_value)
-            .sub(&Goldilocks::from_u64(expected));
+        let diff = Goldilocks::from_u64(*final_value).sub(&Goldilocks::from_u64(expected));
         acc = acc.add(&diff.mul(&weight));
         weight = weight.mul(&w);
     }
@@ -382,10 +389,7 @@ pub fn one_hot(num_slots: usize, slot: usize) -> Vec<Goldilocks> {
 
 /// Increment-checking helper: counters must increase by exactly the
 /// number of accesses to their entry (the Shout counter discipline).
-pub fn counter_increments(
-    accesses: &[Access],
-    num_slots: usize,
-) -> Result<Vec<u64>, MemoryError> {
+pub fn counter_increments(accesses: &[Access], num_slots: usize) -> Result<Vec<u64>, MemoryError> {
     let mut counters = vec![0u64; num_slots];
     for access in accesses {
         if (access.address as usize) < num_slots {
@@ -466,11 +470,36 @@ mod tests {
     fn twist_timeline_valid() {
         let initial = vec![(0x10u64, 5u64)];
         let accesses = vec![
-            Access { address: 0x10, timestamp: 0, value: 5, is_write: false },
-            Access { address: 0x10, timestamp: 1, value: 7, is_write: true },
-            Access { address: 0x10, timestamp: 2, value: 7, is_write: false },
-            Access { address: 0x20, timestamp: 3, value: 9, is_write: true },
-            Access { address: 0x20, timestamp: 4, value: 9, is_write: false },
+            Access {
+                address: 0x10,
+                timestamp: 0,
+                value: 5,
+                is_write: false,
+            },
+            Access {
+                address: 0x10,
+                timestamp: 1,
+                value: 7,
+                is_write: true,
+            },
+            Access {
+                address: 0x10,
+                timestamp: 2,
+                value: 7,
+                is_write: false,
+            },
+            Access {
+                address: 0x20,
+                timestamp: 3,
+                value: 9,
+                is_write: true,
+            },
+            Access {
+                address: 0x20,
+                timestamp: 4,
+                value: 9,
+                is_write: false,
+            },
         ];
         let final_state = vec![(0x10, 7), (0x20, 9)];
         assert!(twist_check(&initial, &accesses, &final_state).is_ok());
@@ -481,8 +510,18 @@ mod tests {
         let initial = vec![(0x10u64, 5u64)];
         // Read after write must see the written value, not the initial.
         let accesses = vec![
-            Access { address: 0x10, timestamp: 0, value: 7, is_write: true },
-            Access { address: 0x10, timestamp: 1, value: 5, is_write: false }, // stale!
+            Access {
+                address: 0x10,
+                timestamp: 0,
+                value: 7,
+                is_write: true,
+            },
+            Access {
+                address: 0x10,
+                timestamp: 1,
+                value: 5,
+                is_write: false,
+            }, // stale!
         ];
         let final_state = vec![(0x10, 7)];
         assert!(matches!(
@@ -494,9 +533,12 @@ mod tests {
     #[test]
     fn twist_final_state_mismatch_detected() {
         let initial = vec![(0x10u64, 5u64)];
-        let accesses = vec![
-            Access { address: 0x10, timestamp: 0, value: 7, is_write: true },
-        ];
+        let accesses = vec![Access {
+            address: 0x10,
+            timestamp: 0,
+            value: 7,
+            is_write: true,
+        }];
         let wrong_final = vec![(0x10, 8)];
         assert!(twist_check(&initial, &accesses, &wrong_final).is_err());
     }
@@ -504,8 +546,18 @@ mod tests {
     #[test]
     fn twist_fingerprint_holds_and_detects() {
         let accesses = vec![
-            Access { address: 0x10, timestamp: 0, value: 7, is_write: true },
-            Access { address: 0x20, timestamp: 1, value: 9, is_write: true },
+            Access {
+                address: 0x10,
+                timestamp: 0,
+                value: 7,
+                is_write: true,
+            },
+            Access {
+                address: 0x20,
+                timestamp: 1,
+                value: 9,
+                is_write: true,
+            },
         ];
         let final_state = vec![(0x10, 7), (0x20, 9)];
         let mut t = Transcript::new_default(b"lzx-memory-test");
@@ -533,14 +585,34 @@ mod tests {
     #[test]
     fn counter_increments_track_accesses() {
         let accesses = vec![
-            Access { address: 0, timestamp: 0, value: 1, is_write: false },
-            Access { address: 0, timestamp: 1, value: 1, is_write: false },
-            Access { address: 2, timestamp: 2, value: 3, is_write: true },
+            Access {
+                address: 0,
+                timestamp: 0,
+                value: 1,
+                is_write: false,
+            },
+            Access {
+                address: 0,
+                timestamp: 1,
+                value: 1,
+                is_write: false,
+            },
+            Access {
+                address: 2,
+                timestamp: 2,
+                value: 3,
+                is_write: true,
+            },
         ];
         let counters = counter_increments(&accesses, 4).ok().unwrap();
         assert_eq!(counters, vec![2, 0, 1, 0]);
         // Out-of-range address rejected.
-        let bad = vec![Access { address: 9, timestamp: 0, value: 0, is_write: false }];
+        let bad = vec![Access {
+            address: 9,
+            timestamp: 0,
+            value: 0,
+            is_write: false,
+        }];
         assert!(counter_increments(&bad, 4).is_err());
     }
 }

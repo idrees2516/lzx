@@ -16,7 +16,6 @@
 //! the windowed engine (`windowed.rs`) decomposes each oracle vector
 //! into `2^w`-bounded digit layers and the carrier commits those.
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use crate::ring_d::{Elem, RingD};
@@ -93,7 +92,11 @@ impl CarrierKey {
             salt.extend_from_slice(&(i as u64).to_le_bytes());
             matrix.push(params.ring.random(&salt));
         }
-        CarrierKey { params, seed, matrix }
+        CarrierKey {
+            params,
+            seed,
+            matrix,
+        }
     }
 
     /// `t = A·s mod q` — schoolbook MAC per row (the split ring has no
@@ -185,7 +188,12 @@ mod tests {
     #[test]
     fn commit_binds_and_norm_gates() {
         let ring = RingD::new(8).ok().unwrap();
-        let params = CarrierParams { ring: ring.clone(), k: 2, m: 6, norm_bound: 1 << 20 };
+        let params = CarrierParams {
+            ring: ring.clone(),
+            k: 2,
+            m: 6,
+            norm_bound: 1 << 20,
+        };
         let key = CarrierKey::from_seed(params, [7u8; 32]);
         let s = sample_short(&ring, 6, 1024, b"s");
         let t = key.commit(&s).ok().unwrap();
@@ -204,16 +212,18 @@ mod tests {
         // an oversized-norm witness is rejected by the shape gate
         let mut bad = s.clone();
         bad[0] = ring.constant((1 << 30) + 5);
-        assert!(matches!(
-            key.commit(&bad),
-            Err(CarrierError::Norm { .. })
-        ));
+        assert!(matches!(key.commit(&bad), Err(CarrierError::Norm { .. })));
     }
 
     #[test]
     fn statement_absorption_deterministic() {
         let ring = RingD::new(4).ok().unwrap();
-        let params = CarrierParams { ring, k: 1, m: 4, norm_bound: 1 << 16 };
+        let params = CarrierParams {
+            ring,
+            k: 1,
+            m: 4,
+            norm_bound: 1 << 16,
+        };
         let key = CarrierKey::from_seed(params, [3u8; 32]);
         let s = sample_short(&key.params.ring, 4, 32, b"x");
         let t = key.commit(&s).ok().unwrap();

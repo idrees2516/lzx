@@ -32,13 +32,14 @@
 //! instantiation runs the `lattice-sis-estimator` discipline from
 //! `SECURITY.md`.
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use crate::carrier::{CarrierCommitment, CarrierKey};
 use crate::ring_d::{Elem, RingD};
 use crate::ring_logup::{derive_terms, LogupOracles};
-use crate::ring_sumcheck::{prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly};
+use crate::ring_sumcheck::{
+    prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly,
+};
 use crate::subprotocols::{
     prove_binary_check, prove_integer_check, verify_binary_check, verify_integer_check, SubError,
 };
@@ -58,12 +59,16 @@ pub struct CommittedVector {
 
 impl CommittedVector {
     pub fn commit(key: &CarrierKey, label: &str, v: &[Elem]) -> Result<Self, SubError> {
-        let slots = windowed_slots(&key.params.ring, v)
-            .map_err(|e| SubError::Shape(format!("{e:?}")))?;
+        let slots =
+            windowed_slots(&key.params.ring, v).map_err(|e| SubError::Shape(format!("{e:?}")))?;
         let commitment = key
             .commit(&slots)
             .map_err(|e| SubError::Shape(format!("{e:?}")))?;
-        Ok(CommittedVector { label: label.to_string(), slots, commitment })
+        Ok(CommittedVector {
+            label: label.to_string(),
+            slots,
+            commitment,
+        })
     }
 }
 
@@ -129,11 +134,14 @@ pub fn prove_logup_committed(
         // The padding rule: duplicate-table lookups pad the query with
         // any valid (b_j, g(j)) pair to the next power of two; the
         // multiplicity bookkeeping is unchanged. Demanded here: equal.
-        return Err(SubError::Shape("compiled demo requires M == N (see the padding rule)".into()));
+        return Err(SubError::Shape(
+            "compiled demo requires M == N (see the padding rule)".into(),
+        ));
     }
     // ---- the plain PIOP machinery on the true vectors (fail-closed) ----
     let mut plain_tr = Transcript::new_default(b"lu-compiled");
-    let (_plain_proof, oracles) = crate::ring_logup::prove_ring_logup(ring, a, b, c, &mut plain_tr)?;
+    let (_plain_proof, oracles) =
+        crate::ring_logup::prove_ring_logup(ring, a, b, c, &mut plain_tr)?;
     // ---- the compiled driver: commitments drive the transcript ----
     let mut tr = Transcript::new_default(b"lu-compiled");
     // 1. commit m, a, b, c, gN — the statement/indexer side first —
@@ -204,13 +212,19 @@ pub fn prove_logup_committed(
     let poly_a = RingVirtualPoly {
         num_vars: log_n,
         claimed_sum: v.clone(),
-        terms: vec![RingTerm { coeff: ring.one(), factors: vec![RingFactor::Mle(big_a.clone())] }],
+        terms: vec![RingTerm {
+            coeff: ring.one(),
+            factors: vec![RingFactor::Mle(big_a.clone())],
+        }],
     };
     let sc_a = prove_sumcheck(ring, &poly_a, &mut tr)?;
     let poly_b = RingVirtualPoly {
         num_vars: log_n,
         claimed_sum: v.clone(),
-        terms: vec![RingTerm { coeff: ring.one(), factors: vec![RingFactor::Mle(big_b.clone())] }],
+        terms: vec![RingTerm {
+            coeff: ring.one(),
+            factors: vec![RingFactor::Mle(big_b.clone())],
+        }],
     };
     let sc_b = prove_sumcheck(ring, &poly_b, &mut tr)?;
     // 4. the zero-check challenges and proofs.
@@ -342,9 +356,9 @@ pub fn prove_logup_committed(
         by_label.insert(cv.label.clone(), cv);
     }
     for (label, point) in query_points {
-        let cv = by_label.get(&label).ok_or_else(|| {
-            SubError::Shape(format!("uncommitted oracle {label}"))
-        })?;
+        let cv = by_label
+            .get(&label)
+            .ok_or_else(|| SubError::Shape(format!("uncommitted oracle {label}")))?;
         let value = if label.starts_with("lu-bc-cf") {
             // the CF rows settle directly against their commitments
             let j: usize = label
@@ -375,7 +389,12 @@ pub fn prove_logup_committed(
             label.as_bytes(),
         )
         .map_err(|e| SubError::Shape(format!("{e:?}")))?;
-        queries.push(SettledQuery { label, point, value, proof });
+        queries.push(SettledQuery {
+            label,
+            point,
+            value,
+            proof,
+        });
     }
     let mut committed = vec![cv_m, cv_a, cv_b, cv_c, cv_g, cv_big_a, cv_big_b];
     committed.extend(cv_cfs);
@@ -420,7 +439,13 @@ pub fn verify_logup_committed(
             .ok_or_else(|| SubError::Shape(format!("missing commitment {}", q.label)))?;
         verify_windowed_eval(ring, key, &cv.commitment, &q.point, &q.value, &q.proof)
             .map_err(|e| SubError::Verify(format!("binding pass: {e:?}")))?;
-        let key = (q.label.clone(), q.point.iter().map(|e| e.coeffs().to_vec()).collect::<Vec<_>>());
+        let key = (
+            q.label.clone(),
+            q.point
+                .iter()
+                .map(|e| e.coeffs().to_vec())
+                .collect::<Vec<_>>(),
+        );
         settled.insert(key, q.value.clone());
     }
     // 2. Replay the PIOP with a resolver answering from the settled
@@ -447,7 +472,13 @@ pub fn verify_logup_committed(
         absorb_commitment(&mut tr, absorb_label.as_bytes(), &cv.commitment);
     }
     let lookup = |label: &str, point: &[Elem]| -> Result<Elem, String> {
-        let key = (label.to_string(), point.iter().map(|e| e.coeffs().to_vec()).collect::<Vec<_>>());
+        let key = (
+            label.to_string(),
+            point
+                .iter()
+                .map(|e| e.coeffs().to_vec())
+                .collect::<Vec<_>>(),
+        );
         settled
             .get(&key)
             .cloned()
@@ -489,13 +520,23 @@ pub fn verify_logup_committed(
             num_factors: 1,
         }],
     };
-    verify_sumcheck(ring, &shape1, &proof.v, &proof.sc_a, &mut tr, &mut |_ti, _fi, pt| {
-        lookup("lu-A", pt)
-    })
+    verify_sumcheck(
+        ring,
+        &shape1,
+        &proof.v,
+        &proof.sc_a,
+        &mut tr,
+        &mut |_ti, _fi, pt| lookup("lu-A", pt),
+    )
     .map_err(SubError::from)?;
-    verify_sumcheck(ring, &shape1, &proof.v, &proof.sc_b, &mut tr, &mut |_ti, _fi, pt| {
-        lookup("lu-B", pt)
-    })
+    verify_sumcheck(
+        ring,
+        &shape1,
+        &proof.v,
+        &proof.sc_b,
+        &mut tr,
+        &mut |_ti, _fi, pt| lookup("lu-B", pt),
+    )
     .map_err(SubError::from)?;
     // Zero-check challenges.
     let gamma: Vec<Elem> = (0..log_n)
@@ -508,18 +549,35 @@ pub fn verify_logup_committed(
     let eq_d = ring.eq_row(&delta);
     // Zero-check 1.
     let terms_a = vec![
-        crate::ring_sumcheck::RingTermShape { coeff: ring.one(), num_factors: 3 },
-        crate::ring_sumcheck::RingTermShape { coeff: alpha.clone(), num_factors: 3 },
-        crate::ring_sumcheck::RingTermShape { coeff: ring.neg(&beta), num_factors: 2 },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: ring.one(),
+            num_factors: 3,
+        },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: alpha.clone(),
+            num_factors: 3,
+        },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: ring.neg(&beta),
+            num_factors: 2,
+        },
         crate::ring_sumcheck::RingTermShape {
             coeff: ring.neg(&ring.one()),
             num_factors: 1,
         },
     ];
-    let shape_zc_a = crate::ring_sumcheck::RingSumcheckShape { num_vars: log_n, terms: terms_a };
+    let shape_zc_a = crate::ring_sumcheck::RingSumcheckShape {
+        num_vars: log_n,
+        terms: terms_a,
+    };
     let eqg_ref = &eq_g;
-    verify_sumcheck(ring, &shape_zc_a, &ring.zero(), &proof.zc_a, &mut tr, &mut |ti, fi, pt| {
-        match (ti, fi) {
+    verify_sumcheck(
+        ring,
+        &shape_zc_a,
+        &ring.zero(),
+        &proof.zc_a,
+        &mut tr,
+        &mut |ti, fi, pt| match (ti, fi) {
             (0, 0) | (1, 0) | (2, 0) | (3, 0) => {
                 ring.mle_eval(eqg_ref, pt).map_err(|e| format!("{e:?}"))
             }
@@ -527,23 +585,40 @@ pub fn verify_logup_committed(
             (0, 2) => lookup("lu-a", pt),
             (1, 2) => lookup("lu-c", pt),
             _ => Err("bad factor".into()),
-        }
-    })
+        },
+    )
     .map_err(SubError::from)?;
     // Zero-check 2.
     let terms_b = vec![
-        crate::ring_sumcheck::RingTermShape { coeff: ring.one(), num_factors: 3 },
-        crate::ring_sumcheck::RingTermShape { coeff: alpha.clone(), num_factors: 3 },
-        crate::ring_sumcheck::RingTermShape { coeff: ring.neg(&beta), num_factors: 2 },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: ring.one(),
+            num_factors: 3,
+        },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: alpha.clone(),
+            num_factors: 3,
+        },
+        crate::ring_sumcheck::RingTermShape {
+            coeff: ring.neg(&beta),
+            num_factors: 2,
+        },
         crate::ring_sumcheck::RingTermShape {
             coeff: ring.neg(&ring.one()),
             num_factors: 2,
         },
     ];
-    let shape_zc_b = crate::ring_sumcheck::RingSumcheckShape { num_vars: log_n, terms: terms_b };
+    let shape_zc_b = crate::ring_sumcheck::RingSumcheckShape {
+        num_vars: log_n,
+        terms: terms_b,
+    };
     let eqd_ref = &eq_d;
-    verify_sumcheck(ring, &shape_zc_b, &ring.zero(), &proof.zc_b, &mut tr, &mut |ti, fi, pt| {
-        match (ti, fi) {
+    verify_sumcheck(
+        ring,
+        &shape_zc_b,
+        &ring.zero(),
+        &proof.zc_b,
+        &mut tr,
+        &mut |ti, fi, pt| match (ti, fi) {
             (0, 0) | (1, 0) | (2, 0) | (3, 0) => {
                 ring.mle_eval(eqd_ref, pt).map_err(|e| format!("{e:?}"))
             }
@@ -552,8 +627,8 @@ pub fn verify_logup_committed(
             (1, 2) => lookup("lu-gN", pt),
             (3, 1) => lookup("lu-m", pt),
             _ => Err("bad factor".into()),
-        }
-    })
+        },
+    )
     .map_err(SubError::from)?;
     // Integer + binary checks.
     verify_integer_check(ring, n, &proof.int_check, &mut tr, &|l, pt| match l {
@@ -577,7 +652,9 @@ mod tests {
     }
 
     fn build_case(r: &RingD, n: usize, seed: &str) -> (Vec<Elem>, Vec<Elem>, Vec<Elem>) {
-        let b: Vec<Elem> = (0..n).map(|j| r.random(format!("{seed}-b{j}").as_bytes())).collect();
+        let b: Vec<Elem> = (0..n)
+            .map(|j| r.random(format!("{seed}-b{j}").as_bytes()))
+            .collect();
         let mut a = Vec::with_capacity(n);
         let mut c = Vec::with_capacity(n);
         for i in 0..n {
@@ -594,10 +671,9 @@ mod tests {
         let (a, b, c) = build_case(&r, 4, "cmp");
         let params = carrier_params_for(&r, 4, 2, 1 << 16);
         let key = CarrierKey::from_seed(params, [21u8; 32]);
-        let proof = prove_logup_committed(&r, &key, &a, &b, &c)
-            .unwrap_or_else(|e| panic!("prove: {e:?}"));
-        verify_logup_committed(&r, &key, 4, 4, &proof)
-            .unwrap_or_else(|e| panic!("verify: {e:?}"));
+        let proof =
+            prove_logup_committed(&r, &key, &a, &b, &c).unwrap_or_else(|e| panic!("prove: {e:?}"));
+        verify_logup_committed(&r, &key, 4, 4, &proof).unwrap_or_else(|e| panic!("verify: {e:?}"));
     }
 
     #[test]

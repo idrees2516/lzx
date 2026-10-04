@@ -32,7 +32,9 @@ fn bench(k: usize, rows: usize) {
     let cm = srs.commit_scalars(&w);
     let commit_ms = t0.elapsed().as_secs_f64() * 1e3;
 
-    let u: Vec<Fq> = (0..k).map(|i| Fq::from_u64(31337 + i as u64 * 17)).collect();
+    let u: Vec<Fq> = (0..k)
+        .map(|i| Fq::from_u64(31337 + i as u64 * 17))
+        .collect();
     let v = eval_claim(&cube, &w, &u);
 
     let t0 = Instant::now();
@@ -54,7 +56,9 @@ fn bench(k: usize, rows: usize) {
             .collect();
         let w2 = cube.digit_layers(&f2);
         let cm2 = srs.commit_scalars(&w2);
-        let u2: Vec<Fq> = (0..k).map(|i| Fq::from_u64(5 + i as u64 * (s + 1))).collect();
+        let u2: Vec<Fq> = (0..k)
+            .map(|i| Fq::from_u64(5 + i as u64 * (s + 1)))
+            .collect();
         let v2 = eval_claim(&cube, &w2, &u2);
         let mut pt2 = Transcript::new_default(b"bench-reduce");
         let proof2 = reduce(&srs, &cube, &cm2, &u2, &v2, &w2, &mut pt2).expect("reduce");

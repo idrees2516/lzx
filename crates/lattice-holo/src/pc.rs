@@ -120,10 +120,7 @@ impl PcKey {
         // The matrix commitment is over 2ν variables → the encoding is n².
         // Reuse the key by expanding a dedicated key derivation: we commit
         // with a key sized n² derived from the same seed.
-        let key2 = PedersenKey::derive(
-            &self.key.seed,
-            n * n,
-        )?;
+        let key2 = PedersenKey::derive(&self.key.seed, n * n)?;
         let flat: Vec<Fp256> = m.concat();
         // Deterministic blinding (the matrices are public structure — the
         // commitment is binding-only here; hiding is not required for the
@@ -133,11 +130,7 @@ impl PcKey {
     }
 
     /// Open a matrix commitment (the long opening of the n² encoding).
-    pub fn open_matrix(
-        &self,
-        domain: &Domain,
-        m: &[Vec<Fp256>],
-    ) -> Result<LinearOpening, PcError> {
+    pub fn open_matrix(&self, domain: &Domain, m: &[Vec<Fp256>]) -> Result<LinearOpening, PcError> {
         let n = domain.size();
         if m.len() != n || m.iter().any(|r| r.len() != n) {
             return Err(PcError::Shape("matrix shape"));
@@ -215,12 +208,7 @@ pub struct LinearOpening {
 impl LinearOpening {
     /// Verify: the commitment opens the encoding, and the evaluation at
     /// `point` equals `claim`.
-    pub fn verify(
-        &self,
-        key: &PcKey,
-        point: &[Fp256],
-        claim: &Fp256,
-    ) -> Result<bool, PcError> {
+    pub fn verify(&self, key: &PcKey, point: &[Fp256], claim: &Fp256) -> Result<bool, PcError> {
         if self.encoding.len() != key.domain.size() {
             return Ok(false);
         }
@@ -355,9 +343,7 @@ pub fn batch_claimed_sum(etas: &[Fp256], claims: &[PceClaim]) -> Fp256 {
 /// A convenience: the homomorphic matrix-commitment linear combination used
 /// by the decider (§5.3): `[M] = Σ Σ ηⱼ·[Mⱼ^{(i)}]` over the per-function
 /// matrix commitments.
-pub fn combine_matrix_commitments(
-    items: &[(Fp256, PcCommitment)],
-) -> PcCommitment {
+pub fn combine_matrix_commitments(items: &[(Fp256, PcCommitment)]) -> PcCommitment {
     PedersenCommitment::linear_combine(items)
 }
 
@@ -423,20 +409,25 @@ mod tests {
         ];
         let witnesses = vec![(w1.encoding, w1.blind), (w2.encoding, w2.blind)];
         let mut t2 = Transcript::new_default(b"pc-batch");
-        let proof =
-            batch_prove_pce(&key, &point, &claims, &witnesses, &mut t2).ok().unwrap();
+        let proof = batch_prove_pce(&key, &point, &claims, &witnesses, &mut t2)
+            .ok()
+            .unwrap();
         let claimed_sum = batch_claimed_sum(&proof.etas, &claims);
         let mut t3 = Transcript::new_default(b"pc-batch");
-        assert!(batch_verify_pcep(&key, &point, &claims, &claimed_sum, &proof, &mut t3)
-            .ok()
-            .unwrap());
+        assert!(
+            batch_verify_pcep(&key, &point, &claims, &claimed_sum, &proof, &mut t3)
+                .ok()
+                .unwrap()
+        );
         // Tampered combined encoding → reject.
         let mut bad = proof.clone();
         bad.encoding[1] = bad.encoding[1].add(&fr(1));
         let mut t4 = Transcript::new_default(b"pc-batch");
-        assert!(!batch_verify_pcep(&key, &point, &claims, &claimed_sum, &bad, &mut t4)
-            .ok()
-            .unwrap());
+        assert!(
+            !batch_verify_pcep(&key, &point, &claims, &claimed_sum, &bad, &mut t4)
+                .ok()
+                .unwrap()
+        );
         // Wrong claimed sum → reject.
         let mut t5 = Transcript::new_default(b"pc-batch");
         assert!(

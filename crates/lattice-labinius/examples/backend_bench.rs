@@ -18,7 +18,7 @@
 
 // loops index with strides; the lint's iterator forms do not apply
 #![allow(clippy::needless_range_loop)]
-use lattice_labinius::binfield::{random_elems, lift_elem, Rng};
+use lattice_labinius::binfield::{lift_elem, random_elems, Rng};
 use lattice_labinius::hw::{clmul64, clmul64_soft};
 use lattice_labinius::key::{Backend, CommitmentKey};
 use lattice_labinius::params::N;
@@ -52,7 +52,10 @@ fn bench<F: FnMut()>(mut f: F, runs: usize) -> f64 {
 }
 
 fn main() {
-    println!("lzx labinius backend bench (AVX-512 available: {})", lattice_labinius::simd::available());
+    println!(
+        "lzx labinius backend bench (AVX-512 available: {})",
+        lattice_labinius::simd::available()
+    );
     let runs = 5usize;
 
     // ------------------------------------------------------------------ clmul
@@ -74,8 +77,12 @@ fn main() {
             },
             runs,
         );
-        println!("  clmul64 x100k       hw {:>9.3} ms   sw {:>9.3} ms   speedup {:>6.1}x   (acc {acc})",
-            hw * 1e3, sw * 1e3, sw / hw);
+        println!(
+            "  clmul64 x100k       hw {:>9.3} ms   sw {:>9.3} ms   speedup {:>6.1}x   (acc {acc})",
+            hw * 1e3,
+            sw * 1e3,
+            sw / hw
+        );
     }
 
     // ------------------------------------------------------------------ kernels (one batch of 32)
@@ -119,8 +126,12 @@ fn main() {
             || unsafe { ntt_small::ntt_bin_batch32::<3889>(&idx, &mut out) },
             runs,
         );
-        println!("  ntt split q=3889  batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
-            scalar * 1e3, simd * 1e3, scalar / simd);
+        println!(
+            "  ntt split q=3889  batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
+            scalar * 1e3,
+            simd * 1e3,
+            scalar / simd
+        );
     }
     // quad-tree kernel, q = 2917
     {
@@ -137,8 +148,12 @@ fn main() {
             || unsafe { ntt_quad::ntt_quad_bin_batch32::<2917>(&idx, &mut out) },
             runs,
         );
-        println!("  ntt quad  q=2917  batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
-            scalar * 1e3, simd * 1e3, scalar / simd);
+        println!(
+            "  ntt quad  q=2917  batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
+            scalar * 1e3,
+            simd * 1e3,
+            scalar / simd
+        );
     }
     // the MAC over one batch, q = 3889 (scalar reference = pointwise products + mod)
     {
@@ -210,8 +225,12 @@ fn main() {
             },
             runs,
         );
-        println!("  mac+finish q=2917 batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
-            scalar * 1e3, simd * 1e3, scalar / simd);
+        println!(
+            "  mac+finish q=2917 batch32   scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
+            scalar * 1e3,
+            simd * 1e3,
+            scalar / simd
+        );
     }
 
     // ------------------------------------------------------- full commitment, suite sizem
@@ -220,7 +239,12 @@ fn main() {
         let len_f162 = 2048usize;
         let r = 128usize;
         println!("  commit sizem (2^18 F162, {r} columns, 3889+2917)");
-        let key = CommitmentKey::random(len_f162, 0x5EED_C0DE, Modulus::Q3889_FS_S, &[Modulus::Q2917_Q_S]);
+        let key = CommitmentKey::random(
+            len_f162,
+            0x5EED_C0DE,
+            Modulus::Q3889_FS_S,
+            &[Modulus::Q2917_Q_S],
+        );
         let witness = random_elems(len_f162 * r, 0x5EED_CAFE);
         println!("    A: {} bytes", key.bytes());
         // warm the vertical layout + one pass so the SIMD numbers are steady-state
@@ -242,11 +266,22 @@ fn main() {
             scalar * 1e3, simd * 1e3, scalar / simd);
         // smaller suites for the ratio curve
         for &(len, rr) in &[(512usize, 16usize), (1024usize, 32usize)] {
-            let key = CommitmentKey::random(len, 0x5EED_C0DE, Modulus::Q3889_FS_S, &[Modulus::Q2917_Q_S]);
+            let key =
+                CommitmentKey::random(len, 0x5EED_C0DE, Modulus::Q3889_FS_S, &[Modulus::Q2917_Q_S]);
             let witness = random_elems(len * rr, 0x5EED_CAFE);
             let _ = key.commit_with(&witness, rr, Backend::Simd);
-            let scalar = bench(|| { let _ = key.commit_with(&witness, rr, Backend::Scalar); }, 2);
-            let simd = bench(|| { let _ = key.commit_with(&witness, rr, Backend::Simd); }, runs);
+            let scalar = bench(
+                || {
+                    let _ = key.commit_with(&witness, rr, Backend::Scalar);
+                },
+                2,
+            );
+            let simd = bench(
+                || {
+                    let _ = key.commit_with(&witness, rr, Backend::Simd);
+                },
+                runs,
+            );
             println!("    2^{} F162 in {rr} columns: scalar {:>9.3} ms   simd {:>9.3} ms   speedup {:>6.1}x",
                 (len * rr).trailing_zeros(), scalar * 1e3, simd * 1e3, scalar / simd);
         }

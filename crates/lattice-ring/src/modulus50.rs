@@ -258,9 +258,9 @@ impl QuadSlotTables {
         for d in 0..levels {
             // Twiddle exponent 2^{5-d}·(2·rev_d(i)+1); requires d ≤ 5
             // (log_n ≤ 7).
-            let shift = 5u32.checked_sub(d as u32).ok_or(Mod50Error::LogNOutOfRange {
-                got: log_n,
-            })?;
+            let shift = 5u32
+                .checked_sub(d as u32)
+                .ok_or(Mod50Error::LogNOutOfRange { got: log_n })?;
             let blocks = 1usize << d;
             let mut fwd = Vec::with_capacity(blocks);
             let mut inv = Vec::with_capacity(blocks);
@@ -336,9 +336,7 @@ impl QuadSlotTables {
             });
         }
         let q = self.modulus;
-        let inv2 = q
-            .inv(2)
-            .ok_or(Mod50Error::GeneratorInvalid)?;
+        let inv2 = q.inv(2).ok_or(Mod50Error::GeneratorInvalid)?;
         for d in (0..self.level_twiddles.len()).rev() {
             let span = self.n() >> d;
             let half = span / 2;
@@ -461,7 +459,10 @@ impl RingConfig50 {
                 got: a.len(),
             });
         }
-        Ok(a.iter().zip(b.iter()).map(|(x, y)| self.modulus.add(*x, *y)).collect())
+        Ok(a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| self.modulus.add(*x, *y))
+            .collect())
     }
 
     /// Pointwise subtraction.
@@ -472,7 +473,10 @@ impl RingConfig50 {
                 got: a.len(),
             });
         }
-        Ok(a.iter().zip(b.iter()).map(|(x, y)| self.modulus.sub(*x, *y)).collect())
+        Ok(a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| self.modulus.sub(*x, *y))
+            .collect())
     }
 
     /// From signed (balanced) coefficients.
@@ -664,7 +668,10 @@ mod tests {
         let b = random_vec(q.q, ring.n(), 2);
         let c = random_vec(q.q, ring.n(), 3);
         // Commutative.
-        assert_eq!(ring.mul(&a, &b).ok().unwrap(), ring.mul(&b, &a).ok().unwrap());
+        assert_eq!(
+            ring.mul(&a, &b).ok().unwrap(),
+            ring.mul(&b, &a).ok().unwrap()
+        );
         // Associative.
         assert_eq!(
             ring.mul(&ring.mul(&a, &b).ok().unwrap(), &c).ok().unwrap(),
@@ -674,9 +681,12 @@ mod tests {
         let a_plus_b = ring.add(&a, &b).ok().unwrap();
         assert_eq!(
             ring.mul(&a_plus_b, &c).ok().unwrap(),
-            ring.add(&ring.mul(&a, &c).ok().unwrap(), &ring.mul(&b, &c).ok().unwrap())
-                .ok()
-                .unwrap()
+            ring.add(
+                &ring.mul(&a, &c).ok().unwrap(),
+                &ring.mul(&b, &c).ok().unwrap()
+            )
+            .ok()
+            .unwrap()
         );
         // Identity and annihilator.
         let one = {
@@ -685,7 +695,12 @@ mod tests {
             v
         };
         assert_eq!(ring.mul(&a, &one).ok().unwrap(), a);
-        assert!(ring.mul(&a, &vec![0u64; ring.n()]).ok().unwrap().iter().all(|c| *c == 0));
+        assert!(ring
+            .mul(&a, &vec![0u64; ring.n()])
+            .ok()
+            .unwrap()
+            .iter()
+            .all(|c| *c == 0));
         // X · X^{n-1} = X^n = -1.
         let mut x = vec![0u64; ring.n()];
         x[1] = 1;

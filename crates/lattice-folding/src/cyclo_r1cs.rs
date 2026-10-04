@@ -77,10 +77,10 @@
 
 #[cfg(test)]
 use crate::cyclo::chunk_element;
-#[cfg(test)]
-use lattice_ring::Modulus32;
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
+#[cfg(test)]
+use lattice_ring::Modulus32;
 use lattice_ring::{RingConfig, RingElement};
 
 /// The commitment ring's modulus (q = 3·2^30 + 1 — `Modulus32::Q_32`).
@@ -106,10 +106,7 @@ impl Fq2Q32 {
     const D: u64 = 5;
 
     pub fn from_u64(x: u64) -> Self {
-        Fq2Q32 {
-            c0: x % Q,
-            c1: 0,
-        }
+        Fq2Q32 { c0: x % Q, c1: 0 }
     }
 
     pub fn from_pair(c0: u64, c1: u64) -> Self {
@@ -168,9 +165,7 @@ impl Fq2Q32 {
     fn norm(&self) -> u64 {
         let a = self.c0 as u128;
         let b = self.c1 as u128;
-        Self::reduce128(
-            (a * a + Q as u128 - Self::D as u128 * b * b % Q as u128) % Q as u128,
-        )
+        Self::reduce128((a * a + Q as u128 - Self::D as u128 * b * b % Q as u128) % Q as u128)
     }
 
     pub fn inverse(&self) -> Option<Self> {
@@ -253,7 +248,11 @@ impl Q2VirtualPoly {
     }
 
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 }
 
@@ -387,8 +386,7 @@ pub fn q2_sumcheck_prove(
         let mut evals_at = Vec::with_capacity(d + 1);
         for t in 0..=d {
             let t_fe = Fq2Q32::from_u64(t as u64);
-            let bound_at: Vec<Vec<Fq2Q32>> =
-                bound.iter().map(|f| half_bind_q2(f, &t_fe)).collect();
+            let bound_at: Vec<Vec<Fq2Q32>> = bound.iter().map(|f| half_bind_q2(f, &t_fe)).collect();
             evals_at.push(sum_products_q2(&bound_at, &vp.terms));
         }
         absorb_q2_slice(transcript, b"q2-sc-round", &evals_at)?;
@@ -446,10 +444,7 @@ impl Q2SumcheckProof {
         expected_final: Option<Fq2Q32>,
     ) -> Result<Q2SumcheckVerifier, String> {
         if self.rounds.len() != num_vars {
-            return Err(format!(
-                "round shape: {} vs {num_vars}",
-                self.rounds.len()
-            ));
+            return Err(format!("round shape: {} vs {num_vars}", self.rounds.len()));
         }
         let mut current_claim = claim;
         let mut point = Vec::with_capacity(num_vars);
@@ -744,8 +739,7 @@ pub fn prove_r1cs_bridge(
         }
     }
     // 3. The Ajtai commitment y = A·z'.
-    let commitment: AjtaiCommitment =
-        pk.commit(&z_lift).map_err(|e| format!("{e:?}"))?;
+    let commitment: AjtaiCommitment = pk.commit(&z_lift).map_err(|e| format!("{e:?}"))?;
     // 4. The statement absorption (FS hygiene — everything public
     //    before any challenge): the shape digest, x, y, θ.
     absorb_bridge_statement(transcript, shape, x, &commitment, theta)?;
@@ -791,8 +785,7 @@ pub fn prove_r1cs_bridge(
             .map(|bp| {
                 let mut m_bp = Fq2Q32::ZERO;
                 for (r, eu) in eq_u.iter().enumerate() {
-                    m_bp = m_bp
-                        .add(&eu.mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
+                    m_bp = m_bp.add(&eu.mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
                 }
                 m_bp
             })
@@ -875,7 +868,9 @@ pub fn verify_r1cs_bridge(
         .collect::<Result<Vec<_>, _>>()?;
     // 3. The sum-check verification (continues the transcript) — the
     //    terminal point u is the verifier's derivation.
-    let verdict = proof.sumcheck.verify(log_m, 3, Fq2Q32::ZERO, transcript, None)?;
+    let verdict = proof
+        .sumcheck
+        .verify(log_m, 3, Fq2Q32::ZERO, transcript, None)?;
     let u = verdict.point;
     if u.len() != log_m {
         return Err("terminal point arity".into());
@@ -980,7 +975,8 @@ pub fn decide_principal_linear(
     // (D1) The commitment binding (the norm gate included).
     let commitment = AjtaiCommitment::from_bytes(ring, claim.commit_k, &claim.commitment)
         .map_err(|e| format!("{e:?}"))?;
-    pk.verify_opening(&commitment, z_opened).map_err(|e| format!("{e:?}"))?;
+    pk.verify_opening(&commitment, z_opened)
+        .map_err(|e| format!("{e:?}"))?;
     // The opened witness must BE the lift of a z with the right
     // structure: its θ_k-projection reconstitutes (x, 1, w) — checked
     // implicitly by (D2)/(D3); here we also gate the lift's norm (the
@@ -1013,8 +1009,7 @@ pub fn decide_principal_linear(
                 // column bp).
                 let mut m_bp = Fq2Q32::ZERO;
                 for r in 0..shape.m {
-                    m_bp = m_bp
-                        .add(&eq_u[r].mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
+                    m_bp = m_bp.add(&eq_u[r].mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
                 }
                 let scalar = if b == 0 { m_bp.c0 } else { m_bp.c1 };
                 if scalar == 0 {
@@ -1096,10 +1091,7 @@ fn absorb_bridge_statement(
         .append_bytes(b"cyclo-r1cs-y", &commitment.to_bytes())
         .map_err(|e| format!("{e:?}"))?;
     transcript
-        .append_bytes(
-            b"cyclo-r1cs-theta",
-            &[theta.k as u8, theta.digits as u8],
-        )
+        .append_bytes(b"cyclo-r1cs-theta", &[theta.k as u8, theta.digits as u8])
         .map_err(|e| format!("{e:?}"))?;
     Ok(())
 }
@@ -1119,7 +1111,9 @@ mod tests {
     fn shape_with_witness(m: usize, ell: usize, seed: u64) -> (R1csQ32, Vec<u64>, Vec<u64>) {
         let mut xs = seed;
         let mut next = || {
-            xs = xs.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            xs = xs
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (xs >> 33) % Q
         };
         // M0, M1: random sparse (2 nonzeros per row); the witness is
@@ -1236,10 +1230,7 @@ mod tests {
         // Associativity / commutativity / distributivity spot checks.
         assert_eq!(a.mul(&b), b.mul(&a));
         assert_eq!(a.mul(&b).mul(&c), a.mul(&b.mul(&c)));
-        assert_eq!(
-            a.mul(&b.add(&c)),
-            a.mul(&b).add(&a.mul(&c))
-        );
+        assert_eq!(a.mul(&b.add(&c)), a.mul(&b).add(&a.mul(&c)));
         // Inverse.
         let inv = a.inverse().unwrap();
         assert_eq!(a.mul(&inv), Fq2Q32::ONE);
@@ -1270,8 +1261,12 @@ mod tests {
             (xs >> 33) % Q
         };
         let n = 4usize;
-        let f0: Vec<Fq2Q32> = (0..1 << n).map(|_| Fq2Q32::from_pair(next(), next())).collect();
-        let f1: Vec<Fq2Q32> = (0..1 << n).map(|_| Fq2Q32::from_pair(next(), next())).collect();
+        let f0: Vec<Fq2Q32> = (0..1 << n)
+            .map(|_| Fq2Q32::from_pair(next(), next()))
+            .collect();
+        let f1: Vec<Fq2Q32> = (0..1 << n)
+            .map(|_| Fq2Q32::from_pair(next(), next()))
+            .collect();
         let mut vp = Q2VirtualPoly::new(n);
         let i0 = vp.add_factor(f0.clone()).unwrap();
         let i1 = vp.add_factor(f1.clone()).unwrap();
@@ -1410,26 +1405,31 @@ mod tests {
         // (a) A WRONG lift (the digits of a different witness): (D2)
         //     fails (the linear claims mismatch).
         let mut z_wrong = z.clone();
-        z_wrong[shape.ell + 1 + 0] = (z_wrong[shape.ell + 1 + 0] + 1) % Q; // w[0]+1
+        z_wrong[shape.ell + 1] = (z_wrong[shape.ell + 1] + 1) % Q; // w[0]+1
         let z_lift_wrong: Vec<RingElement> =
             z_wrong.iter().map(|&c| theta.embed(&ring, c)).collect();
         let mut dt2 = Transcript::new_default(b"cyclo-r1cs-decide");
-        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim, &z_lift_wrong, &mut dt2)
-            .is_err());
+        assert!(
+            decide_principal_linear(&ring, &pk, &shape, &x, &claim, &z_lift_wrong, &mut dt2)
+                .is_err()
+        );
 
         // (b) A corrupted claim (the d_lift bytes): (D2) fails.
         let mut claim_bad = claim.clone();
         claim_bad.d_lift[0][0][3] ^= 0x40;
         let mut dt3 = Transcript::new_default(b"cyclo-r1cs-decide");
-        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad, &z_lift, &mut dt3)
-            .is_err());
+        assert!(
+            decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad, &z_lift, &mut dt3).is_err()
+        );
 
         // (c) A corrupted prefix evaluation: (D3) fails.
         let mut claim_bad2 = claim.clone();
         claim_bad2.e = claim_bad2.e.add(&Fq2Q32::ONE);
         let mut dt4 = Transcript::new_default(b"cyclo-r1cs-decide");
-        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad2, &z_lift, &mut dt4)
-            .is_err());
+        assert!(
+            decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad2, &z_lift, &mut dt4)
+                .is_err()
+        );
 
         // (d) A swapped commitment: (D1) fails (the binding).
         let mut claim_bad3 = claim.clone();
@@ -1437,8 +1437,10 @@ mod tests {
             claim_bad3.commitment[4] ^= 0x80;
         }
         let mut dt5 = Transcript::new_default(b"cyclo-r1cs-decide");
-        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad3, &z_lift, &mut dt5)
-            .is_err());
+        assert!(
+            decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad3, &z_lift, &mut dt5)
+                .is_err()
+        );
     }
 
     /// The skip-Π^ext wiring: the bridge's lifted witness has norm < k

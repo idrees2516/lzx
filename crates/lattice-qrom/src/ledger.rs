@@ -185,7 +185,10 @@ mod tests {
         // 5·9 = 45 > 10.
         assert!(matches!(
             ledger.check(),
-            Err(LedgerError::BudgetExceeded { total: 45, budget: 10 })
+            Err(LedgerError::BudgetExceeded {
+                total: 45,
+                budget: 10
+            })
         ));
         assert_eq!(ledger.margin(), 0);
     }

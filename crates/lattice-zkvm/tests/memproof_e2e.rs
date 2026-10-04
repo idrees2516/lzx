@@ -55,16 +55,11 @@ fn loop_program_memory_argument() {
     let mut prog = Vec::new();
     prog.extend_from_slice(&enc_addi(1, 0, 5).to_le_bytes());
     prog.extend_from_slice(&enc_addi(1, 1, -1).to_le_bytes());
-    let bne: u32 = ((1u32 << 31) | (0x3f << 25))
-        | (1 << 15)
-        | (1 << 12)
-        | (0b1110 << 8)
-        | (1 << 7)
-        | 0x63;
+    let bne: u32 =
+        ((1u32 << 31) | (0x3f << 25)) | (1 << 15) | (1 << 12) | (0b1110 << 8) | (1 << 7) | 0x63;
     prog.extend_from_slice(&bne.to_le_bytes());
     prog.extend_from_slice(&0x73u32.to_le_bytes());
-    let (proof, final_regs) =
-        prove_memory_argument(&prog, &[], 64, 3, 3).ok().unwrap();
+    let (proof, final_regs) = prove_memory_argument(&prog, &[], 64, 3, 3).ok().unwrap();
     assert_eq!(final_regs[1], 0);
     assert!(verify_memory_argument(&proof, &prog, &[]).is_ok());
 }

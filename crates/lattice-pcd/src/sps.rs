@@ -138,7 +138,13 @@ impl R1csSps {
     pub fn many_solutions(s: usize, t: usize, rows: usize, seed: &[u8]) -> R1csSps {
         let n = 1 + s + t;
         let b: Vec<Vec<Fp256>> = (0..rows)
-            .map(|i| crate::util::fp_vec_from_seed(b"r1cs-b", &[seed, &(i as u64).to_le_bytes()].concat(), n))
+            .map(|i| {
+                crate::util::fp_vec_from_seed(
+                    b"r1cs-b",
+                    &[seed, &(i as u64).to_le_bytes()].concat(),
+                    n,
+                )
+            })
             .collect();
         R1csSps {
             s,
@@ -172,10 +178,7 @@ impl R1csSps {
     /// draw `z` with `z₀ = 1`, derive `C z` from `A z ∘ B z` (the C rows are
     /// overwritten so the system is satisfied by construction). Returns
     /// `(x, w)`; `self.c` is mutated to the consistent matrix.
-    pub fn sample_satisfying(
-        &mut self,
-        seed: &[u8],
-    ) -> Result<(Vec<Fp256>, Vec<Fp256>), SpsError> {
+    pub fn sample_satisfying(&mut self, seed: &[u8]) -> Result<(Vec<Fp256>, Vec<Fp256>), SpsError> {
         let n = 1 + self.s + self.t;
         let mut z = crate::util::fp_vec_from_seed(b"r1cs-witness", seed, n);
         z[0] = Fp256::from_canonical_u64(1);
@@ -190,9 +193,11 @@ impl R1csSps {
             let mut placed = false;
             for j in 0..n {
                 if !z[j].is_zero() {
-                    let ratio = prod.mul(&z[j].inverse().ok_or(SpsError::Shape(
-                        "inverse of zero witness coordinate",
-                    ))?);
+                    let ratio = prod.mul(
+                        &z[j]
+                            .inverse()
+                            .ok_or(SpsError::Shape("inverse of zero witness coordinate"))?,
+                    );
                     let mut row = vec![Fp256::ZERO; n];
                     row[j] = ratio;
                     self.c[i] = row;
@@ -662,7 +667,10 @@ mod tests {
         let a = perm.apply(&b).ok().unwrap(); // a = (30, 10, 40, 20)
         let rho = fr(7);
         // a = π(b): map = 0.
-        let ok_map = perm.eval_map(&[], &[a.clone(), b.clone()], &[rho]).ok().unwrap();
+        let ok_map = perm
+            .eval_map(&[], &[a.clone(), b.clone()], &[rho])
+            .ok()
+            .unwrap();
         assert!(ok_map.iter().all(|v| v.is_zero()));
         // wrong a: nonzero whp.
         let mut bad = a.clone();

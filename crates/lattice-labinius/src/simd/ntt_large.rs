@@ -114,8 +114,8 @@
 //! stay inside i16; the output is the level-6 column of the table above.
 
 use crate::params::*;
-use crate::simd::Batch32;
 pub use crate::simd::transpose::BinaryIndex32;
+use crate::simd::Batch32;
 use core::arch::x86_64::*;
 
 // ---------------------------------------------------------------------------------------------
@@ -845,7 +845,15 @@ impl BlockSink for OutSink {
 // the kernel
 // ---------------------------------------------------------------------------------------------
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 unsafe fn ntt_core<const Q: u16, S: BlockSink>(input: &BinaryIndex32, sink: &mut S) {
     let t = tables::<Q>();
     let cvp = t.cv.as_ptr() as *const __m512i;
@@ -973,7 +981,15 @@ unsafe fn ntt_core<const Q: u16, S: BlockSink>(input: &BinaryIndex32, sink: &mut
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI/VBMI2/VNNI/GFNI (checked by
 /// [`crate::simd::available`]); `out` is 64-byte aligned (`Batch32` is).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn ntt_bin_batch32<const Q: u16>(input: &BinaryIndex32, out: &mut Batch32) {
     let mut sink = OutSink(out.v.as_mut_ptr() as *mut i16);
     ntt_core::<Q, _>(input, &mut sink);
@@ -984,7 +1000,15 @@ pub unsafe fn ntt_bin_batch32<const Q: u16>(input: &BinaryIndex32, out: &mut Bat
 ///
 /// # Safety
 /// See [`BlockSink`]: `sink.dst` must give 27 writable 64-byte aligned vectors per block.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn ntt_bin_batch32_sink<const Q: u16, S: BlockSink>(
     input: &BinaryIndex32,
     sink: &mut S,

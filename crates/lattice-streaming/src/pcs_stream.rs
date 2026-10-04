@@ -35,7 +35,10 @@ pub enum StreamCommitError {
     /// Sampled column openings failed (Merkle or value mismatch).
     ColumnCheckFailed,
     /// Wrong shapes.
-    BadShape { expected: usize, got: usize },
+    BadShape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl core::fmt::Display for StreamCommitError {
@@ -111,7 +114,10 @@ pub fn commit_streaming(
     num_vars: usize,
 ) -> Result<StreamingCommitment, StreamCommitError> {
     if num_vars < 2 || num_vars % 2 != 0 {
-        return Err(StreamCommitError::BadShape { expected: 2, got: num_vars });
+        return Err(StreamCommitError::BadShape {
+            expected: 2,
+            got: num_vars,
+        });
     }
     let half = num_vars / 2;
     let row_len = 1usize << half;
@@ -248,9 +254,12 @@ pub fn prove_eval_streaming(
         }
     }
 
-    Ok(StreamingEvalProof { k, columns, paths: _paths })
+    Ok(StreamingEvalProof {
+        k,
+        columns,
+        paths: _paths,
+    })
 }
-
 
 /// Verify an evaluation proof for the claim `p(r) = v`: replay the
 /// column sampling, check the structural column invariants, and
@@ -336,14 +345,10 @@ mod tests {
         let r: Vec<Goldilocks> = (1..=n as u64)
             .map(|i| Goldilocks::from_u64(i.wrapping_mul(1_000_000_007) + 3))
             .collect();
-        let direct = DenseMle::new(data.clone())
-            .unwrap()
-            .evaluate(&r)
-            .unwrap();
+        let direct = DenseMle::new(data.clone()).unwrap().evaluate(&r).unwrap();
         let mut ts = Transcript::new_default(b"sc-verify");
         let mut stream2 = OwnedOracle::new(data);
-        let proof =
-            prove_eval_streaming(&mut stream2, &commitment, &r, 4, &mut ts).unwrap();
+        let proof = prove_eval_streaming(&mut stream2, &commitment, &r, 4, &mut ts).unwrap();
         let mut ts2 = Transcript::new_default(b"sc-verify");
         assert!(verify_eval_streaming(&commitment, &r, direct, &proof, 4, &mut ts2).unwrap());
         // A wrong claimed evaluation fails.

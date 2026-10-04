@@ -91,7 +91,9 @@ impl Fq48 {
 
     /// Uniform draw from transcript bytes (6 bytes = 48 bits, rejection
     /// rate `59/2^48`).
-    pub fn challenge(transcript: &mut lattice_core::transcript::Transcript) -> Result<Self, String> {
+    pub fn challenge(
+        transcript: &mut lattice_core::transcript::Transcript,
+    ) -> Result<Self, String> {
         let bytes = transcript
             .challenge_bytes(b"cauchyfold-fq", 8)
             .map_err(|e| e.to_string())?;
@@ -215,12 +217,7 @@ impl K4 {
         let u = K4([Fq48::ZERO, Fq48::ONE, Fq48::ZERO, Fq48::ZERO]);
         let u2 = u.mul(&u);
         let u3 = u2.mul(&u);
-        let cols = [
-            one.mul(self),
-            u.mul(self),
-            u2.mul(self),
-            u3.mul(self),
-        ];
+        let cols = [one.mul(self), u.mul(self), u2.mul(self), u3.mul(self)];
         // Solve the 4x4 system [cols] x = e0 (1,0,0,0).
         let mut m = [[Fq48::ZERO; 4]; 4];
         for i in 0..4 {
@@ -272,7 +269,9 @@ impl K4 {
     }
 
     /// Uniform draw (4 coefficients).
-    pub fn challenge(transcript: &mut lattice_core::transcript::Transcript) -> Result<Self, String> {
+    pub fn challenge(
+        transcript: &mut lattice_core::transcript::Transcript,
+    ) -> Result<Self, String> {
         let mut c = [Fq48::ZERO; 4];
         for i in 0..4 {
             c[i] = Fq48::challenge(transcript)?;
@@ -503,8 +502,8 @@ mod tests {
         assert_eq!(q.eval(&x), p.eval(&x).mul(&p.eval(&x)));
         // Derivative: (1 + u·T + u²·T²)' = u + 2u²·T.
         let d = p.deriv();
-        let expect_deriv = K4::from_coeffs([0, 1, 0, 0])
-            .add(&K4::from_coeffs([0, 0, 2, 0]).mul(&x));
+        let expect_deriv =
+            K4::from_coeffs([0, 1, 0, 0]).add(&K4::from_coeffs([0, 0, 2, 0]).mul(&x));
         assert_eq!(d.eval(&x), expect_deriv);
     }
 
@@ -516,7 +515,12 @@ mod tests {
             .map(|i| {
                 (
                     K4::from_coeffs([i * 13 + 1, i * 7, i * 3, i]),
-                    K4::from_coeffs([i * i * 5, i * i * 11 + i * 2, i * i * 17, i * i * 19 + i * 3]),
+                    K4::from_coeffs([
+                        i * i * 5,
+                        i * i * 11 + i * 2,
+                        i * i * 17,
+                        i * i * 19 + i * 3,
+                    ]),
                 )
             })
             .collect();

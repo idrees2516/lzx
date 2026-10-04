@@ -181,8 +181,7 @@ fn round_evals_single_bind(
     let points = 1usize << (rem_vars - 1);
     let num_factors = bound.len();
     // One reusable binding buffer per factor, sized once per round.
-    let mut bind_bufs: Vec<Vec<Goldilocks>> =
-        vec![vec![Goldilocks::ZERO; points]; num_factors];
+    let mut bind_bufs: Vec<Vec<Goldilocks>> = vec![vec![Goldilocks::ZERO; points]; num_factors];
     let mut evals_at = Vec::with_capacity(d + 1);
     for t in 0..=d {
         let t_fe = Goldilocks::from_u64(t as u64);
@@ -261,7 +260,12 @@ pub(crate) fn sum_products(
         } else if t == Goldilocks::ONE {
             vals.copy_from_slice(&evs[points..]);
         } else {
-            lattice_core::field_simd::bind_half_slices(&evs[..points], &evs[points..], t, &mut vals);
+            lattice_core::field_simd::bind_half_slices(
+                &evs[..points],
+                &evs[points..],
+                t,
+                &mut vals,
+            );
         }
         bound_vals.push(vals);
     }
@@ -527,10 +531,7 @@ mod tests {
                 let r = fe((round as u64) % 5 + 2); // a non-canonical t
                 for b in inplace.iter_mut() {
                     let len = b.evaluations.len();
-                    lattice_core::field_simd::bind_first_half_in_place(
-                        &mut b.evaluations,
-                        r,
-                    );
+                    lattice_core::field_simd::bind_first_half_in_place(&mut b.evaluations, r);
                     b.evaluations.truncate(len / 2);
                     b.num_vars -= 1;
                 }

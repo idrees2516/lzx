@@ -170,9 +170,7 @@ pub fn digit_energy(h_max: u64, radix: u64, digits: usize) -> u64 {
 /// replaced; see the deviation ledger).
 pub fn sample_short_challenge(transcript: &mut Transcript) -> Result<Poly, ChainError> {
     for _ in 0..64 {
-        let bytes = transcript
-            .challenge_bytes(b"d46", 32)
-            .map_err(e)?;
+        let bytes = transcript.challenge_bytes(b"d46", 32).map_err(e)?;
         let mut coeffs = [0i64; 64];
         for i in 0..64 {
             let byte = bytes[i % 32];
@@ -231,12 +229,7 @@ pub fn negacyclic_transpose(v: &[i64]) -> Poly {
 /// The layer-0 linear functional: the eq_σ transpose vector over the W
 /// positions (the evaluation claim `⟨eq_σ, W⟩ = w_sigma` as a ring inner
 /// product), batched over the four K-coordinates by `batch`.
-pub fn layer0_phi(
-    w_len_elems: usize,
-    sigma: &[K4],
-    w_cube_vars: usize,
-    batch: &K4,
-) -> Vec<Poly> {
+pub fn layer0_phi(w_len_elems: usize, sigma: &[K4], w_cube_vars: usize, batch: &K4) -> Vec<Poly> {
     let mut phi = Vec::with_capacity(w_len_elems);
     for c in 0..w_len_elems {
         let mut vals = [0i64; 64];
@@ -324,8 +317,7 @@ pub fn prove_chain(
     transcript: &mut Transcript,
 ) -> Result<ChainProof, ChainError> {
     // The batch over the four K-coordinates.
-    let batch = K4::challenge(transcript)
-        .map_err(|err| ChainError::Transcript(err.to_string()))?;
+    let batch = K4::challenge(transcript).map_err(|err| ChainError::Transcript(err.to_string()))?;
     let mut b_target = K4::ZERO;
     for (cc, &bs) in batch.0.iter().enumerate() {
         let prod = Fq48(bs.0).mul(&w_sigma.0[cc]);
@@ -348,17 +340,19 @@ pub fn prove_chain(
         // `A·z = Σ c_j t_j` closes.
         let key = AjtaiKey::from_seed(1, n, b"cauchyfold-layer");
         layer_key_dims.push((1, n));
-        let (tr, child_blocks, child_norm) =
-            prove_layer(&key, &current_blocks, &current_phi, current_norm, transcript)?;
+        let (tr, child_blocks, child_norm) = prove_layer(
+            &key,
+            &current_blocks,
+            &current_phi,
+            current_norm,
+            transcript,
+        )?;
         // The child's φ: the recomposition functional against the public
         // response z — [identity, ρ·identity] as block functionals.
         let child_phi = {
             let ident = negacyclic_transpose(&vec![1i64; 64]);
             let radixv = negacyclic_transpose(&vec![LAYER_RADIX; 64]);
-            vec![
-                vec![ident; n],
-                vec![radixv; n],
-            ]
+            vec![vec![ident; n], vec![radixv; n]]
         };
         transcripts.push(tr);
         current_blocks = child_blocks;
@@ -368,11 +362,7 @@ pub fn prove_chain(
 
     // The terminal: the current blocks, transmitted directly.
     let flat: Vec<Poly> = current_blocks.concat();
-    let term_key = AjtaiKey::from_seed(
-        1,
-        flat.len().max(1),
-        b"cauchyfold-terminal",
-    );
+    let term_key = AjtaiKey::from_seed(1, flat.len().max(1), b"cauchyfold-terminal");
     let commitment = term_key.commit(&flat).map_err(ChainError::Shape)?;
     let norm_squared = norm2(&flat);
     absorb_poly_vec(transcript, b"term-c", &commitment).map_err(e)?;
@@ -417,9 +407,7 @@ fn prove_layer(
     let m = 8usize.min(flat_len);
     let mut projection_retries = 0u32;
     let (projection, p) = loop {
-        let seed = transcript
-            .challenge_bytes(b"proj-seed", 32)
-            .map_err(e)?;
+        let seed = transcript.challenge_bytes(b"proj-seed", 32).map_err(e)?;
         let rows = derive_projection(&seed, m, flat_len);
         let flat = flat_coeffs(blocks);
         let pp: Vec<i64> = (0..m)
@@ -489,8 +477,7 @@ fn prove_layer(
     };
     absorb_poly_vec(transcript, b"z", &z).map_err(e)?;
     // 6. The child: the radix split of z.
-    let (z0, z1): (Vec<Poly>, Vec<Poly>) =
-        z.iter().map(|pp| radix_split(pp, LAYER_RADIX)).unzip();
+    let (z0, z1): (Vec<Poly>, Vec<Poly>) = z.iter().map(|pp| radix_split(pp, LAYER_RADIX)).unzip();
     let child_blocks = vec![z0, z1];
     // The child's norm bound: lo ∈ {−32..31}, hi ≤ (max|z| + 32)/64 + 1.
     let zmax = (g as f64).sqrt() as i64 + 1;
@@ -523,8 +510,7 @@ pub fn verify_chain(
     if proof.layers.len() != NUM_LAYERS {
         return Err(ChainError::Shape("layer count".into()));
     }
-    let batch = K4::challenge(transcript)
-        .map_err(|err| ChainError::Transcript(err.to_string()))?;
+    let batch = K4::challenge(transcript).map_err(|err| ChainError::Transcript(err.to_string()))?;
     // Rebuild the layer-0 φ (the verifier's own derivation).
     let phi0 = layer0_phi(w_ring.len(), sigma, w_cube_vars, &batch);
     let mut current_phi = vec![phi0];
@@ -535,9 +521,7 @@ pub fn verify_chain(
             absorb_poly_vec(transcript, b"t", tj).map_err(e)?;
         }
         // The projection seed + p replay.
-        let _seed = transcript
-            .challenge_bytes(b"proj-seed", 32)
-            .map_err(e)?;
+        let _seed = transcript.challenge_bytes(b"proj-seed", 32).map_err(e)?;
         {
             let mut pb = Vec::new();
             for &x in &tr.p {
@@ -655,8 +639,7 @@ pub fn verify_chain(
     }
     // The fail-closed codec roundtrip.
     let codec = crate::wire::encode_terminal(&flat);
-    let decoded = crate::wire::decode_terminal(&codec, flat.len())
-        .map_err(ChainError::Codec)?;
+    let decoded = crate::wire::decode_terminal(&codec, flat.len()).map_err(ChainError::Codec)?;
     if decoded != flat {
         return Err(ChainError::Codec("roundtrip".into()));
     }

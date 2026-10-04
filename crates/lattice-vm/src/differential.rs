@@ -47,11 +47,7 @@ fn enc_r(funct7: u32, rs2: u8, rs1: u8, funct3: u32, rd: u8, opcode: u32) -> u32
 }
 
 fn enc_i(imm: u32, rs1: u8, funct3: u32, rd: u8, opcode: u32) -> u32 {
-    ((imm & 0xFFF) << 20)
-        | ((rs1 as u32) << 15)
-        | (funct3 << 12)
-        | ((rd as u32) << 7)
-        | opcode
+    ((imm & 0xFFF) << 20) | ((rs1 as u32) << 15) | (funct3 << 12) | ((rd as u32) << 7) | opcode
 }
 
 fn enc_s(imm: u32, rs2: u8, rs1: u8, funct3: u32, opcode: u32) -> u32 {
@@ -183,8 +179,8 @@ fn gen_program(prng: &mut Prng, n: usize) -> Vec<u32> {
             }
             8 | 9 => {
                 // AMO word-granular family (sandbox base x1..x4).
-                let funct3 = [2u32, 3, 1, 0, 4, 0xC, 8, 0x10, 0x14, 0x18, 0x1c]
-                    [prng.range(11) as usize];
+                let funct3 =
+                    [2u32, 3, 1, 0, 4, 0xC, 8, 0x10, 0x14, 0x18, 0x1c][prng.range(11) as usize];
                 let rs1 = (1u8 + prng.range(4) as u8) & 0x1f;
                 enc_r(0x02, r8(prng), rs1, funct3, r8(prng), AMO)
             }
@@ -226,12 +222,7 @@ fn run_differential(seed: u64, n_instr: usize) -> Result<(), String> {
         r
     };
     let init_mem: Vec<(u64, u64)> = (0..8)
-        .map(|_| {
-            (
-                0x200 + prng.range(0x100) * 8,
-                prng.next(),
-            )
-        })
+        .map(|_| (0x200 + prng.range(0x100) * 8, prng.next()))
         .collect();
 
     // Canonical machine.
@@ -262,16 +253,22 @@ fn run_differential(seed: u64, n_instr: usize) -> Result<(), String> {
     // as "both completed-truncated" and fall through to the state
     // comparison (both machines are deterministic and have executed
     // exactly max_steps steps).
-    let refr_truncated =
-        matches!(&refr_result, Err(crate::reference::RefError::StepLimitExceeded));
+    let refr_truncated = matches!(
+        &refr_result,
+        Err(crate::reference::RefError::StepLimitExceeded)
+    );
     match (&canon_result, &refr_result) {
         (Err(_), Err(_)) => return Ok(()),
         (Err(c), Ok(_)) => {
-            return Err(format!("seed {seed}: canonical errored {c:?}, reference did not"));
+            return Err(format!(
+                "seed {seed}: canonical errored {c:?}, reference did not"
+            ));
         }
         (Ok(_), Err(r)) if refr_truncated => {}
         (Ok(_), Err(r)) => {
-            return Err(format!("seed {seed}: reference errored {r:?}, canonical did not"));
+            return Err(format!(
+                "seed {seed}: reference errored {r:?}, canonical did not"
+            ));
         }
         (Ok(_), Ok(_)) => {}
     }

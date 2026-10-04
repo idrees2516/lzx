@@ -42,9 +42,13 @@ impl std::fmt::Display for ParamError {
         match self {
             ParamError::ColumnsExceedWitness => write!(f, "column_log_len exceeds witness_log_len"),
             ParamError::TooFewColumns => write!(f, "column_log_len must be at least 1"),
-            ParamError::ColumnTooShort => write!(f, "a column must hold at least 128 F162 elements"),
+            ParamError::ColumnTooShort => {
+                write!(f, "a column must hold at least 128 F162 elements")
+            }
             ParamError::DuplicateModulus(m) => write!(f, "the modulus {m:?} is listed twice"),
-            ParamError::BaseIsAlsoExtra(m) => write!(f, "the base modulus {m:?} is listed again as an extra one"),
+            ParamError::BaseIsAlsoExtra(m) => {
+                write!(f, "the base modulus {m:?} is listed again as an extra one")
+            }
         }
     }
 }
@@ -64,7 +68,9 @@ pub struct Params {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Opening {
     Clear,
-    BitDropped { bits: u32 },
+    BitDropped {
+        bits: u32,
+    },
     /// Recurse the folded opening into LaBRADOR (see [`crate::recursion`]).
     Recursive,
 }
@@ -128,7 +134,8 @@ impl Suite {
 
 /// The default shape: 2^18 F162 in 128 columns, moduli 3889 + 2917, clear opening.
 pub fn basic() -> Params {
-    Params::new(18, 7, vec![Modulus::Q2917_Q_S], Opening::Clear).expect("basic parameters are valid")
+    Params::new(18, 7, vec![Modulus::Q2917_Q_S], Opening::Clear)
+        .expect("basic parameters are valid")
 }
 
 impl Params {
@@ -138,7 +145,13 @@ impl Params {
         extra_moduli: Vec<Modulus>,
         opening: Opening,
     ) -> Result<Params, ParamError> {
-        Params::with_base(witness_log_len, column_log_len, Modulus::BASE, extra_moduli, opening)
+        Params::with_base(
+            witness_log_len,
+            column_log_len,
+            Modulus::BASE,
+            extra_moduli,
+            opening,
+        )
     }
 
     pub fn with_base(
@@ -183,8 +196,14 @@ impl Params {
             Opening::BitDropped { .. } => suite.moduli_bd,
             _ => suite.moduli,
         };
-        Params::with_base(suite.witness_log_len, column_log_len, list[0], list[1..].to_vec(), opening)
-            .expect("the sized parameters are valid")
+        Params::with_base(
+            suite.witness_log_len,
+            column_log_len,
+            list[0],
+            list[1..].to_vec(),
+            opening,
+        )
+        .expect("the sized parameters are valid")
     }
 
     pub fn recursion(&self) -> bool {
@@ -440,7 +459,10 @@ impl FoldedWitness {
 
     /// The strict inverse of [`Self::to_wire`]: framing, digest, shape and escape
     /// accounting must all match, or the artifact is rejected.
-    pub fn from_wire(bytes: &[u8], params_digest: &[u8; 32]) -> Result<Self, crate::wire::WireError> {
+    pub fn from_wire(
+        bytes: &[u8],
+        params_digest: &[u8; 32],
+    ) -> Result<Self, crate::wire::WireError> {
         let art = crate::wire::WireArtifact::decode(bytes, params_digest)?;
         if art.small_fields.len() != 1
             || art.small_fields[0].1 != 32
@@ -461,8 +483,12 @@ impl FoldedWitness {
             let z: u16 = if s <= 254 {
                 s as u16
             } else if s == 255 {
-                let lo = *esc_blob.get(esc_pos).ok_or(crate::wire::WireError::Framing)?;
-                let hi = *esc_blob.get(esc_pos + 1).ok_or(crate::wire::WireError::Framing)?;
+                let lo = *esc_blob
+                    .get(esc_pos)
+                    .ok_or(crate::wire::WireError::Framing)?;
+                let hi = *esc_blob
+                    .get(esc_pos + 1)
+                    .ok_or(crate::wire::WireError::Framing)?;
                 esc_pos += 2;
                 esc_used += 1;
                 u16::from_le_bytes([lo, hi])
@@ -593,7 +619,8 @@ impl PublicParameters {
     pub fn from_seed(params: Params, matrix_seed: [u8; 32]) -> PublicParameters {
         let digest = lattice_core::keccak::sha3_256(&matrix_seed);
         let seed = u64::from_le_bytes(digest[..8].try_into().unwrap());
-        let key = CommitmentKey::random(params.column_len(), seed, params.base, &params.extra_moduli);
+        let key =
+            CommitmentKey::random(params.column_len(), seed, params.base, &params.extra_moduli);
         PublicParameters {
             params,
             matrix_seed,
@@ -618,7 +645,10 @@ impl Prover {
     }
 
     pub fn commit(&self, witness: &Witness) -> (Commitment, CommitmentOpening) {
-        assert_eq!(witness.params, self.params, "the witness was built for other parameters");
+        assert_eq!(
+            witness.params, self.params,
+            "the witness was built for other parameters"
+        );
         let (matrix, aux) = self.key.commit(&witness.elements, self.params.columns());
         let primes = self.params.primes();
         let value = match self.params.dropped_bits() {
@@ -636,8 +666,13 @@ impl Prover {
     }
 
     /// `v = sum_j c_j W_j`, in coefficient form modulo the base prime, centered.
-    pub fn fold(&self, opening: CommitmentOpening, challenges: &FoldingChallenges) -> FoldedWitness {
-        let elements = crate::fold::fold_witness(&opening.aux, &challenges.challenges, self.key.prime(0));
+    pub fn fold(
+        &self,
+        opening: CommitmentOpening,
+        challenges: &FoldingChallenges,
+    ) -> FoldedWitness {
+        let elements =
+            crate::fold::fold_witness(&opening.aux, &challenges.challenges, self.key.prime(0));
         FoldedWitness { elements }
     }
 
@@ -652,7 +687,9 @@ impl Prover {
         challenges: &FoldingChallenges,
     ) -> Result<crate::recursion::OpeningProof, String> {
         let folded = self.fold(
-            CommitmentOpening { aux: opening.aux.clone() },
+            CommitmentOpening {
+                aux: opening.aux.clone(),
+            },
             challenges,
         );
         crate::recursion::prove_opening(pp, opening, &folded, row, &challenges.challenges)
@@ -747,14 +784,13 @@ impl Verifier {
         commitment: &Commitment,
         challenges: &FoldingChallenges,
     ) -> FoldedCommitment {
-        assert_eq!(challenges.len(), commitment.columns(), "one challenge per column");
+        assert_eq!(
+            challenges.len(),
+            commitment.columns(),
+            "one challenge per column"
+        );
         let matrix = commitment.matrix();
-        let mut rows: [Vec<PowerOfThreeRing>; 4] = [
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        ];
+        let mut rows: [Vec<PowerOfThreeRing>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         for k in 0..self.key.limbs() {
             let q = self.key.prime(k);
             let columns: Vec<Vec<PowerOfThreeRing>> = (0..matrix.cols())

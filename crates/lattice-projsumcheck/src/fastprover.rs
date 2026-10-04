@@ -85,7 +85,10 @@ pub struct FastFpOpts {
 
 impl Default for FastFpOpts {
     fn default() -> Self {
-        FastFpOpts { window: 3, collect_stats: true }
+        FastFpOpts {
+            window: 3,
+            collect_stats: true,
+        }
     }
 }
 
@@ -132,9 +135,16 @@ pub enum FastFpError {
     /// The terminal identity failed.
     FinalCheckFailed,
     /// Round shape wrong.
-    BadRoundShape { round: usize, got: usize, expected: usize },
+    BadRoundShape {
+        round: usize,
+        got: usize,
+        expected: usize,
+    },
     /// Round count wrong.
-    BadRoundCount { got: usize, expected: usize },
+    BadRoundCount {
+        got: usize,
+        expected: usize,
+    },
     EmptyInstance,
     /// An i128 grid value overflowed the exact-small budget — use the
     /// generic (Big-factor) path.
@@ -147,7 +157,11 @@ impl core::fmt::Display for FastFpError {
             FastFpError::Transcript(e) => write!(f, "transcript error: {e:?}"),
             FastFpError::ClaimMismatch => write!(f, "claimed sum does not match polynomial"),
             FastFpError::FinalCheckFailed => write!(f, "terminal identity failed"),
-            FastFpError::BadRoundShape { round, got, expected } => {
+            FastFpError::BadRoundShape {
+                round,
+                got,
+                expected,
+            } => {
                 write!(f, "round {round} length {got} != expected {expected}")
             }
             FastFpError::BadRoundCount { got, expected } => {
@@ -214,7 +228,11 @@ pub struct FpVirtualPolynomial {
 
 impl FpVirtualPolynomial {
     pub fn new(num_vars: usize) -> Self {
-        FpVirtualPolynomial { num_vars, factors: Vec::new(), terms: Vec::new() }
+        FpVirtualPolynomial {
+            num_vars,
+            factors: Vec::new(),
+            terms: Vec::new(),
+        }
     }
 
     pub fn add_factor(&mut self, factor: FpFactor) -> Result<usize, FastFpError> {
@@ -246,7 +264,10 @@ impl FpVirtualPolynomial {
 
     /// Single degree-`ℓ` product of factors.
     pub fn product(factors: Vec<FpFactor>) -> Result<Self, FastFpError> {
-        let num_vars = factors.first().map(|f| f.len().trailing_zeros() as usize).unwrap_or(0);
+        let num_vars = factors
+            .first()
+            .map(|f| f.len().trailing_zeros() as usize)
+            .unwrap_or(0);
         let mut vp = FpVirtualPolynomial::new(num_vars);
         for f in factors {
             vp.add_factor(f)?;
@@ -257,7 +278,11 @@ impl FpVirtualPolynomial {
     }
 
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 
     fn all_small(&self) -> bool {
@@ -295,14 +320,20 @@ impl FpVirtualPolynomial {
                 for e in 0..m {
                     let mut prod: i128 = 1;
                     for t in &tables {
-                        prod = prod.checked_mul(t[e]).ok_or(FastFpError::SmallValueOverflow)?;
+                        prod = prod
+                            .checked_mul(t[e])
+                            .ok_or(FastFpError::SmallValueOverflow)?;
                     }
                     term_acc = term_acc
                         .checked_add(prod)
                         .ok_or(FastFpError::SmallValueOverflow)?;
                 }
                 total = total
-                    .checked_add((*c as i128).checked_mul(term_acc).ok_or(FastFpError::SmallValueOverflow)?)
+                    .checked_add(
+                        (*c as i128)
+                            .checked_mul(term_acc)
+                            .ok_or(FastFpError::SmallValueOverflow)?,
+                    )
                     .ok_or(FastFpError::SmallValueOverflow)?;
             }
             Ok(Fp256::canon_i128(total))
@@ -446,7 +477,9 @@ fn small_inverse(x: i64) -> Fp256 {
         r = cur % a as u128;
     }
     debug_assert_eq!(r, 0, "1 + k·p must divide by a exactly");
-    let out = Fp256 { limbs: [q[0], q[1], q[2], q[3]] };
+    let out = Fp256 {
+        limbs: [q[0], q[1], q[2], q[3]],
+    };
     if neg {
         out.neg()
     } else {
@@ -495,7 +528,9 @@ fn tail_round_messages(
         .map(|b| (0..half).map(|e| b[e + half].sub(&b[e])).collect())
         .collect();
     // t̄ (Montgomery) per t — CIOS(Δ̄, t̄) = mont(Δ·t), form (1,1) → 1.
-    let t_bars: Vec<Fp256> = (0..=d as i128).map(|t| Fp256::canon_i128(t).to_mont()).collect();
+    let t_bars: Vec<Fp256> = (0..=d as i128)
+        .map(|t| Fp256::canon_i128(t).to_mont())
+        .collect();
     // c̄ (Montgomery) per term — CIOS(prod, c̄) = mont(TRUE c·Π).
     let c_bars: Vec<Fp256> = terms
         .iter()
@@ -617,13 +652,16 @@ fn multi_extrapolate_small(
                         let term = (w as i128)
                             .checked_mul(line[1 + c + j])
                             .ok_or(FastFpError::SmallValueOverflow)?;
-                        acc = acc.checked_add(term).ok_or(FastFpError::SmallValueOverflow)?;
+                        acc = acc
+                            .checked_add(term)
+                            .ok_or(FastFpError::SmallValueOverflow)?;
                     }
                     let inf_term = (inf as i128)
                         .checked_mul(line[0])
                         .ok_or(FastFpError::SmallValueOverflow)?;
-                    line[k + 1 + c] =
-                        acc.checked_add(inf_term).ok_or(FastFpError::SmallValueOverflow)?;
+                    line[k + 1 + c] = acc
+                        .checked_add(inf_term)
+                        .ok_or(FastFpError::SmallValueOverflow)?;
                 }
                 for sx in 0..new_side {
                     next[o * new_side * inner + sx * inner + i] = line[sx];
@@ -687,7 +725,10 @@ struct MontStencil {
 fn mont_stencil(k: usize) -> MontStencil {
     let (w, inf) = stencil_weights(k);
     MontStencil {
-        weights: w.iter().map(|&x| Fp256::canon_i128(x as i128).to_mont()).collect(),
+        weights: w
+            .iter()
+            .map(|&x| Fp256::canon_i128(x as i128).to_mont())
+            .collect(),
         inf: Fp256::canon_i128(inf as i128).to_mont(),
     }
 }
@@ -744,11 +785,7 @@ fn multi_extrapolate_mont(
     }
 }
 
-fn multi_product_eval_mont(
-    tables: &[Vec<Fp256>],
-    v: usize,
-    stats: &mut FastFpStats,
-) -> Vec<Fp256> {
+fn multi_product_eval_mont(tables: &[Vec<Fp256>], v: usize, stats: &mut FastFpStats) -> Vec<Fp256> {
     let n = tables.len();
     let mut grid = product_recursive_mont(tables, v, stats);
     multi_extrapolate_mont(&mut grid, v, n, n + 1, stats);
@@ -844,7 +881,11 @@ fn prove_impl(
     } else {
         vp.factors
             .iter()
-            .map(|f| (0..(1usize << m)).map(|i| f.canon_at(i).to_mont()).collect())
+            .map(|f| {
+                (0..(1usize << m))
+                    .map(|i| f.canon_at(i).to_mont())
+                    .collect()
+            })
             .collect()
     };
 
@@ -906,7 +947,10 @@ fn prove_impl(
     }
 
     if std::env::var_os("LZX_FP_TRACE").is_some() {
-        eprintln!("[fp-fast] grids built in {:.2} ms", dbg_t0.elapsed().as_secs_f64()*1e3);
+        eprintln!(
+            "[fp-fast] grids built in {:.2} ms",
+            dbg_t0.elapsed().as_secs_f64() * 1e3
+        );
     }
     let dbg_t1 = std::time::Instant::now();
     // ---- Window rounds 1..v ----
@@ -1041,7 +1085,10 @@ fn prove_impl(
     }
 
     if std::env::var_os("LZX_FP_TRACE").is_some() {
-        eprintln!("[fp-fast] window rounds in {:.2} ms", dbg_t1.elapsed().as_secs_f64()*1e3);
+        eprintln!(
+            "[fp-fast] window rounds in {:.2} ms",
+            dbg_t1.elapsed().as_secs_f64() * 1e3
+        );
     }
     let dbg_t2 = std::time::Instant::now();
     // ---- Bind the window variables (the prefix adaptation) ----
@@ -1120,7 +1167,10 @@ fn prove_impl(
     }
 
     if std::env::var_os("LZX_FP_TRACE").is_some() {
-        eprintln!("[fp-fast] prefix adaptation in {:.2} ms", dbg_t2.elapsed().as_secs_f64()*1e3);
+        eprintln!(
+            "[fp-fast] prefix adaptation in {:.2} ms",
+            dbg_t2.elapsed().as_secs_f64() * 1e3
+        );
     }
     let dbg_t3 = std::time::Instant::now();
     // ---- Tail rounds v+1..m (shared with the baseline, all-Montgomery) ----
@@ -1171,7 +1221,10 @@ fn prove_impl(
     }
 
     if std::env::var_os("LZX_FP_TRACE").is_some() {
-        eprintln!("[fp-fast] tail in {:.2} ms", dbg_t3.elapsed().as_secs_f64()*1e3);
+        eprintln!(
+            "[fp-fast] tail in {:.2} ms",
+            dbg_t3.elapsed().as_secs_f64() * 1e3
+        );
     }
     if collect {
         STATS.with(|s| *s.borrow_mut() = Some(stats));
@@ -1258,7 +1311,10 @@ impl FpSumcheckProof {
             current = interpolate_fin(round, &c_canon);
             point.push(c_canon);
         }
-        Ok(FpSumcheckVerifier { point, final_claim: current })
+        Ok(FpSumcheckVerifier {
+            point,
+            final_claim: current,
+        })
     }
 }
 
@@ -1319,13 +1375,20 @@ mod tests {
                     &vp,
                     claim,
                     &mut ts1,
-                    &FastFpOpts { window: w, collect_stats: false },
+                    &FastFpOpts {
+                        window: w,
+                        collect_stats: false,
+                    },
                 )
                 .unwrap();
-                assert_eq!(base.proof, fast.proof,
-                    "proof mismatch: log={log_vars} d={d} w={w}");
-                assert_eq!(base.challenges, fast.challenges,
-                    "challenge path mismatch: log={log_vars} d={d} w={w}");
+                assert_eq!(
+                    base.proof, fast.proof,
+                    "proof mismatch: log={log_vars} d={d} w={w}"
+                );
+                assert_eq!(
+                    base.challenges, fast.challenges,
+                    "challenge path mismatch: log={log_vars} d={d} w={w}"
+                );
                 assert_eq!(base.final_claim, fast.final_claim);
                 assert_eq!(base.factor_claims, fast.factor_claims);
             }
@@ -1349,13 +1412,20 @@ mod tests {
                     &vp,
                     claim,
                     &mut ts1,
-                    &FastFpOpts { window: w, collect_stats: false },
+                    &FastFpOpts {
+                        window: w,
+                        collect_stats: false,
+                    },
                 )
                 .unwrap();
-                assert_eq!(base.proof, fast.proof,
-                    "generic proof mismatch: log={log_vars} d={d} w={w}");
-                assert_eq!(base.challenges, fast.challenges,
-                    "generic challenge path mismatch: log={log_vars} d={d} w={w}");
+                assert_eq!(
+                    base.proof, fast.proof,
+                    "generic proof mismatch: log={log_vars} d={d} w={w}"
+                );
+                assert_eq!(
+                    base.challenges, fast.challenges,
+                    "generic challenge path mismatch: log={log_vars} d={d} w={w}"
+                );
             }
         }
     }
@@ -1378,7 +1448,10 @@ mod tests {
                 &vp,
                 claim,
                 &mut ts1,
-                &FastFpOpts { window: w, collect_stats: false },
+                &FastFpOpts {
+                    window: w,
+                    collect_stats: false,
+                },
             )
             .unwrap();
             assert_eq!(base.proof, fast.proof, "w={w}");
@@ -1448,7 +1521,12 @@ mod tests {
     #[test]
     fn field_layer_differential() {
         use crate::fp256::reduce_wide_ref;
-        const RINV: [u64; 4] = [0xdc5b_a005_6db1_194e, 0x090e_f5a9_e111_ec87, 0xc826_0de4_aeb8_5d5d, 0x15eb_f951_82c5_551c];
+        const RINV: [u64; 4] = [
+            0xdc5b_a005_6db1_194e,
+            0x090e_f5a9_e111_ec87,
+            0xc826_0de4_aeb8_5d5d,
+            0x15eb_f951_82c5_551c,
+        ];
         let mul_ref = |a: [u64; 4], b: [u64; 4]| -> [u64; 4] {
             let school = |x: [u64; 4], y: [u64; 4]| -> [u64; 8] {
                 let mut wide = [0u64; 8];
@@ -1471,7 +1549,10 @@ mod tests {
             (crate::fp256::R2_C, [1, 0, 0, 0]),
             ([17, 0, 0, 0], [5, 0, 0, 0]),
             (crate::fp256::R_C, crate::fp256::R2_C),
-            ([0x1234_5678_9abc_def0, 0x0fed_cba9_8765_4321, 0x1, 0x2], [0x999, 0x888, 0x777, 0x666]),
+            (
+                [0x1234_5678_9abc_def0, 0x0fed_cba9_8765_4321, 0x1, 0x2],
+                [0x999, 0x888, 0x777, 0x666],
+            ),
             ([0xffff_ffff_ffff_ffff, 2, 0, 0], [3, 0, 0, 0]),
         ];
         for (a, b) in cases {
@@ -1482,13 +1563,19 @@ mod tests {
         // Bridge roundtrips on random canonical values.
         for seed in 0..8u64 {
             let h = lattice_core::transcript::Transcript::hash_domain(b"diff", &seed.to_le_bytes());
-            let v = Fp256 { limbs: [
-                u64::from_le_bytes(h[0..8].try_into().unwrap()),
-                u64::from_le_bytes(h[8..16].try_into().unwrap()),
-                u64::from_le_bytes(h[16..24].try_into().unwrap()) & 0x0fff_ffff_ffff_ffff,
-                0,
-            ]};
-            assert_eq!(v.to_mont().from_mont(), v, "to_mont/from_mont roundtrip {seed}");
+            let v = Fp256 {
+                limbs: [
+                    u64::from_le_bytes(h[0..8].try_into().unwrap()),
+                    u64::from_le_bytes(h[8..16].try_into().unwrap()),
+                    u64::from_le_bytes(h[16..24].try_into().unwrap()) & 0x0fff_ffff_ffff_ffff,
+                    0,
+                ],
+            };
+            assert_eq!(
+                v.to_mont().from_mont(),
+                v,
+                "to_mont/from_mont roundtrip {seed}"
+            );
             assert_eq!(v.to_mont().from_mont(), v);
             // mul_small: mont(x)·s == canon(x·s).
             let x17 = v.to_mont().mul_small(17);
@@ -1514,7 +1601,11 @@ mod tests {
     #[test]
     fn interpolate_matches_direct() {
         // p(X) = 3X² + 2X + 7: values at 0,1,2 = 7, 12, 23; p(5) = 92.
-        let evals = [Fp256::canon_i128(7), Fp256::canon_i128(12), Fp256::canon_i128(23)];
+        let evals = [
+            Fp256::canon_i128(7),
+            Fp256::canon_i128(12),
+            Fp256::canon_i128(23),
+        ];
         let r = Fp256::canon_i128(5);
         assert_eq!(interpolate_fin(&evals, &r), Fp256::canon_i128(92));
         // Degree-3: p(X) = X³ − X + 1 at 0..3 → p(7) = 343 − 7 + 1 = 337.
@@ -1586,7 +1677,15 @@ mod tests {
         let vp = FpVirtualPolynomial::product(factors).unwrap();
         let claim = vp.total_sum().unwrap();
         let mut ts = Transcript::new_default(b"fp-stats");
-        let _ = prove_fast(&vp, claim, &mut ts, &FastFpOpts { window: 3, collect_stats: true });
+        let _ = prove_fast(
+            &vp,
+            claim,
+            &mut ts,
+            &FastFpOpts {
+                window: 3,
+                collect_stats: true,
+            },
+        );
         let stats = take_last_stats().unwrap();
         // The grid engine ran entirely on i128.
         assert!(stats.ss_mults > 0);

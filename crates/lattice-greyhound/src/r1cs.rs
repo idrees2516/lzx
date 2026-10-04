@@ -53,7 +53,7 @@ pub fn pack_coeffs(vals: &[i64]) -> Vec<Poly> {
 pub fn naf_encode(a: u64, d: usize) -> Vec<i64> {
     debug_assert!(d <= 64);
     let m = (1u128 << d) + 1; // 2^d + 1
-    // center a mod (2^d+1): the representative in [-(2^d)/2, (2^d)/2]
+                              // center a mod (2^d+1): the representative in [-(2^d)/2, (2^d)/2]
     let mut v = (a as i128).rem_euclid(m as i128);
     if v > (m as i128) / 2 {
         v -= m as i128;
@@ -186,7 +186,12 @@ pub fn binary_r1cs_reduce(
     let b_p = pack_coeffs(&b);
     let c_p = pack_coeffs(&c);
     let w_p = pack_coeffs(&wv);
-    let pad_to = a_p.len().max(b_p.len()).max(c_p.len()).max(w_p.len()).max(768);
+    let pad_to = a_p
+        .len()
+        .max(b_p.len())
+        .max(c_p.len())
+        .max(w_p.len())
+        .max(768);
     let pad = |v: &[Poly]| -> Vec<Poly> {
         let mut out = v.to_vec();
         while out.len() < pad_to {
@@ -210,7 +215,10 @@ pub fn binary_r1cs_reduce(
 
     // t = A_key·(a||b||c||w) — κ ring elements at the window key_off
     let kappa = 8.min(key.len / 4); // a rank for the t commitment
-    let flat: Vec<Poly> = witness[..4].iter().flat_map(|v| v.iter().copied()).collect();
+    let flat: Vec<Poly> = witness[..4]
+        .iter()
+        .flat_map(|v| v.iter().copied())
+        .collect();
     // the commitment: κ rows over the flat witness — must fit the key window
     let t = key.mul_window(&flat, key_off, kappa);
 
@@ -342,7 +350,11 @@ pub fn binary_r1cs_reduce(
         // the cross entry (x, x̃) is evaluated with the symmetric doubling
         // factor 2 — so the coefficient is 1/2 mod q, giving ct(⟨x, x̃⟩) = Σx²
         let c = DotCnst {
-            terms: vec![Term { idx: vi, off: 0, phi: linear }],
+            terms: vec![Term {
+                idx: vi,
+                off: 0,
+                phi: linear,
+            }],
             a: vec![(
                 conj_idx.min(vi),
                 conj_idx.max(vi),
@@ -360,11 +372,12 @@ pub fn binary_r1cs_reduce(
     // s_x·s_{x'} (s_a=s_b=1, s_c=−2) and linear terms −s_x·⟨1, x⟩.
     {
         let s = [1i64, 1, -2]; // a, b, c
-        // The expansion: ct(⟨a+b−2c, ã+b̃−2c̃⟩) = Σ_{i,j} s_i s_j · ct(sprod(x_i, x̃_j)).
-        // Each (i, 4+j) entry with i ≠ 4+j is off-diagonal (doubled by the
-        // symmetric eval), and the pair (i,j)+(j,i) is pushed twice — so every
-        // mixed coefficient carries a factor 4; halve twice via INV2².
-        let inv4 = crate::ring::cmod(crate::challenge::INV2 as i128 * crate::challenge::INV2 as i128);
+                               // The expansion: ct(⟨a+b−2c, ã+b̃−2c̃⟩) = Σ_{i,j} s_i s_j · ct(sprod(x_i, x̃_j)).
+                               // Each (i, 4+j) entry with i ≠ 4+j is off-diagonal (doubled by the
+                               // symmetric eval), and the pair (i,j)+(j,i) is pushed twice — so every
+                               // mixed coefficient carries a factor 4; halve twice via INV2².
+        let inv4 =
+            crate::ring::cmod(crate::challenge::INV2 as i128 * crate::challenge::INV2 as i128);
         let mut a_entries: Vec<(usize, usize, Poly)> = Vec::new();
         for (xi, &sx) in s.iter().enumerate() {
             for (xj, &sxp) in s.iter().enumerate() {
@@ -387,9 +400,18 @@ pub fn binary_r1cs_reduce(
         let mut terms = Vec::new();
         for (xi, &sx) in s.iter().enumerate() {
             let phi = vec![ones_conj.scale(-sx); witness[xi].len()];
-            terms.push(Term { idx: xi, off: 0, phi });
+            terms.push(Term {
+                idx: xi,
+                off: 0,
+                phi,
+            });
         }
-        cnst.push(DotCnst { terms, a: a_entries, b: None, ct_only: true });
+        cnst.push(DotCnst {
+            terms,
+            a: a_entries,
+            b: None,
+            ct_only: true,
+        });
     }
 
     // ---- F2: the λ F₂-combinations of the linear relations ----
@@ -410,7 +432,11 @@ pub fn binary_r1cs_reduce(
     for (alpha, beta, gamma) in &deltas {
         // δ_i-lifted row: (α^T A + β^T B + γ^T C) over Z (lifted from F2)
         let mut combined: Vec<i64> = vec![0; n];
-        for (r, mat) in [(alpha.as_slice(), a_mat), (beta.as_slice(), b_mat), (gamma.as_slice(), c_mat)] {
+        for (r, mat) in [
+            (alpha.as_slice(), a_mat),
+            (beta.as_slice(), b_mat),
+            (gamma.as_slice(), c_mat),
+        ] {
             for i in 0..k {
                 if r[i] == 1 {
                     for j in 0..n {
@@ -420,9 +446,7 @@ pub fn binary_r1cs_reduce(
             }
         }
         // g_i = ⟨α, a⟩ + ⟨β, b⟩ + ⟨γ, c⟩ − ⟨combined, w⟩
-        let dot = |u: &[u8], v: &[i64]| -> i64 {
-            (0..k).map(|i| u[i] as i64 * v[i]).sum()
-        };
+        let dot = |u: &[u8], v: &[i64]| -> i64 { (0..k).map(|i| u[i] as i64 * v[i]).sum() };
         let g = dot(alpha, &a) + dot(beta, &b) + dot(gamma, &c)
             - (0..n).map(|j| combined[j] * wv[j]).sum::<i64>();
         if g % 2 != 0 {
@@ -443,13 +467,13 @@ pub fn binary_r1cs_reduce(
             (vi, phi)
         };
         let mut terms = Vec::new();
-        for (sel, vi) in [
-            (alpha_p, 0usize),
-            (beta_p, 1),
-            (gamma_p, 2),
-        ] {
+        for (sel, vi) in [(alpha_p, 0usize), (beta_p, 1), (gamma_p, 2)] {
             let (vi, phi) = mk(&sel, vi);
-            terms.push(Term { idx: vi, off: 0, phi });
+            terms.push(Term {
+                idx: vi,
+                off: 0,
+                phi,
+            });
         }
         // −⟨combined, w⟩: phi = σ^{-1}(combined-packed), target +g
         let (cw, cphi) = mk(&combined_p, 3);
@@ -457,7 +481,11 @@ pub fn binary_r1cs_reduce(
         for p in neg_phi.iter_mut() {
             *p = p.neg();
         }
-        terms.push(Term { idx: cw, off: 0, phi: neg_phi });
+        terms.push(Term {
+            idx: cw,
+            off: 0,
+            phi: neg_phi,
+        });
         ct_cnst.push(DotCnst {
             terms,
             a: vec![],
@@ -527,7 +555,11 @@ pub fn r1cs_mod_reduce(
     let c = matvec(c_mat);
 
     // the encodings
-    let enc = |v: &[u64]| -> Vec<Poly> { v.iter().map(|&x| Poly::from_i64(&naf_encode(x, d))).collect() };
+    let enc = |v: &[u64]| -> Vec<Poly> {
+        v.iter()
+            .map(|&x| Poly::from_i64(&naf_encode(x, d)))
+            .collect()
+    };
     let a_e = enc(&a);
     let b_e = enc(&b);
     let c_e = enc(&c);
@@ -582,12 +614,10 @@ pub fn r1cs_mod_reduce(
     // g_j's ring value = Σ_terms with the c^(j)-coefficients.
     let mut g_js: Vec<Poly> = Vec::with_capacity(ell);
     for (j, chal) in c_chals.iter().enumerate() {
-        let (alpha, beta, gamma) = (
-            &chal[0..k],
-            &chal[k..2 * k],
-            &chal[2 * k..3 * k],
-        );
-        let deltas: Vec<&[u64]> = (0..ell).map(|i| &chal[3 * k + i * k..3 * k + (i + 1) * k]).collect();
+        let (alpha, beta, gamma) = (&chal[0..k], &chal[k..2 * k], &chal[2 * k..3 * k]);
+        let deltas: Vec<&[u64]> = (0..ell)
+            .map(|i| &chal[3 * k + i * k..3 * k + (i + 1) * k])
+            .collect();
         // g_j = Σ_i α_i·(Aw−a)_i + ... evaluated as ring arithmetic on the
         // encodings with X ↦ 2 reductions — for the REDUCTION we can work
         // directly over Z_{2^64+1} and encode the result:
@@ -622,8 +652,11 @@ pub fn r1cs_mod_reduce(
             for (ii, del) in deltas.iter().enumerate() {
                 // ⟨δ_i, ϕ_i∘a − d_i⟩ + ⟨d_i, b⟩ − ⟨ϕ_i, c⟩
                 let phi_i = &phis[ii];
-                let d_i: Vec<u64> = (0..k).map(|x| mm(phi_i[x] as u128 * a[x] as u128)).collect();
-                let t1 = mm(del[i] as u128 * (mm(phi_i[i] as u128 * a[i] as u128) as u128 + m - d_i[i] as u128));
+                let d_i: Vec<u64> = (0..k)
+                    .map(|x| mm(phi_i[x] as u128 * a[x] as u128))
+                    .collect();
+                let t1 = mm(del[i] as u128
+                    * (mm(phi_i[i] as u128 * a[i] as u128) as u128 + m - d_i[i] as u128));
                 let t2 = mm(d_i[i] as u128 * b[i] as u128);
                 let t3 = mm(phi_i[i] as u128 * c[i] as u128);
                 acc = (acc + t1 as u128 + t2 as u128 + m - t3 as u128) % m;
@@ -653,7 +686,9 @@ pub fn r1cs_mod_reduce(
         // 2(4 + ell) vectors total (originals + conjugates); the joining
         // garbage (rr²+rr)/2·(fu+fg) needs the part rank to dominate
         let rr = 2 * (4 + ell);
-        ((rr * rr + rr) / 2 * 8 * 12 / 10).max(base).next_multiple_of(64)
+        ((rr * rr + rr) / 2 * 8 * 12 / 10)
+            .max(base)
+            .next_multiple_of(64)
     };
     let pad = |v: &[Poly]| -> Vec<Poly> {
         let mut out = v.to_vec();
@@ -688,14 +723,21 @@ pub fn r1cs_mod_reduce(
     let mut ct_cnst: Vec<DotCnst> = Vec::new();
     // the t commitment over the flat (encoded) witness
     let kappa = 8.min(key.len / 8);
-    let flat: Vec<Poly> = witness[..4].iter().flat_map(|v| v.iter().copied()).collect();
+    let flat: Vec<Poly> = witness[..4]
+        .iter()
+        .flat_map(|v| v.iter().copied())
+        .collect();
     let t = key.mul_window(&flat, key_off, kappa);
     for j in 0..kappa {
         let row = &key.rows[key_off + j * flat.len()..key_off + (j + 1) * flat.len()];
         let mut terms = Vec::new();
         let mut pos = 0;
         for (vi, rk) in ranks[..4].iter().enumerate() {
-            terms.push(Term { idx: vi, off: 0, phi: row[pos..pos + rk].to_vec() });
+            terms.push(Term {
+                idx: vi,
+                off: 0,
+                phi: row[pos..pos + rk].to_vec(),
+            });
             pos += rk;
         }
         cnst.push(DotCnst::with_b(terms, t[j]));
@@ -832,12 +874,26 @@ mod tests {
 
     #[test]
     fn naf_roundtrip() {
-        for &(a, d) in &[(0u64, 64), (1, 64), (2, 64), (12345, 64), (u64::MAX, 64), (0xdeadbeef, 64)] {
+        for &(a, d) in &[
+            (0u64, 64),
+            (1, 64),
+            (2, 64),
+            (12345, 64),
+            (u64::MAX, 64),
+            (0xdeadbeef, 64),
+        ] {
             let enc = naf_encode(a, d);
-            assert!(enc.iter().all(|&x| (-1..=1).contains(&x)), "NAF digits must be ternary");
+            assert!(
+                enc.iter().all(|&x| (-1..=1).contains(&x)),
+                "NAF digits must be ternary"
+            );
             let back = naf_eval(&enc, d);
             let m = (1u128 << d) + 1;
-            assert_eq!(back as u128, (a as u128) % m, "NAF roundtrip failed for {a}");
+            assert_eq!(
+                back as u128,
+                (a as u128) % m,
+                "NAF roundtrip failed for {a}"
+            );
         }
         // the norm bound: ≤ d/2 nonzero digits (the paper's ‖Enc‖² ≤ d/2)
         let enc = naf_encode(0xdeadbeef, 64);
@@ -852,7 +908,8 @@ mod tests {
         let (stmt, wit, t, gs) = binary_r1cs_reduce(&a, &b, &c, &w, &key, 0, 16, b"r1cs").unwrap();
         assert!(!t.is_empty());
         assert!(gs.iter().all(|&g| g % 2 == 0), "g_i must be even");
-        stmt.check_all(&wit.s).expect("the reduction must produce a satisfiable statement");
+        stmt.check_all(&wit.s)
+            .expect("the reduction must produce a satisfiable statement");
         // a wrong witness is caught by the R1CS check itself
         let mut w2 = w.clone();
         w2[2] = 0;
@@ -871,6 +928,7 @@ mod tests {
         let (stmt, wit, t, gjs) = r1cs_mod_reduce(&a, &b, &c, &w, &key, 0, 4, b"r1csmod").unwrap();
         assert!(!t.is_empty());
         assert!(gjs.iter().all(|g| g.is_zero()));
-        stmt.check_all(&wit.s).expect("the mod-2^64+1 reduction must be satisfiable");
+        stmt.check_all(&wit.s)
+            .expect("the mod-2^64+1 reduction must be satisfiable");
     }
 }

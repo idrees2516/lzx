@@ -143,8 +143,14 @@ pub struct BaseClaim {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LedgerError {
     QueueEmpty,
-    KeyMismatch { expected: (u8, usize), got: (u8, usize) },
-    PointArity { expected: usize, got: usize },
+    KeyMismatch {
+        expected: (u8, usize),
+        got: (u8, usize),
+    },
+    PointArity {
+        expected: usize,
+        got: usize,
+    },
     InconsistentDuplicate,
     DerivedMismatch,
     Layout(String),
@@ -232,7 +238,11 @@ impl<'a> Ledger<'a> {
         let mut claim_map: HashMap<(u8, usize, Vec<u8>), VecDeque<Goldilocks>> = HashMap::new();
         for c in claims.iter() {
             claim_map
-                .entry((c.factor.discriminant(), c.factor.payload(), point_bytes(&c.point)))
+                .entry((
+                    c.factor.discriminant(),
+                    c.factor.payload(),
+                    point_bytes(&c.point),
+                ))
                 .or_default()
                 .push_back(c.value);
         }
@@ -309,7 +319,11 @@ impl<'a> Ledger<'a> {
         Ok(value)
     }
 
-    fn eval_tensor(&mut self, factor: Factor, point: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {
+    fn eval_tensor(
+        &mut self,
+        factor: Factor,
+        point: &[Goldilocks],
+    ) -> Result<Goldilocks, LedgerError> {
         let tensor = self
             .table
             .iter()
@@ -519,11 +533,21 @@ pub fn build_flat_mle(
     let padded = flat_len.next_power_of_two().max(1);
     flat.resize(padded, Goldilocks::ZERO);
     let log_flat = padded.trailing_zeros() as usize;
-    Ok((DenseMle { num_vars: log_flat, evaluations: flat }, layout))
+    Ok((
+        DenseMle {
+            num_vars: log_flat,
+            evaluations: flat,
+        },
+        layout,
+    ))
 }
 
 /// Map a claim to its flat point on the big MLE.
-pub fn flat_point(entry: &BundleLayoutEntry, point: &[Goldilocks], log_flat: usize) -> Vec<Goldilocks> {
+pub fn flat_point(
+    entry: &BundleLayoutEntry,
+    point: &[Goldilocks],
+    log_flat: usize,
+) -> Vec<Goldilocks> {
     let head_bits = log_flat - entry.num_vars;
     // The slice's head index: offset is always a multiple of 2^num_vars
     // (each tensor's length), so the head bits are offset >> num_vars.
@@ -544,8 +568,7 @@ pub fn flat_log_len(layout: &[BundleLayoutEntry]) -> usize {
 
 /// The ring used for zkvm bundles (n = 64 coefficients).
 pub fn bundle_ring() -> Result<RingConfig, LedgerError> {
-    RingConfig::new(Modulus32::Q_32, 6)
-        .map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
+    RingConfig::new(Modulus32::Q_32, 6).map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
 }
 
 /// Norm bound for bit-packed coefficients (< 2^31).
@@ -640,7 +663,11 @@ impl BundleProver {
             .map(|c| self.claim_point(c, log_flat))
             .collect::<Result<_, _>>()?;
         let digits = if self.is_bits { 4 } else { 3 };
-        let bound = if self.is_bits { BITS_NORM_BOUND } else { VALUES_NORM_BOUND };
+        let bound = if self.is_bits {
+            BITS_NORM_BOUND
+        } else {
+            VALUES_NORM_BOUND
+        };
         prove_grouped_carrier(
             &self.flat,
             &self.s,
@@ -662,7 +689,9 @@ impl BundleProver {
             .layout
             .iter()
             .find(|e| e.factor == claim.factor)
-            .ok_or_else(|| LedgerError::Layout(format!("factor {:?} not in bundle", claim.factor)))?;
+            .ok_or_else(|| {
+                LedgerError::Layout(format!("factor {:?} not in bundle", claim.factor))
+            })?;
         if claim.point.len() != entry.num_vars {
             return Err(LedgerError::PointArity {
                 expected: entry.num_vars,
@@ -716,15 +745,7 @@ fn prove_grouped_carrier(
     let flat_len = 1usize << flat.num_vars;
     let mut combined_eq = vec![Goldilocks::ZERO; flat_len];
     let order: Vec<usize> = (0..points.len()).collect();
-    rec_eq_acc(
-        &mut combined_eq,
-        &order,
-        points,
-        &rhos,
-        0,
-        0,
-        flat.num_vars,
-    );
+    rec_eq_acc(&mut combined_eq, &order, points, &rhos, 0, 0, flat.num_vars);
     let mut vp = VirtualPolynomial::new(flat.num_vars);
     let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
     let ei = vp
@@ -1083,17 +1104,25 @@ mod tests {
         let evals: Vec<Goldilocks> = (0..n)
             .map(|i| fe(((i as u64).wrapping_mul(2654435761) ^ seed.wrapping_mul(i as u64)) & 1))
             .collect();
-        DenseMle { num_vars: log_vars, evaluations: evals }
+        DenseMle {
+            num_vars: log_vars,
+            evaluations: evals,
+        }
     }
 
     #[test]
     fn bits_bundle_roundtrip_binds_claims() {
         let t0 = bit_tensor(5, 7); // 32 entries
         let t1 = bit_tensor(4, 11); // 16 entries
-        let prover =
-            bits_bundle_commit(&[(Factor::InstrBits, t0.clone()), (Factor::DigitBits { inst: 0 }, t1)], [9u8; 32])
-                .ok()
-                .unwrap();
+        let prover = bits_bundle_commit(
+            &[
+                (Factor::InstrBits, t0.clone()),
+                (Factor::DigitBits { inst: 0 }, t1),
+            ],
+            [9u8; 32],
+        )
+        .ok()
+        .unwrap();
         // Claims at random points on both tensors.
         let c0 = BaseClaim {
             factor: Factor::InstrBits,
@@ -1106,7 +1135,11 @@ mod tests {
             value: prover
                 .flat
                 .evaluate(&{
-                    let entry = prover.layout.iter().find(|e| e.factor == Factor::DigitBits { inst: 0 }).unwrap();
+                    let entry = prover
+                        .layout
+                        .iter()
+                        .find(|e| e.factor == Factor::DigitBits { inst: 0 })
+                        .unwrap();
                     flat_point(entry, &tensor_point(4, 8), prover.flat.num_vars)
                 })
                 .ok()
@@ -1164,7 +1197,10 @@ mod tests {
     fn values_bundle_roundtrip_binds_claims() {
         // Inc-column-like values: offset-encoded, < 2^18.
         let vals: Vec<Goldilocks> = (0..16u64).map(|i| fe((i * 7919) % (1 << 18))).collect();
-        let col = DenseMle { num_vars: 4, evaluations: vals };
+        let col = DenseMle {
+            num_vars: 4,
+            evaluations: vals,
+        };
         let prover = values_bundle_commit(&[(Factor::IncCol { inst: 0 }, col.clone())], [5u8; 32])
             .ok()
             .unwrap();
@@ -1175,7 +1211,10 @@ mod tests {
             value: col.evaluate(&pt).ok().unwrap(),
         };
         let mut t = Transcript::new_default(b"vals-test");
-        let opening = prover.prove_opening(std::slice::from_ref(&claim), &mut t).ok().unwrap();
+        let opening = prover
+            .prove_opening(std::slice::from_ref(&claim), &mut t)
+            .ok()
+            .unwrap();
         let mut t2 = Transcript::new_default(b"vals-test");
         assert!(verify_bundle_opening(
             &prover.pk,

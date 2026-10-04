@@ -25,14 +25,15 @@
 
 pub mod fold;
 pub mod pcs;
-pub mod salsa_response;
 pub mod ring_check;
+pub mod salsa_binding;
+pub mod salsa_response;
 pub mod schedule;
 
 pub use pcs::{
     verify_evaluation, AkitaPcs, AkitaPcsError, Commitment, EvaluationProof, GroupedOpening,
 };
-pub use schedule::{SecurityProfile, ScheduleCatalog, ScheduleEntry};
+pub use schedule::{ScheduleCatalog, ScheduleEntry, SecurityProfile};
 
 use lattice_commitment::ajtai::{AjtaiParams, AjtaiPublicKey};
 

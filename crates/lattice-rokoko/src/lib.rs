@@ -28,7 +28,12 @@
 //!   4+5), over the lattice-salsa ring sumcheck engine.
 
 #![forbid(unsafe_code)]
-#![allow(clippy::needless_range_loop, clippy::manual_div_ceil, clippy::too_many_arguments, clippy::type_complexity)]
+#![allow(
+    clippy::needless_range_loop,
+    clippy::manual_div_ceil,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -58,12 +63,7 @@ pub struct RandomProjection {
 
 impl RandomProjection {
     /// Derive a projection matrix from a seed (domain-separated stage).
-    pub fn from_seed(
-        stage: &[u8],
-        target_dim: usize,
-        source_dim: usize,
-        seed: &[u8],
-    ) -> Self {
+    pub fn from_seed(stage: &[u8], target_dim: usize, source_dim: usize, seed: &[u8]) -> Self {
         let bytes = Transcript::xof(
             b"rokoko-projection",
             &[stage, seed].concat(),
@@ -163,9 +163,7 @@ pub fn refine(
     let coarse = RandomProjection::from_seed(b"coarse", coarse_target, w.len(), &coarse_seed);
     let coarse_image = coarse.project(w)?;
     // Commit the coarse image (padded).
-    let padded = pk
-        .pad_to_m(&coarse_image)
-        .map_err(RokokoError::Ajtai)?;
+    let padded = pk.pad_to_m(&coarse_image).map_err(RokokoError::Ajtai)?;
     let coarse_commitment = pk.commit(&padded).map_err(RokokoError::Ajtai)?;
 
     // Stage 2: fine projection over the coarse image.
@@ -178,8 +176,7 @@ pub fn refine(
         .map_err(RokokoError::Transcript)?;
     let mut fine_seed = [0u8; 32];
     fine_seed.copy_from_slice(&fine_seed_vec);
-    let fine =
-        RandomProjection::from_seed(b"fine", fine_target, coarse_image.len(), &fine_seed);
+    let fine = RandomProjection::from_seed(b"fine", fine_target, coarse_image.len(), &fine_seed);
     let fine_image = fine.project(&coarse_image)?;
 
     Ok(RefinedProjection {
@@ -200,9 +197,7 @@ pub fn verify_refinement(
     fine_target: usize,
 ) -> Result<bool, RokokoError> {
     // Coarse commitment must open to the provided coarse image.
-    let padded = pk
-        .pad_to_m(coarse_witness)
-        .map_err(RokokoError::Ajtai)?;
+    let padded = pk.pad_to_m(coarse_witness).map_err(RokokoError::Ajtai)?;
     if pk
         .verify_opening(&statement.coarse_commitment, &padded)
         .is_err()
@@ -210,8 +205,12 @@ pub fn verify_refinement(
         return Ok(false);
     }
     // Recompute the fine projection from the transcript-derived seed.
-    let fine =
-        RandomProjection::from_seed(b"fine", fine_target, coarse_witness.len(), &statement.fine_seed);
+    let fine = RandomProjection::from_seed(
+        b"fine",
+        fine_target,
+        coarse_witness.len(),
+        &statement.fine_seed,
+    );
     let expected = fine.project(coarse_witness)?;
     Ok(expected == statement.fine_image)
 }

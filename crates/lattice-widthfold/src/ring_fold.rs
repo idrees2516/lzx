@@ -147,7 +147,10 @@ fn derive_w2_seed(seed: [u8; 32], params: &WidthFoldParams) -> [u8; 32] {
     ];
     let _ = st.append_bytes(
         b"shape",
-        &shape.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(),
+        &shape
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect::<Vec<u8>>(),
     );
     let mut s = [0u8; 32];
     if let Ok(b) = st.challenge_bytes(b"key", 32) {
@@ -156,12 +159,7 @@ fn derive_w2_seed(seed: [u8; 32], params: &WidthFoldParams) -> [u8; 32] {
     s
 }
 
-fn split_parts(
-    ring: &RingConfig,
-    v: &[RingElement],
-    w: usize,
-    r2: usize,
-) -> Vec<Vec<RingElement>> {
+fn split_parts(ring: &RingConfig, v: &[RingElement], w: usize, r2: usize) -> Vec<Vec<RingElement>> {
     (0..r2)
         .map(|i| {
             let lo = i * w;
@@ -239,10 +237,7 @@ pub fn prove_ring_fold(
         return Err(format!("shape: target rank {} != k {k}", t_target.len()));
     }
     if w * r2 < n_bar {
-        return Err(format!(
-            "shape: w·r₂ = {} < n̄ = {n_bar}",
-            w * r2
-        ));
+        return Err(format!("shape: w·r₂ = {} < n̄ = {n_bar}", w * r2));
     }
     // The fail-closed profile gate.
     let (cl, _qm) = params.assert_sound(beta1, q, n as u64)?;
@@ -339,10 +334,7 @@ pub fn prove_ring_fold(
     // The FS absorption (pre-challenge material).
     let p_bytes = serialize_elements(ring, &p.iter().flatten().cloned().collect::<Vec<_>>());
     let garbage_bytes = serialize_elements(ring, &garbage);
-    let t_bytes = serialize_elements(
-        ring,
-        &t_inner.iter().flatten().cloned().collect::<Vec<_>>(),
-    );
+    let t_bytes = serialize_elements(ring, &t_inner.iter().flatten().cloned().collect::<Vec<_>>());
     let fv_bytes = serialize_elements(ring, &func_values);
     let fg_bytes = serialize_elements(ring, &func_garbage);
     transcript
@@ -441,7 +433,10 @@ pub fn prove_ring_fold(
     }
     // (W2) A₂·z = Σ_i γ_i·T_i.
     {
-        let az = a2.commit(&z).map(|c| c.rows).map_err(|e| format!("{e:?}"))?;
+        let az = a2
+            .commit(&z)
+            .map(|c| c.rows)
+            .map_err(|e| format!("{e:?}"))?;
         let mut rhs = vec![ring.zero(); params.kappa];
         for (i, g) in gammas.iter().enumerate() {
             if *g == 0 {
@@ -731,7 +726,10 @@ pub fn verify_ring_fold(
         };
         let a2_seed = derive_w2_seed(seed, params);
         let a2 = AjtaiPublicKey::from_seed(a2_params, a2_seed).map_err(|e| format!("{e:?}"))?;
-        let az = a2.commit(&z).map(|c| c.rows).map_err(|e| format!("{e:?}"))?;
+        let az = a2
+            .commit(&z)
+            .map(|c| c.rows)
+            .map_err(|e| format!("{e:?}"))?;
         let mut rhs = vec![ring.zero(); params.kappa];
         for (i, g) in gammas.iter().enumerate() {
             if *g == 0 {
@@ -770,9 +768,7 @@ pub fn verify_ring_fold(
                     }
                 }
                 if lhs.coeffs() != rhs.coeffs() {
-                    return Err(format!(
-                        "W3R: functional {t} slice {i} superposition"
-                    ));
+                    return Err(format!("W3R: functional {t} slice {i} superposition"));
                 }
             }
         }
@@ -797,8 +793,8 @@ mod tests {
                     .map(|j| {
                         let mut x = seed
                             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                            .wrapping_add((i as u64 + 1) * 0x2545_F491_4F6C_DD1D)
-                            .wrapping_add((j as u64 + 1) * 0x9E37_79B9_7F4A_7C15);
+                            .wrapping_add((i as u64 + 1).wrapping_mul(0x2545_F491_4F6C_DD1D))
+                            .wrapping_add((j as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
                         x ^= x >> 12;
                         x ^= x << 25;
                         x ^= x >> 27;
@@ -826,7 +822,11 @@ mod tests {
         };
         let key = AjtaiPublicKey::from_seed(params, seed).unwrap();
         let blocks = (0..n_bar)
-            .map(|c| (0..k).map(|rr| key.entry(rr, c).cloned().unwrap()).collect())
+            .map(|c| {
+                (0..k)
+                    .map(|rr| key.entry(rr, c).cloned().unwrap())
+                    .collect()
+            })
             .collect();
         (key, blocks)
     }
@@ -846,7 +846,8 @@ mod tests {
             .map(|t| RingFunctional {
                 weights: (0..n_bar)
                     .map(|c| {
-                        let mut x = (t as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                        let mut x = (t as u64 + 1)
+                            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
                             .wrapping_add(c as u64);
                         x ^= x >> 33;
                         x ^= x << 19;
@@ -899,10 +900,10 @@ mod tests {
         coeffs[0] = coeffs[0].wrapping_add(1);
         proof.response = encode_response(&coeffs).unwrap();
         let mut tr2 = Transcript::new_default(b"test-ring-fold");
-        assert!(
-            verify_ring_fold(&ring, &t, &funcs, &targets, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_ring_fold(
+            &ring, &t, &funcs, &targets, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// A wrong PUBLIC functional target fails (W0R).
@@ -932,10 +933,10 @@ mod tests {
         let mut bad = targets.clone();
         bad[0] = Some(bad[0].clone().unwrap().add(&ring.one()).unwrap());
         let mut tr2 = Transcript::new_default(b"test-ring-fold");
-        assert!(
-            verify_ring_fold(&ring, &t, &funcs, &bad, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_ring_fold(
+            &ring, &t, &funcs, &bad, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// Tampering the functional garbage fails (W3R).
@@ -949,7 +950,9 @@ mod tests {
         let t = apply_key(&ring, &blocks, &v, k);
         let q = u64::from(ring.modulus.q);
         let funcs: Vec<RingFunctional> = vec![RingFunctional {
-            weights: (0..n_bar).map(|c| ((c * 1103515245 + 12345) as u64) % q).collect(),
+            weights: (0..n_bar)
+                .map(|c| ((c * 1103515245 + 12345) as u64) % q)
+                .collect(),
         }];
         let targets: Vec<Option<RingElement>> =
             funcs.iter().map(|f| Some(f.eval(&ring, &v))).collect();
@@ -964,9 +967,9 @@ mod tests {
         assert!(!proof.func_garbage.is_empty());
         proof.func_garbage[5] ^= 0x08;
         let mut tr2 = Transcript::new_default(b"test-ring-fold");
-        assert!(
-            verify_ring_fold(&ring, &t, &funcs, &targets, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_ring_fold(
+            &ring, &t, &funcs, &targets, &blocks, k, beta1, [9u8; 32], &proof, &mut tr2
+        )
+        .is_err());
     }
 }

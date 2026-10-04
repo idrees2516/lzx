@@ -93,11 +93,7 @@ fn absorb_statement(
     s: &SemanticsStatement,
     transcript: &mut Transcript,
 ) -> Result<(), crate::ledger::LedgerError> {
-    let mut meta = vec![
-        s.log_t as u64,
-        s.ram_log_k as u64,
-        s.fetch_log_k as u64,
-    ];
+    let mut meta = vec![s.log_t as u64, s.ram_log_k as u64, s.fetch_log_k as u64];
     meta.extend(s.final_regs.iter().copied());
     let fields: Vec<Goldilocks> = meta.iter().map(|v| fe(*v)).collect();
     transcript
@@ -118,14 +114,10 @@ fn derive_seed(s: &SemanticsStatement) -> [u8; 32] {
     let _ = t.append_bytes(b"in", &s.input_digest);
     let _ = t.append_bytes(
         b"meta",
-        &[
-            s.log_t as u64,
-            s.ram_log_k as u64,
-            s.fetch_log_k as u64,
-        ]
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .collect::<Vec<u8>>(),
+        &[s.log_t as u64, s.ram_log_k as u64, s.fetch_log_k as u64]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect::<Vec<u8>>(),
     );
     let mut seed = [0u8; 32];
     if let Ok(b) = t.challenge_bytes(b"seed", 32) {
@@ -137,10 +129,10 @@ fn derive_seed(s: &SemanticsStatement) -> [u8; 32] {
 /// The bundle entries of a witness + aux (the deterministic factor
 /// order: the six value tensors, the instruction tensor, every bit
 /// column; the value columns separately).
-fn bundle_entries(
-    w: &CycleWitness,
-    aux: &AuxCols,
-) -> (Vec<(Factor, DenseMle)>, Vec<(Factor, DenseMle)>) {
+/// A bundle factor table (factor -> its MLE) — the bits/values pairs.
+type FactorBundle = Vec<(Factor, DenseMle)>;
+
+fn bundle_entries(w: &CycleWitness, aux: &AuxCols) -> (FactorBundle, FactorBundle) {
     let log_t = w.log_t;
     let mut bits: Vec<(Factor, DenseMle)> = Vec::new();
     for slot in 0..crate::columns::VALUE_TENSORS {
@@ -219,7 +211,10 @@ pub fn prove_instruction_semantics(
         .append_bytes(b"sem-bits-commitment", &bits_prover.commitment.to_bytes())
         .map_err(crate::ledger::LedgerError::Transcript)?;
     transcript
-        .append_bytes(b"sem-values-commitment", &values_prover.commitment.to_bytes())
+        .append_bytes(
+            b"sem-values-commitment",
+            &values_prover.commitment.to_bytes(),
+        )
         .map_err(crate::ledger::LedgerError::Transcript)?;
 
     // 5. The constraint families over the ledger.
@@ -357,7 +352,10 @@ pub fn verify_instruction_semantics(
 fn layout_entries(
     shape: &AuxCols,
     log_t: usize,
-) -> (Vec<crate::ledger::BundleLayoutEntry>, Vec<crate::ledger::BundleLayoutEntry>) {
+) -> (
+    Vec<crate::ledger::BundleLayoutEntry>,
+    Vec<crate::ledger::BundleLayoutEntry>,
+) {
     let mut bits: Vec<crate::ledger::BundleLayoutEntry> = Vec::new();
     let mut off = 0usize;
     for slot in 0..crate::columns::VALUE_TENSORS {
@@ -430,6 +428,6 @@ fn bundle_pk(
         m,
         norm_bound: bound,
     };
-    Ok(lattice_commitment::ajtai::AjtaiPublicKey::from_seed(params, seed)
-        .map_err(crate::ledger::LedgerError::Ajtai)?)
+    lattice_commitment::ajtai::AjtaiPublicKey::from_seed(params, seed)
+        .map_err(crate::ledger::LedgerError::Ajtai)
 }

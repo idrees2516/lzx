@@ -95,13 +95,21 @@ pub enum ZkSumcheckError {
     Transcript(TranscriptError),
     Mle(lattice_core::mle::MleError),
     /// Round shapes or counts inconsistent with the statement.
-    BadShape { expected: usize, got: usize },
+    BadShape {
+        expected: usize,
+        got: usize,
+    },
     /// A round identity failed.
-    RoundCheckFailed { round: usize },
+    RoundCheckFailed {
+        round: usize,
+    },
     /// The anchor does not match the revealed claims.
     AnchorMismatch,
     /// The statement's slot requirements exceed the commitment key.
-    TooManySlots { needed: usize, available: usize },
+    TooManySlots {
+        needed: usize,
+        available: usize,
+    },
 }
 
 impl core::fmt::Display for ZkSumcheckError {
@@ -396,7 +404,9 @@ pub fn zk_prove(
         rounds.push([a, b]);
         point.push(r);
         current = a.add(&b.sub(&a).mul(&r));
-        ftilde_mle = ftilde_mle.fix_variables(&[r]).map_err(ZkSumcheckError::Mle)?;
+        ftilde_mle = ftilde_mle
+            .fix_variables(&[r])
+            .map_err(ZkSumcheckError::Mle)?;
     }
     let blinded_final = current; // = F̃(r)
 
@@ -577,7 +587,9 @@ mod tests {
         let n = 1usize << num_vars;
         let m = required_slots(n).max(16);
         let params = lattice_commitment::ajtai::AjtaiParams {
-            ring: RingConfig::new(lattice_ring::Modulus32::Q_32, 4).ok().unwrap(),
+            ring: RingConfig::new(lattice_ring::Modulus32::Q_32, 4)
+                .ok()
+                .unwrap(),
             k: 2,
             m,
             norm_bound: 1 << 24,
@@ -619,7 +631,9 @@ mod tests {
 
             let statement = ZkSumcheckStatement { num_vars, claim };
             let mut vt = Transcript::new_default(b"lzx-zk-sumcheck");
-            let got_point = zk_verify(&pk, &statement, &v, &proof, &mut vt).ok().unwrap();
+            let got_point = zk_verify(&pk, &statement, &v, &proof, &mut vt)
+                .ok()
+                .unwrap();
             assert_eq!(got_point, point);
         }
     }
@@ -632,10 +646,7 @@ mod tests {
         let mut stream = ShakeStream::new(SecretSeed::from_kat_label(b"zk-sc-2"), b"mask");
         let mut t = Transcript::new_default(b"lzx-zk-sumcheck");
         let (proof, _point, v) = zk_prove(&pk, &f, claim, &mut stream, &mut t).ok().unwrap();
-        let statement = ZkSumcheckStatement {
-            num_vars: 3,
-            claim,
-        };
+        let statement = ZkSumcheckStatement { num_vars: 3, claim };
 
         // Wrong anchor.
         let mut vt = Transcript::new_default(b"lzx-zk-sumcheck");
@@ -683,10 +694,7 @@ mod tests {
         // The simulator gets only the statement (claim, num_vars).
         let f = random_values(8, b"f-sim");
         let claim = sum_of(&f);
-        let statement = ZkSumcheckStatement {
-            num_vars: 3,
-            claim,
-        };
+        let statement = ZkSumcheckStatement { num_vars: 3, claim };
         let mut sim_stream = ShakeStream::new(SecretSeed::from_kat_label(b"zk-sc-sim"), b"sim");
         let (sim_proof, sim_point, sim_v) =
             zk_simulate(&pk, &statement, &mut sim_stream).ok().unwrap();
@@ -703,10 +711,7 @@ mod tests {
         let pk = setup_pk(3);
         let f = random_values(8, b"f-kat");
         let claim = sum_of(&f);
-        let statement = ZkSumcheckStatement {
-            num_vars: 3,
-            claim,
-        };
+        let statement = ZkSumcheckStatement { num_vars: 3, claim };
 
         let bucket_bits = 6u32;
         let buckets = 1usize << bucket_bits;
@@ -722,8 +727,8 @@ mod tests {
             let (proof, _, _) = zk_prove(&pk, &f, claim, &mut stream, &mut t).ok().unwrap();
             for [a, b] in &proof.rounds {
                 for v in [a, b] {
-                    let idx = ((v.to_canonical_u64() >> (64 - bucket_bits)) as usize)
-                        .min(buckets - 1);
+                    let idx =
+                        ((v.to_canonical_u64() >> (64 - bucket_bits)) as usize).min(buckets - 1);
                     real_hist[idx] += 1;
                 }
             }
@@ -734,8 +739,8 @@ mod tests {
             let (sim, _, _) = zk_simulate(&pk, &statement, &mut sstream).ok().unwrap();
             for [a, b] in &sim.rounds {
                 for v in [a, b] {
-                    let idx = ((v.to_canonical_u64() >> (64 - bucket_bits)) as usize)
-                        .min(buckets - 1);
+                    let idx =
+                        ((v.to_canonical_u64() >> (64 - bucket_bits)) as usize).min(buckets - 1);
                     sim_hist[idx] += 1;
                 }
             }

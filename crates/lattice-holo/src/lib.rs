@@ -59,16 +59,16 @@
 #![allow(clippy::needless_range_loop)]
 #![allow(clippy::too_many_arguments)]
 
-pub mod batch;
 pub mod barebones;
+pub mod batch;
 pub mod collapse;
 pub mod decider;
 pub mod fold;
 pub mod gbf1;
 pub mod gbf2;
-pub mod pcd;
 pub mod pc;
 pub mod pc_short;
+pub mod pcd;
 pub mod poly;
 pub mod relations;
 pub mod sumcheck;

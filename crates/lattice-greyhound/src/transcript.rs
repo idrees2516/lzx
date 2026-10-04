@@ -21,7 +21,9 @@ impl Transcript {
         h.update(domain);
         h.update(seed);
         let out = h.finalize(32);
-        Self { h: out[..16].try_into().unwrap() }
+        Self {
+            h: out[..16].try_into().unwrap(),
+        }
     }
 
     pub fn from_state(h: [u8; 16]) -> Self {

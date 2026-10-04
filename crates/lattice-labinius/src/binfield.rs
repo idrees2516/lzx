@@ -29,7 +29,8 @@ impl B128 {
 
     pub fn add(self, o: Self) -> Self {
         Self(self.0 ^ o.0)
-    }    /// Product modulo `x^128 + x^7 + x^2 + x + 1`.
+    }
+    /// Product modulo `x^128 + x^7 + x^2 + x + 1`.
     pub fn mul(self, o: Self) -> Self {
         let (a0, a1) = (self.0 as u64, (self.0 >> 64) as u64);
         let (b0, b1) = (o.0 as u64, (o.0 >> 64) as u64);
@@ -41,7 +42,8 @@ impl B128 {
         let mut h = hi ^ (mid >> 64);
         // fold the 129-bit overflow twice with the modulus
         for _ in 0..2 {
-            let c = clmul64(h as u64, GHASH_MOD as u64) ^ (clmul64((h >> 64) as u64, GHASH_MOD as u64) << 64);
+            let c = clmul64(h as u64, GHASH_MOD as u64)
+                ^ (clmul64((h >> 64) as u64, GHASH_MOD as u64) << 64);
             let carry = clmul64((h >> 64) as u64, GHASH_MOD as u64) >> 64;
             acc ^= c;
             h = carry;
@@ -67,11 +69,7 @@ impl F162 {
     }
 
     pub fn add(self, o: Self) -> Self {
-        Self([
-            self.0[0] ^ o.0[0],
-            self.0[1] ^ o.0[1],
-            self.0[2] ^ o.0[2],
-        ])
+        Self([self.0[0] ^ o.0[0], self.0[1] ^ o.0[1], self.0[2] ^ o.0[2]])
     }
 
     pub fn add_assign(&mut self, o: Self) {

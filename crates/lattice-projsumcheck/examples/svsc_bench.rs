@@ -44,7 +44,9 @@ fn claim_of(inst: &SvscInstance) -> Fp256 {
 fn measure_kappa() -> f64 {
     let a = Fp256::from_canonical_u64(0x9E37_79B9_7F4A_7C15);
     let b = Fp256::from_canonical_u64(0x51ED_2701_2134_5B67);
-    let data: Vec<u64> = (0..4096).map(|i| (i as u64 * 6364136223846793005) >> 32).collect();
+    let data: Vec<u64> = (0..4096)
+        .map(|i| (i as u64 * 6364136223846793005) >> 32)
+        .collect();
 
     let bb = std_time(|| {
         let mut acc = a;
@@ -77,7 +79,15 @@ fn main() {
 
     println!("=== The windowed prover vs the reference (d=2, 33-bit values) ===");
     println!("ℓ     v     reference      windowed       speedup");
-    for &(ell, v) in &[(12usize, 2usize), (12, 3), (14, 3), (16, 3), (16, 4), (18, 3), (18, 4)] {
+    for &(ell, v) in &[
+        (12usize, 2usize),
+        (12, 3),
+        (14, 3),
+        (16, 3),
+        (16, 4),
+        (18, 3),
+        (18, 4),
+    ] {
         let factors: Vec<SmallFactor> = (0..2)
             .map(|k| SmallFactor::random_small(ell, 33, format!("bench-{ell}-{k}").as_bytes()))
             .collect();
@@ -102,6 +112,8 @@ fn main() {
         );
     }
     println!();
-    println!("The paper's Lemma 5 optimum at d=2, κ≈33: v* = log_3(4κ) ≈ {}",
-        (4.0 * kappa).log2() / 3.0_f64.log2());
+    println!(
+        "The paper's Lemma 5 optimum at d=2, κ≈33: v* = log_3(4κ) ≈ {}",
+        (4.0 * kappa).log2() / 3.0_f64.log2()
+    );
 }

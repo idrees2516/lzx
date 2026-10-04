@@ -30,13 +30,23 @@ pub const DEFAULT_ARITY: usize = 4;
 pub enum SymphonyError {
     Ajtai(AjtaiError),
     Ring(lattice_ring::RingError),
-    ArityTooSmall { arity: usize },
-    DegreeTooSmall { degree: usize },
-    ShapeMismatch { expected: usize, got: usize },
+    ArityTooSmall {
+        arity: usize,
+    },
+    DegreeTooSmall {
+        degree: usize,
+    },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
     CrossTermIdentity,
     /// Wave 6.2: the fold would exceed the hard norm gate `min(q/2, β*)`
     /// (the paper's Eq-50 feasibility condition, enforced per fold).
-    NormGateExceeded { beta_after: u128, cap: u64 },
+    NormGateExceeded {
+        beta_after: u128,
+        cap: u64,
+    },
 }
 
 /// A degree-d relation over ring slots (same shape as ProtogaLattice's).
@@ -48,7 +58,11 @@ pub struct SymRelation {
 
 impl SymRelation {
     pub fn degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(0)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn evaluate(&self, w: &[RingElement]) -> Result<RingElement, SymphonyError> {
@@ -131,7 +145,10 @@ pub fn fold_many_degree2(
     }
     let m = pk.params.m;
     if witnesses.iter().any(|w| w.len() != m) {
-        return Err(SymphonyError::ShapeMismatch { expected: m, got: 0 });
+        return Err(SymphonyError::ShapeMismatch {
+            expected: m,
+            got: 0,
+        });
     }
     let ring = &pk.params.ring;
     let q = ring.modulus;
@@ -190,8 +207,7 @@ pub fn fold_many_degree2(
     for (row_idx, _row) in commitments[0].rows.iter().enumerate() {
         let mut acc = ring.zero();
         for (i, c) in commitments.iter().enumerate() {
-            let scaled = c.rows[row_idx]
-                .scale_i64(challenges[i]);
+            let scaled = c.rows[row_idx].scale_i64(challenges[i]);
             acc = acc.add(&scaled).map_err(SymphonyError::Ring)?;
         }
         folded_rows.push(acc);
@@ -211,12 +227,14 @@ pub fn fold_many_degree2(
                 }
                 let (a, b) = (ids[0], ids[1]);
                 // w_i[a] ∘ w_j[b].
-                let wi_a = witnesses[i]
-                    .get(a)
-                    .ok_or(SymphonyError::ShapeMismatch { expected: m, got: a })?;
-                let wj_b = witnesses[j]
-                    .get(b)
-                    .ok_or(SymphonyError::ShapeMismatch { expected: m, got: b })?;
+                let wi_a = witnesses[i].get(a).ok_or(SymphonyError::ShapeMismatch {
+                    expected: m,
+                    got: a,
+                })?;
+                let wj_b = witnesses[j].get(b).ok_or(SymphonyError::ShapeMismatch {
+                    expected: m,
+                    got: b,
+                })?;
                 for (acc_c, (x, y)) in acc
                     .iter_mut()
                     .zip(wi_a.coeffs().iter().zip(wj_b.coeffs().iter()))
@@ -224,12 +242,14 @@ pub fn fold_many_degree2(
                     *acc_c = q.add(*acc_c, q.mul(*c, q.mul(*x, *y)));
                 }
                 // w_j[a] ∘ w_i[b].
-                let wj_a = witnesses[j]
-                    .get(a)
-                    .ok_or(SymphonyError::ShapeMismatch { expected: m, got: a })?;
-                let wi_b = witnesses[i]
-                    .get(b)
-                    .ok_or(SymphonyError::ShapeMismatch { expected: m, got: b })?;
+                let wj_a = witnesses[j].get(a).ok_or(SymphonyError::ShapeMismatch {
+                    expected: m,
+                    got: a,
+                })?;
+                let wi_b = witnesses[i].get(b).ok_or(SymphonyError::ShapeMismatch {
+                    expected: m,
+                    got: b,
+                })?;
                 for (acc_c, (x, y)) in acc
                     .iter_mut()
                     .zip(wj_a.coeffs().iter().zip(wi_b.coeffs().iter()))
@@ -244,10 +264,7 @@ pub fn fold_many_degree2(
 
     // Single stacked cross commitment (one shot) under the dedicated
     // cross-term key, which must have at least C(μ, 2) slots.
-    let mut stacked: Vec<RingElement> = cross_terms
-        .iter()
-        .map(|(_, e)| e.clone())
-        .collect();
+    let mut stacked: Vec<RingElement> = cross_terms.iter().map(|(_, e)| e.clone()).collect();
     while stacked.len() < pk_cross.params.m {
         stacked.push(ring.zero());
     }
@@ -257,9 +274,7 @@ pub fn fold_many_degree2(
             got: stacked.len(),
         });
     }
-    let cross_commitment = pk_cross
-        .commit(&stacked)
-        .map_err(SymphonyError::Ajtai)?;
+    let cross_commitment = pk_cross.commit(&stacked).map_err(SymphonyError::Ajtai)?;
 
     Ok(SymphonyFold {
         folded_witness,
@@ -281,8 +296,10 @@ mod tests {
         // exceeds it is refused (fail closed, no wraparound).
         let (pk, ring) = setup(4, 3);
         let rel = quadratic_relation();
-        let witnesses: Vec<Vec<RingElement>> =
-            [b"g0", b"g1", b"g2", b"g3"].iter().map(|t| witness(&ring, *t)).collect();
+        let witnesses: Vec<Vec<RingElement>> = [b"g0", b"g1", b"g2", b"g3"]
+            .iter()
+            .map(|t| witness(&ring, *t))
+            .collect();
         let commitments: Vec<AjtaiCommitment> = witnesses
             .iter()
             .map(|w| pk.commit(w).ok().unwrap())
@@ -294,7 +311,9 @@ mod tests {
             m: 8,
             norm_bound: 1 << 22,
         };
-        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [53u8; 32]).ok().unwrap();
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [53u8; 32])
+            .ok()
+            .unwrap();
         let fold = fold_many_degree2(&pk, &pk_cross, &rel, &witnesses, &commitments)
             .ok()
             .unwrap();
@@ -312,7 +331,9 @@ mod tests {
         // practice); a cap of 64 must refuse the fold.
         let mut tight_params = pk.params.clone();
         tight_params.norm_bound = 64;
-        let tight_pk = AjtaiPublicKey::from_seed(tight_params, [51u8; 32]).ok().unwrap();
+        let tight_pk = AjtaiPublicKey::from_seed(tight_params, [51u8; 32])
+            .ok()
+            .unwrap();
         assert!(matches!(
             fold_many_degree2(&tight_pk, &pk_cross, &rel, &witnesses, &commitments),
             Err(SymphonyError::NormGateExceeded { .. })
@@ -353,8 +374,10 @@ mod tests {
     fn high_arity_fold_identity_exact() {
         let (pk, ring) = setup(4, 3);
         let rel = quadratic_relation();
-        let witnesses: Vec<Vec<RingElement>> =
-            [b"w0", b"w1", b"w2", b"w3"].iter().map(|t| witness(&ring, *t)).collect();
+        let witnesses: Vec<Vec<RingElement>> = [b"w0", b"w1", b"w2", b"w3"]
+            .iter()
+            .map(|t| witness(&ring, *t))
+            .collect();
         let commitments: Vec<AjtaiCommitment> = witnesses
             .iter()
             .map(|w| pk.commit(w).ok().unwrap())
@@ -366,7 +389,9 @@ mod tests {
             m: 8,
             norm_bound: 1 << 22,
         };
-        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [52u8; 32]).ok().unwrap();
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [52u8; 32])
+            .ok()
+            .unwrap();
         let fold = fold_many_degree2(&pk, &pk_cross, &rel, &witnesses, &commitments)
             .ok()
             .unwrap();
@@ -378,8 +403,7 @@ mod tests {
         let mut rhs = ring.zero();
         for (i, w) in witnesses.iter().enumerate() {
             let r2 = q.reduce_u64(
-                (fold.challenges[i] * fold.challenges[i])
-                    .rem_euclid(q.q as i64) as u64,
+                (fold.challenges[i] * fold.challenges[i]).rem_euclid(q.q as i64) as u64,
             );
             let f = rel.evaluate(w).ok().unwrap();
             rhs = rhs.add(&f.scale_i64(r2 as i64)).ok().unwrap();
@@ -393,8 +417,7 @@ mod tests {
                 }
             }
             // Reduce mod q carefully (i128 to avoid overflow).
-            let r_mod = (r_pow as i128)
-                .rem_euclid(q.q as i128) as u64;
+            let r_mod = (r_pow as i128).rem_euclid(q.q as i128) as u64;
             let scaled = e.scale_i64(r_mod as i64);
             rhs = rhs.add(&scaled).ok().unwrap();
         }
@@ -405,8 +428,10 @@ mod tests {
     fn folded_commitment_opens_folded_witness() {
         let (pk, ring) = setup(4, 3);
         let rel = quadratic_relation();
-        let witnesses: Vec<Vec<RingElement>> =
-            [b"a0", b"a1", b"a2"].iter().map(|t| witness(&ring, *t)).collect();
+        let witnesses: Vec<Vec<RingElement>> = [b"a0", b"a1", b"a2"]
+            .iter()
+            .map(|t| witness(&ring, *t))
+            .collect();
         let commitments: Vec<AjtaiCommitment> = witnesses
             .iter()
             .map(|w| pk.commit(w).ok().unwrap())
@@ -418,7 +443,9 @@ mod tests {
             m: 8,
             norm_bound: 1 << 22,
         };
-        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [52u8; 32]).ok().unwrap();
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [52u8; 32])
+            .ok()
+            .unwrap();
         let fold = fold_many_degree2(&pk, &pk_cross, &rel, &witnesses, &commitments)
             .ok()
             .unwrap();
@@ -428,8 +455,10 @@ mod tests {
         // Cross-term count: C(3, 2) = 3 pairs.
         assert_eq!(fold.cross_terms.len(), 3);
         // C(4,2) = 6 for arity 4.
-        let witnesses4: Vec<Vec<RingElement>> =
-            [b"b0", b"b1", b"b2", b"b3"].iter().map(|t| witness(&ring, *t)).collect();
+        let witnesses4: Vec<Vec<RingElement>> = [b"b0", b"b1", b"b2", b"b3"]
+            .iter()
+            .map(|t| witness(&ring, *t))
+            .collect();
         let commitments4: Vec<AjtaiCommitment> = witnesses4
             .iter()
             .map(|w| pk.commit(w).ok().unwrap())
@@ -454,9 +483,17 @@ mod tests {
             m: 8,
             norm_bound: 1 << 22,
         };
-        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [54u8; 32]).ok().unwrap();
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [54u8; 32])
+            .ok()
+            .unwrap();
         assert!(matches!(
-            fold_many_degree2(&pk, &pk_cross, &rel, std::slice::from_ref(&w), std::slice::from_ref(&c)),
+            fold_many_degree2(
+                &pk,
+                &pk_cross,
+                &rel,
+                std::slice::from_ref(&w),
+                std::slice::from_ref(&c)
+            ),
             Err(SymphonyError::ArityTooSmall { arity: 1 })
         ));
         // Witness/commitment count mismatch.
@@ -481,8 +518,10 @@ mod tests {
     fn challenges_are_small_and_deterministic() {
         let (pk, ring) = setup(4, 3);
         let rel = quadratic_relation();
-        let witnesses: Vec<Vec<RingElement>> =
-            [b"d0", b"d1", b"d2"].iter().map(|t| witness(&ring, *t)).collect();
+        let witnesses: Vec<Vec<RingElement>> = [b"d0", b"d1", b"d2"]
+            .iter()
+            .map(|t| witness(&ring, *t))
+            .collect();
         let commitments: Vec<AjtaiCommitment> = witnesses
             .iter()
             .map(|w| pk.commit(w).ok().unwrap())
@@ -494,7 +533,9 @@ mod tests {
             m: 8,
             norm_bound: 1 << 22,
         };
-        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [55u8; 32]).ok().unwrap();
+        let pk_cross = AjtaiPublicKey::from_seed(params_cross, [55u8; 32])
+            .ok()
+            .unwrap();
         let f1 = fold_many_degree2(&pk, &pk_cross, &rel, &witnesses, &commitments)
             .ok()
             .unwrap();

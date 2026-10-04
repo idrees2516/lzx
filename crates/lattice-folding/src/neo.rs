@@ -81,7 +81,9 @@ impl NeoRing {
     }
 
     pub fn zero(&self) -> NeoElt {
-        NeoElt { coeffs: vec![Goldilocks::ZERO; self.d] }
+        NeoElt {
+            coeffs: vec![Goldilocks::ZERO; self.d],
+        }
     }
 
     pub fn one(&self) -> NeoElt {
@@ -105,18 +107,30 @@ impl NeoRing {
 
     pub fn add(&self, a: &NeoElt, b: &NeoElt) -> NeoElt {
         NeoElt {
-            coeffs: a.coeffs.iter().zip(b.coeffs.iter()).map(|(x, y)| x.add(y)).collect(),
+            coeffs: a
+                .coeffs
+                .iter()
+                .zip(b.coeffs.iter())
+                .map(|(x, y)| x.add(y))
+                .collect(),
         }
     }
 
     pub fn sub(&self, a: &NeoElt, b: &NeoElt) -> NeoElt {
         NeoElt {
-            coeffs: a.coeffs.iter().zip(b.coeffs.iter()).map(|(x, y)| x.sub(y)).collect(),
+            coeffs: a
+                .coeffs
+                .iter()
+                .zip(b.coeffs.iter())
+                .map(|(x, y)| x.sub(y))
+                .collect(),
         }
     }
 
     pub fn neg(&self, a: &NeoElt) -> NeoElt {
-        NeoElt { coeffs: a.coeffs.iter().map(|x| x.neg()).collect() }
+        NeoElt {
+            coeffs: a.coeffs.iter().map(|x| x.neg()).collect(),
+        }
     }
 
     /// The negacyclic product `a·b mod (X^d + 1)` — simultaneously the
@@ -177,7 +191,11 @@ impl NeoRing {
                     row.push(v);
                 }
             }
-            row.push(if r == 0 { Goldilocks::ONE } else { Goldilocks::ZERO });
+            row.push(if r == 0 {
+                Goldilocks::ONE
+            } else {
+                Goldilocks::ZERO
+            });
             rows.push(row);
         }
         // Gaussian elimination mod p.
@@ -198,12 +216,18 @@ impl NeoRing {
                 }
             }
         }
-        Some(NeoElt { coeffs: rows.iter().map(|r| r[d]).collect() })
+        Some(NeoElt {
+            coeffs: rows.iter().map(|r| r[d]).collect(),
+        })
     }
 
     /// Sample a ternary ring element (coefficients in `{−1, 0, 1}`)
     /// from the transcript — the strong sampling set's family.
-    pub fn sample_ternary(&self, transcript: &mut Transcript, label: &[u8]) -> Result<NeoElt, TranscriptError> {
+    pub fn sample_ternary(
+        &self,
+        transcript: &mut Transcript,
+        label: &[u8],
+    ) -> Result<NeoElt, TranscriptError> {
         let bytes = transcript.challenge_bytes(label, self.d)?;
         let mut coeffs = Vec::with_capacity(self.d);
         for &b in bytes.iter().take(self.d) {
@@ -266,7 +290,11 @@ pub fn split_rows_b(rows: &[Vec<Goldilocks>], b_bits: usize) -> Vec<Vec<Vec<Gold
 fn decomp_rows(rows: &[Vec<Goldilocks>], b_bits: usize) -> Vec<Vec<Vec<Goldilocks>>> {
     let b = 1u64 << b_bits;
     let k = 64_usize.div_ceil(b_bits);
-    let mut out = vec![vec![vec![Goldilocks::ZERO; rows.first().map(|r| r.len()).unwrap_or(0)]; rows.len()]; k];
+    let mut out =
+        vec![
+            vec![vec![Goldilocks::ZERO; rows.first().map(|r| r.len()).unwrap_or(0)]; rows.len()];
+            k
+        ];
     for (ri, row) in rows.iter().enumerate() {
         for (j, &v) in row.iter().enumerate() {
             let mut x = v.to_canonical_u64();
@@ -321,14 +349,21 @@ impl NeoAjtaiKey {
                             b"neo-ajtai-c",
                             &[&h[..], &(c as u64).to_le_bytes()].concat(),
                         );
-                        Goldilocks::from_u64(u64::from_le_bytes(h2[..8].try_into().unwrap_or([0; 8])))
+                        Goldilocks::from_u64(u64::from_le_bytes(
+                            h2[..8].try_into().unwrap_or([0; 8]),
+                        ))
                     })
                     .collect();
                 row.push(NeoElt { coeffs });
             }
             matrix.push(row);
         }
-        NeoAjtaiKey { ring, kappa, m, matrix }
+        NeoAjtaiKey {
+            ring,
+            kappa,
+            m,
+            matrix,
+        }
     }
 
     /// The pay-per-bit commit: `c_i = Σ_j M_ij·z'_j` where each product
@@ -414,10 +449,16 @@ impl NeoAjtaiKey {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NeoError {
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     Transcript(TranscriptError),
     /// The folded witness exceeded the digit norm bound (fail-closed).
-    NormExceeded { norm: i64, bound: i64 },
+    NormExceeded {
+        norm: i64,
+        bound: i64,
+    },
     /// The decider failed (opening/norm/CCS satisfaction).
     DeciderFailed(&'static str),
     /// A fold challenge difference is not invertible (the strong
@@ -488,7 +529,9 @@ pub fn strong_sampling_set(
                     .map(|c| {
                         Goldilocks::from_u64(
                             u64::from_le_bytes(
-                                h[(c * 8 % 24)..(c * 8 % 24 + 8)].try_into().unwrap_or([0; 8]),
+                                h[(c * 8 % 24)..(c * 8 % 24 + 8)]
+                                    .try_into()
+                                    .unwrap_or([0; 8]),
                             ) % 1000,
                         )
                     })
@@ -565,7 +608,10 @@ fn check_digit_norms(rows: &[Vec<Goldilocks>], b_bits: usize) -> Result<i64, Neo
         for &v in row {
             let bal = center_i64(v.to_canonical_u64());
             if bal.abs() >= b {
-                return Err(NeoError::NormExceeded { norm: bal, bound: b });
+                return Err(NeoError::NormExceeded {
+                    norm: bal,
+                    bound: b,
+                });
             }
             max = max.max(bal.abs());
         }
@@ -586,7 +632,10 @@ pub fn fold_rlc(
     transcript: &mut Transcript,
 ) -> Result<(NeoInstance, NeoWitness), NeoError> {
     if insts.len() != witnesses.len() || insts.is_empty() {
-        return Err(NeoError::Shape { expected: witnesses.len(), got: insts.len() });
+        return Err(NeoError::Shape {
+            expected: witnesses.len(),
+            got: insts.len(),
+        });
     }
     let (challenges, _exp) = strong_sampling_set(ring, insts.len(), transcript)?;
     // The verifier-side fold.
@@ -636,8 +685,17 @@ pub fn fold_rlc(
     let rows: Vec<Vec<Goldilocks>> = (0..witnesses[0].rows.len())
         .map(|ri| cols.iter().map(|col| col.coeffs[ri]).collect())
         .collect();
-    let inst = NeoInstance { commitment: c, y, x, u };
-    let wit = NeoWitness { rows, columns: cols, z };
+    let inst = NeoInstance {
+        commitment: c,
+        y,
+        x,
+        u,
+    };
+    let wit = NeoWitness {
+        rows,
+        columns: cols,
+        z,
+    };
     Ok((inst, wit))
 }
 
@@ -683,7 +741,11 @@ pub fn fold_dec(
             x: inst.x.clone(),
             u: inst.u,
         });
-        out_wits.push(NeoWitness { rows: part, columns, z });
+        out_wits.push(NeoWitness {
+            rows: part,
+            columns,
+            z,
+        });
     }
     // The verifier-side checks: c = Σ b^{i−1}·c_i, y = Σ b^{i−1}·y_i.
     let b = Goldilocks::from_u64(1 << b_bits);
@@ -777,7 +839,10 @@ pub fn neo_commit(
     stats: &mut CommitStats,
 ) -> Result<(NeoInstance, NeoWitness), NeoError> {
     if z.len() != ccs.m {
-        return Err(NeoError::Shape { expected: ccs.m, got: z.len() });
+        return Err(NeoError::Shape {
+            expected: ccs.m,
+            got: z.len(),
+        });
     }
     let rows = decomp_b(z, b_bits);
     check_digit_norms(&rows, b_bits)?;
@@ -800,8 +865,17 @@ pub fn neo_commit(
     let x = z.to_vec();
     let u = Goldilocks::ZERO;
     Ok((
-        NeoInstance { commitment, y, x, u },
-        NeoWitness { rows, columns, z: z.to_vec() },
+        NeoInstance {
+            commitment,
+            y,
+            x,
+            u,
+        },
+        NeoWitness {
+            rows,
+            columns,
+            z: z.to_vec(),
+        },
     ))
 }
 
@@ -847,7 +921,7 @@ pub fn neo_decide(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lattice_relations::ccs::{SparseMatrix, Ccs};
+    use lattice_relations::ccs::{Ccs, SparseMatrix};
 
     fn fe(x: u64) -> Goldilocks {
         Goldilocks::from_u64(x)

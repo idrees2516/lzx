@@ -54,15 +54,33 @@ fn bench_at(params: Params, label: &str) {
     // The masked openings (z₁, z₂ vectors) dominate the proof size: one
     // entry per PoK invocation per block.
     let pok_blocks = tr.r1cs.step1.as_ref().map(|t| t.z1.len()).unwrap_or(0)
-        + tr.r1cs.step7.inner_linear.as_ref().map(|t| t.z1.len()).unwrap_or(0)
-        + tr.r1cs.step12.inner_linear.as_ref().map(|t| t.z1.len()).unwrap_or(0)
-        + tr.r1cs.step15.as_ref().map(|t| t.inner.z1.len()).unwrap_or(0)
-        + tr.r1cs.step18.inner_linear.as_ref().map(|t| t.z1.len()).unwrap_or(0)
+        + tr.r1cs
+            .step7
+            .inner_linear
+            .as_ref()
+            .map(|t| t.z1.len())
+            .unwrap_or(0)
+        + tr.r1cs
+            .step12
+            .inner_linear
+            .as_ref()
+            .map(|t| t.z1.len())
+            .unwrap_or(0)
+        + tr.r1cs
+            .step15
+            .as_ref()
+            .map(|t| t.inner.z1.len())
+            .unwrap_or(0)
+        + tr.r1cs
+            .step18
+            .inner_linear
+            .as_ref()
+            .map(|t| t.z1.len())
+            .unwrap_or(0)
         + tr.rlc.step1.as_ref().map(|t| t.z1.len()).unwrap_or(0)
         + tr.rlc.step17.as_ref().map(|t| t.z1.len()).unwrap_or(0)
         + tr.dec.step5.as_ref().map(|t| t.z1.len()).unwrap_or(0);
-    let masked_openings_elems =
-        pok_blocks * (params.m1 + params.m2) * params.d;
+    let masked_openings_elems = pok_blocks * (params.m1 + params.m2) * params.d;
 
     println!("== {label} ==");
     println!(
@@ -84,7 +102,10 @@ fn bench_at(params: Params, label: &str) {
         "  comms:  {abdlop_coms} ABDLOP commitments, {ajtai_coms} compact Ajtai, \
          ~{masked_openings_elems} ring elements of masked openings"
     );
-    println!("  output: {} CE_com(b) instances at the fresh point", out.len());
+    println!(
+        "  output: {} CE_com(b) instances at the fresh point",
+        out.len()
+    );
 }
 
 fn main() {

@@ -119,7 +119,13 @@ pub fn part_layout(ranks: &[usize], nn: usize, per_vector: bool) -> PartLayout {
     if filled > 0 || origin.is_empty() {
         origin.push(open_origin);
     }
-    PartLayout { nn, r: origin.len(), ranks: ranks.to_vec(), starts, origin }
+    PartLayout {
+        nn,
+        r: origin.len(),
+        ranks: ranks.to_vec(),
+        starts,
+        origin,
+    }
 }
 
 impl PartLayout {
@@ -153,7 +159,12 @@ impl PartLayout {
     }
 
     /// Split a phi slice into per-part chunks.
-    pub fn locate_slice(&self, idx: usize, off: usize, phi: &[Poly]) -> Vec<(usize, usize, Vec<Poly>)> {
+    pub fn locate_slice(
+        &self,
+        idx: usize,
+        off: usize,
+        phi: &[Poly],
+    ) -> Vec<(usize, usize, Vec<Poly>)> {
         let mut out = Vec::new();
         let (mut part, mut pos) = self.locate(idx, off);
         let mut phi_rest = phi;
@@ -184,7 +195,6 @@ impl PartLayout {
     }
 }
 
-
 /// Expand an input a-entry (i, j) to part-level entries with the POSITIONAL
 /// chunk pairing: ⟨s_i, s_j⟩ = Σ_x ⟨chunk_x^i, chunk_x^j⟩ (the ring inner
 /// product pairs coefficients positionally — the concatenation blocks pair at
@@ -192,7 +202,12 @@ impl PartLayout {
 /// same-index structure and the correct expansion of the paper's equations).
 /// Only called in the quadratic mode (per-vector boundaries), where vector
 /// i's chunks are the parts [starts[i].0, starts[i].0 + ceil(rank/nn)).
-fn expand_a_entry(layout: &PartLayout, i: usize, j: usize, coeff: &Poly) -> Vec<(usize, usize, Poly)> {
+fn expand_a_entry(
+    layout: &PartLayout,
+    i: usize,
+    j: usize,
+    coeff: &Poly,
+) -> Vec<(usize, usize, Poly)> {
     let (si, _) = layout.starts[i];
     let (sj, _) = layout.starts[j];
     let ni = layout.ranks[i].div_ceil(layout.nn);
@@ -209,7 +224,10 @@ fn expand_a_entry(layout: &PartLayout, i: usize, j: usize, coeff: &Poly) -> Vec<
 
 /// The quadratic-ness of a statement.
 pub fn is_quadratic(st: &PrincipalStatement) -> bool {
-    st.cnst.iter().chain(st.ct_cnst.iter()).any(|c| !c.a.is_empty())
+    st.cnst
+        .iter()
+        .chain(st.ct_cnst.iter())
+        .any(|c| !c.a.is_empty())
 }
 
 /// Decompose a vector into f digit-vectors (transposed).
@@ -248,7 +266,13 @@ impl Windows {
         let b_off = a_off + cpp.kappa * nn;
         let c_off = b_off + cpp.kappa1 * (vl.t_len + vl.g_len);
         let d_off = c_off + cpp.kappa1 * vl.h_len;
-        Windows { a_off, b_off, c_off, d_off, total: d_off + cpp.kappa1 * vl.h_len }
+        Windows {
+            a_off,
+            b_off,
+            c_off,
+            d_off,
+            total: d_off + cpp.kappa1 * vl.h_len,
+        }
     }
 }
 
@@ -284,7 +308,14 @@ pub fn prove_level(
     wit: &PrincipalWitness,
     key: &ComKey,
     tail: bool,
-) -> Result<(LevelProof, Option<PrincipalStatement>, Option<PrincipalWitness>), String> {
+) -> Result<
+    (
+        LevelProof,
+        Option<PrincipalStatement>,
+        Option<PrincipalWitness>,
+    ),
+    String,
+> {
     let mut inflation = 1.0f64;
     for _ in 0..8 {
         match prove_level_inner(stmt, wit, key, tail, inflation) {
@@ -302,9 +333,17 @@ fn prove_level_inner(
     key: &ComKey,
     tail: bool,
     inflation: f64,
-) -> Result<(LevelProof, Option<PrincipalStatement>, Option<PrincipalWitness>), String> {
+) -> Result<
+    (
+        LevelProof,
+        Option<PrincipalStatement>,
+        Option<PrincipalWitness>,
+    ),
+    String,
+> {
     stmt.validate()?;
-    stmt.check_all(&wit.s).map_err(|e| format!("witness: {e}"))?;
+    stmt.check_all(&wit.s)
+        .map_err(|e| format!("witness: {e}"))?;
     let quadratic = is_quadratic(stmt);
 
     let ranks: Vec<usize> = stmt.vectors.iter().map(|v| v.n).collect();
@@ -317,7 +356,10 @@ fn prove_level_inner(
 
     let win = Windows::new(&cpp, r, nn);
     if win.total > key.len {
-        return Err(format!("key too short: need {}, have {}", win.total, key.len));
+        return Err(format!(
+            "key too short: need {}, have {}",
+            win.total, key.len
+        ));
     }
     let vl = VLayout::new(&cpp, r);
     let layout = part_layout(&ranks, nn, quadratic);
@@ -404,7 +446,8 @@ fn prove_level_inner(
         let mut target = jl_target;
         for (l, c) in stmt.ct_cnst.iter().enumerate() {
             if let Some(b) = &c.b {
-                target = crate::ring::cmod(target as i128 + psi[l] as i128 * b.constant_term() as i128);
+                target =
+                    crate::ring::cmod(target as i128 + psi[l] as i128 * b.constant_term() as i128);
             }
         }
         // honest evaluation
@@ -417,13 +460,21 @@ fn prove_level_inner(
                 let mut acc = Poly::zero();
                 for &(i, j, ref coeff) in &c.a {
                     let prod = sprod(&wit.s[i], &wit.s[j]);
-                    acc.add_assign(&if i == j { coeff.mul(&prod) } else { coeff.mul(&prod).scale(2) });
+                    acc.add_assign(&if i == j {
+                        coeff.mul(&prod)
+                    } else {
+                        coeff.mul(&prod).scale(2)
+                    });
                 }
                 b_double.add_assign(&acc.scale(psi[l]));
             }
         }
         if b_double.constant_term() != target {
-            return Err(format!("lift {k}: ct mismatch {} != {}", b_double.constant_term(), target));
+            return Err(format!(
+                "lift {k}: ct mismatch {} != {}",
+                b_double.constant_term(),
+                target
+            ));
         }
         let b_sent = b_double;
         tr.absorb_polys(&[b_sent]);
@@ -434,7 +485,11 @@ fn prove_level_inner(
         let terms: Vec<Term> = phi_k
             .iter()
             .enumerate()
-            .map(|(i, phi)| Term { idx: i, off: 0, phi: phi.clone() })
+            .map(|(i, phi)| Term {
+                idx: i,
+                off: 0,
+                phi: phi.clone(),
+            })
             .collect();
         let mut a_entries: Vec<(usize, usize, Poly)> = Vec::new();
         for (l, c) in stmt.ct_cnst.iter().enumerate() {
@@ -444,7 +499,12 @@ fn prove_level_inner(
                 }
             }
         }
-        lifted.push(DotCnst { terms, a: a_entries, b: Some(b_sent), ct_only: false });
+        lifted.push(DotCnst {
+            terms,
+            a: a_entries,
+            b: Some(b_sent),
+            ct_only: false,
+        });
     }
 
     // ---- F-aggregation: uniform α ∈ R_q^K, β ∈ R_q^4 ----
@@ -537,9 +597,14 @@ fn prove_level_inner(
     if tail {
         // §5.4: restart with inflated parameters when the measured norm
         // exceeds the prediction (the announced bound must stay SIS-consistent)
-        let measured: u64 = z_digits.iter().flat_map(|v| v.iter().map(|q| q.normsq())).sum();
+        let measured: u64 = z_digits
+            .iter()
+            .flat_map(|v| v.iter().map(|q| q.normsq()))
+            .sum();
         if measured > normsq_pred {
-            return Err(format!("RESTART: tail measured {measured} > predicted {normsq_pred}"));
+            return Err(format!(
+                "RESTART: tail measured {measured} > predicted {normsq_pred}"
+            ));
         }
         proof.normsq = normsq_pred;
         return Ok((proof, None, Some(PrincipalWitness::new(z_digits))));
@@ -553,7 +618,9 @@ fn prove_level_inner(
 
     let mut vectors: Vec<VectorSpec> = (0..cpp.f).map(|d| VectorSpec::z_part(nn, d)).collect();
     vectors.push(VectorSpec::plain(vl.m));
-    let constraints = target_relation(&proof, key, &phi_agg, &a_agg, &b_agg, &layout, &win, quadratic);
+    let constraints = target_relation(
+        &proof, key, &phi_agg, &a_agg, &b_agg, &layout, &win, quadratic,
+    );
     // §5.4: restart when the measured output norm exceeds the prediction
     let measured: u64 = z_digits
         .iter()
@@ -561,7 +628,9 @@ fn prove_level_inner(
         .flat_map(|vv| vv.iter().map(|q| q.normsq()))
         .sum();
     if measured > normsq_pred {
-        return Err(format!("RESTART: measured {measured} > predicted {normsq_pred}"));
+        return Err(format!(
+            "RESTART: measured {measured} > predicted {normsq_pred}"
+        ));
     }
     proof.normsq = normsq_pred;
     let target = PrincipalStatement::new(vectors, constraints, vec![], normsq_pred);
@@ -599,9 +668,15 @@ fn target_relation(
     // E1 (κ1): B·[t̃; g̃] = u1
     let tg_len = vl.t_len + vl.g_len;
     for j in 0..cpp.kappa1 {
-        let phi = (0..tg_len).map(|k| key.rows[win.b_off + j * tg_len + k]).collect();
+        let phi = (0..tg_len)
+            .map(|k| key.rows[win.b_off + j * tg_len + k])
+            .collect();
         out.push(DotCnst {
-            terms: vec![Term { idx: v_idx, off: 0, phi }],
+            terms: vec![Term {
+                idx: v_idx,
+                off: 0,
+                phi,
+            }],
             a: vec![],
             b: Some(proof.u1[j]),
             ct_only: false,
@@ -610,9 +685,15 @@ fn target_relation(
 
     // E2 (κ1): D·h̃ = u2
     for j in 0..cpp.kappa1 {
-        let phi = (0..vl.h_len).map(|k| key.rows[win.d_off + j * vl.h_len + k]).collect();
+        let phi = (0..vl.h_len)
+            .map(|k| key.rows[win.d_off + j * vl.h_len + k])
+            .collect();
         out.push(DotCnst {
-            terms: vec![Term { idx: v_idx, off: vl.h_off(), phi }],
+            terms: vec![Term {
+                idx: v_idx,
+                off: vl.h_off(),
+                phi,
+            }],
             a: vec![],
             b: Some(proof.u2[j]),
             ct_only: false,
@@ -626,17 +707,24 @@ fn target_relation(
             let phi = (0..nn)
                 .map(|k| key.rows[win.a_off + rho * nn + k].scale(1i64 << (d as u32 * cpp.b)))
                 .collect();
-            terms.push(Term { idx: d, off: 0, phi });
+            terms.push(Term {
+                idx: d,
+                off: 0,
+                phi,
+            });
         }
         let mut phi_v = vec![Poly::zero(); vl.t_len];
         for i in 0..r {
             for j in 0..cpp.fu {
                 let scale = 1i64 << (j as u32 * cpp.bu);
-                phi_v[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] =
-                    proof.c[i].neg().scale(scale);
+                phi_v[i * cpp.fu * cpp.kappa + j * cpp.kappa + rho] = proof.c[i].neg().scale(scale);
             }
         }
-        terms.push(Term { idx: v_idx, off: 0, phi: phi_v });
+        terms.push(Term {
+            idx: v_idx,
+            off: 0,
+            phi: phi_v,
+        });
         out.push(DotCnst::homogeneous(terms));
     }
 
@@ -645,7 +733,11 @@ fn target_relation(
         let mut a_entries: Vec<(usize, usize, Poly)> = Vec::new();
         for d1 in 0..f {
             for d2 in d1..f {
-                a_entries.push((d1, d2, Poly::constant(1i64 << ((d1 + d2) as u32 * cpp.b)).neg()));
+                a_entries.push((
+                    d1,
+                    d2,
+                    Poly::constant(1i64 << ((d1 + d2) as u32 * cpp.b)).neg(),
+                ));
             }
         }
         let mut phi_g = vec![Poly::zero(); vl.g_len];
@@ -662,7 +754,11 @@ fn target_relation(
             }
         }
         out.push(DotCnst {
-            terms: vec![Term { idx: v_idx, off: vl.g_off(), phi: phi_g }],
+            terms: vec![Term {
+                idx: v_idx,
+                off: vl.g_off(),
+                phi: phi_g,
+            }],
             a: a_entries,
             b: None,
             ct_only: false,
@@ -682,8 +778,15 @@ fn target_relation(
         };
         let mut terms: Vec<Term> = Vec::new();
         for d in 0..f {
-            let phi = phi_fold.iter().map(|p| p.scale(1i64 << (d as u32 * cpp.b))).collect();
-            terms.push(Term { idx: d, off: 0, phi });
+            let phi = phi_fold
+                .iter()
+                .map(|p| p.scale(1i64 << (d as u32 * cpp.b)))
+                .collect();
+            terms.push(Term {
+                idx: d,
+                off: 0,
+                phi,
+            });
         }
         let mut phi_h = vec![Poly::zero(); vl.h_len];
         for i in 0..r {
@@ -699,7 +802,11 @@ fn target_relation(
                 }
             }
         }
-        terms.push(Term { idx: v_idx, off: vl.h_off(), phi: phi_h });
+        terms.push(Term {
+            idx: v_idx,
+            off: vl.h_off(),
+            phi: phi_h,
+        });
         out.push(DotCnst::homogeneous(terms));
     }
 
@@ -720,7 +827,11 @@ fn target_relation(
             }
         }
         out.push(DotCnst {
-            terms: vec![Term { idx: v_idx, off: 0, phi: phi_v }],
+            terms: vec![Term {
+                idx: v_idx,
+                off: 0,
+                phi: phi_v,
+            }],
             a: vec![],
             b: Some(*b_agg),
             ct_only: false,
@@ -823,12 +934,18 @@ pub fn replay_level(
     }
     if !crate::sis::sis_secure(
         cpp.kappa,
-        6.0 * crate::challenge::T * crate::sis::SLACK * 2f64.powi((cpp.f as i32 - 1) * cpp.b as i32) * (proof.normsq as f64).sqrt(),
+        6.0 * crate::challenge::T
+            * crate::sis::SLACK
+            * 2f64.powi((cpp.f as i32 - 1) * cpp.b as i32)
+            * (proof.normsq as f64).sqrt(),
     ) {
         return Err("inner commitments not SIS-secure at the announced norm".into());
     }
     if !proof.tail()
-        && !crate::sis::sis_secure(cpp.kappa1, 2.0 * crate::sis::SLACK * (proof.normsq as f64).sqrt())
+        && !crate::sis::sis_secure(
+            cpp.kappa1,
+            2.0 * crate::sis::SLACK * (proof.normsq as f64).sqrt(),
+        )
     {
         return Err("outer commitments not SIS-secure at the announced norm".into());
     }
@@ -846,10 +963,20 @@ pub fn replay_level(
     // regenerate the JL matrices
     let mats: Vec<JlMatrix> = (0..r)
         .map(|i| {
-            JlMatrix::expand(256, nn * N, JlMode::PlusMinus1, &jl_seed, (proof.jlnonce << 8) | (i as u64 & 0xff))
+            JlMatrix::expand(
+                256,
+                nn * N,
+                JlMode::PlusMinus1,
+                &jl_seed,
+                (proof.jlnonce << 8) | (i as u64 & 0xff),
+            )
         })
         .collect();
-    if !jl_accept(&proof.p, stmt.betasq.min(jl_max_normsq()), JlMode::PlusMinus1) {
+    if !jl_accept(
+        &proof.p,
+        stmt.betasq.min(jl_max_normsq()),
+        JlMode::PlusMinus1,
+    ) {
         return Err("JL projection fails the acceptance bound".into());
     }
 
@@ -863,7 +990,8 @@ pub fn replay_level(
         let mut target = jl_target;
         for (l, c) in stmt.ct_cnst.iter().enumerate() {
             if let Some(b) = &c.b {
-                target = crate::ring::cmod(target as i128 + psi[l] as i128 * b.constant_term() as i128);
+                target =
+                    crate::ring::cmod(target as i128 + psi[l] as i128 * b.constant_term() as i128);
             }
         }
         if proof.bb[k].constant_term() != target {
@@ -887,7 +1015,11 @@ pub fn replay_level(
         let terms: Vec<Term> = phi_k
             .iter()
             .enumerate()
-            .map(|(i, phi)| Term { idx: i, off: 0, phi: phi.clone() })
+            .map(|(i, phi)| Term {
+                idx: i,
+                off: 0,
+                phi: phi.clone(),
+            })
             .collect();
         let mut a_entries: Vec<(usize, usize, Poly)> = Vec::new();
         for (l, c) in stmt.ct_cnst.iter().enumerate() {
@@ -901,14 +1033,20 @@ pub fn replay_level(
             }
         }
         tr.absorb_polys(&[proof.bb[k]]);
-        lifted.push(DotCnst { terms, a: a_entries, b: Some(proof.bb[k]), ct_only: false });
+        lifted.push(DotCnst {
+            terms,
+            a: a_entries,
+            b: Some(proof.bb[k]),
+            ct_only: false,
+        });
     }
 
     // F-aggregation
     let chal_seed = tr.challenge_seed();
     let alphas = uniform_rq_vec(stmt.cnst.len(), &chal_seed, 0);
     let betas = uniform_rq_vec(LIFTS, &chal_seed, 1);
-    let (phi_agg, a_agg, b_agg) = aggregate_constraints(stmt, &lifted, &layout, nn, &alphas, &betas);
+    let (phi_agg, a_agg, b_agg) =
+        aggregate_constraints(stmt, &lifted, &layout, nn, &alphas, &betas);
 
     // c replay + checks
     if proof.tail() {
@@ -944,16 +1082,29 @@ pub fn reduce_level(
     let (phi_agg, a_agg, b_agg) = replay_level(stmt, proof)?;
     let cpp = &proof.cpp;
     let quadratic = is_quadratic(stmt);
-    let layout = part_layout(&stmt.vectors.iter().map(|v| v.n).collect::<Vec<_>>(), proof.nn, quadratic);
+    let layout = part_layout(
+        &stmt.vectors.iter().map(|v| v.n).collect::<Vec<_>>(),
+        proof.nn,
+        quadratic,
+    );
     let win = Windows::new(cpp, proof.r, proof.nn);
     if win.total > key.len {
         return Err("key too short for the level windows".into());
     }
     let vl = VLayout::new(cpp, proof.r);
-    let mut vectors: Vec<VectorSpec> = (0..cpp.f).map(|d| VectorSpec::z_part(proof.nn, d)).collect();
+    let mut vectors: Vec<VectorSpec> = (0..cpp.f)
+        .map(|d| VectorSpec::z_part(proof.nn, d))
+        .collect();
     vectors.push(VectorSpec::plain(vl.m));
-    let constraints = target_relation(proof, key, &phi_agg, &a_agg, &b_agg, &layout, &win, quadratic);
-    Ok(PrincipalStatement::new(vectors, constraints, vec![], proof.normsq))
+    let constraints = target_relation(
+        proof, key, &phi_agg, &a_agg, &b_agg, &layout, &win, quadratic,
+    );
+    Ok(PrincipalStatement::new(
+        vectors,
+        constraints,
+        vec![],
+        proof.normsq,
+    ))
 }
 
 /// The final tail verification (Figure 3 on the transmitted material).
@@ -981,9 +1132,16 @@ pub fn verify_tail(
             return Err(format!("final witness part {d} rank {} != {nn}", v.len()));
         }
     }
-    let normsq: u64 = final_witness.s.iter().flat_map(|v| v.iter().map(|p| p.normsq())).sum();
+    let normsq: u64 = final_witness
+        .s
+        .iter()
+        .flat_map(|v| v.iter().map(|p| p.normsq()))
+        .sum();
     if normsq > proof.normsq {
-        return Err(format!("final witness norm² {normsq} > announced {}", proof.normsq));
+        return Err(format!(
+            "final witness norm² {normsq} > announced {}",
+            proof.normsq
+        ));
     }
     let z = recombine_vec(&final_witness.s, cpp.b);
 
@@ -1082,7 +1240,10 @@ fn merge_a(mut a: Vec<(usize, usize, Poly)>) -> Vec<(usize, usize, Poly)> {
 
 /// Deterministic JL projection with the reference's rejection rule.
 fn project_parts_exact(parts: &[Vec<Poly>], seed: &[u8]) -> JlProjection {
-    let normsq: u64 = parts.iter().map(|v| v.iter().map(|p| p.normsq()).sum::<u64>()).sum();
+    let normsq: u64 = parts
+        .iter()
+        .map(|v| v.iter().map(|p| p.normsq()).sum::<u64>())
+        .sum();
     let mut nonce = 0u64;
     loop {
         nonce += 1;
@@ -1090,7 +1251,13 @@ fn project_parts_exact(parts: &[Vec<Poly>], seed: &[u8]) -> JlProjection {
             .iter()
             .enumerate()
             .map(|(i, v)| {
-                JlMatrix::expand(256, v.len() * N, JlMode::PlusMinus1, seed, (nonce << 8) | (i as u64 & 0xff))
+                JlMatrix::expand(
+                    256,
+                    v.len() * N,
+                    JlMode::PlusMinus1,
+                    seed,
+                    (nonce << 8) | (i as u64 & 0xff),
+                )
             })
             .collect();
         let mut p = vec![0i64; 256];
@@ -1136,7 +1303,9 @@ mod tests {
 
     #[test]
     fn decompose_recombine_vec() {
-        let z: Vec<Poly> = (0..6).map(|i| Poly::almost_uniform(&[9], i as u64 + 3)).collect();
+        let z: Vec<Poly> = (0..6)
+            .map(|i| Poly::almost_uniform(&[9], i as u64 + 3))
+            .collect();
         for &(f, b) in &[(2usize, 7u32), (3, 5)] {
             let parts = decompose_vec(&z, f, b);
             assert_eq!(parts.len(), f);
@@ -1189,7 +1358,11 @@ mod quadratic_iso_tests {
         let stmt = PrincipalStatement::new(
             vec![VectorSpec::plain(512), VectorSpec::plain(512)],
             vec![DotCnst {
-                terms: vec![Term { idx: 0, off: 0, phi }],
+                terms: vec![Term {
+                    idx: 0,
+                    off: 0,
+                    phi,
+                }],
                 a: vec![(0, 1, Poly::constant(5))],
                 b: Some(b),
                 ct_only: false,

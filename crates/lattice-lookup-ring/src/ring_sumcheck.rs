@@ -78,7 +78,10 @@ impl RingVirtualPoly {
                 num_factors: t.factors.iter().filter(|f| !f.is_const()).count(),
             })
             .collect();
-        RingSumcheckShape { num_vars: self.num_vars, terms }
+        RingSumcheckShape {
+            num_vars: self.num_vars,
+            terms,
+        }
     }
 
     /// Direct evaluation at a point (testing / final-claim checking).
@@ -140,8 +143,14 @@ pub struct RingSumcheckProof {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SumcheckError {
     Shape(String),
-    RoundDegree { round: usize, expected: usize, got: usize },
-    RoundCheck { round: usize },
+    RoundDegree {
+        round: usize,
+        expected: usize,
+        got: usize,
+    },
+    RoundCheck {
+        round: usize,
+    },
     FinalCheck,
     Resolver(String),
 }
@@ -193,7 +202,7 @@ pub fn prove_sumcheck(
 
     for round in 0..mu {
         let m = mu - round; // remaining variables (incl. the one being bound)
-        // The bound variable is x_{m-1} (the high bit of the remaining cube).
+                            // The bound variable is x_{m-1} (the high bit of the remaining cube).
         let half = 1usize << (m - 1);
         let deg = max_deg;
         // Sample values at integer nodes 0..=deg
@@ -217,9 +226,11 @@ pub fn prove_sumcheck(
                             .collect();
                         prod_vec = Some(match prod_vec {
                             None => bound_f,
-                            Some(pv) => {
-                                pv.into_iter().zip(bound_f).map(|(a, b)| ring.mul(&a, &b)).collect()
-                            }
+                            Some(pv) => pv
+                                .into_iter()
+                                .zip(bound_f)
+                                .map(|(a, b)| ring.mul(&a, &b))
+                                .collect(),
                         });
                     }
                 }
@@ -252,7 +263,11 @@ pub fn prove_sumcheck(
                 return Err(SumcheckError::RoundCheck { round });
             }
         } else {
-            let prev = eval_univariate(ring, &rounds[round - 1], &challenges_binding_order[round - 1]);
+            let prev = eval_univariate(
+                ring,
+                &rounds[round - 1],
+                &challenges_binding_order[round - 1],
+            );
             if sum_halves != prev {
                 return Err(SumcheckError::RoundCheck { round });
             }
@@ -301,7 +316,11 @@ pub fn verify_sumcheck(
 ) -> Result<(), SumcheckError> {
     let mu = shape.num_vars;
     if proof.rounds.len() != mu {
-        return Err(SumcheckError::Shape(format!("rounds {} != vars {}", proof.rounds.len(), mu)));
+        return Err(SumcheckError::Shape(format!(
+            "rounds {} != vars {}",
+            proof.rounds.len(),
+            mu
+        )));
     }
     let max_deg = shape.max_degree();
     let mut running = claimed_sum.clone();
@@ -379,11 +398,13 @@ fn vandermonde_solve(ring: &RingD, n: usize, values: &[Elem]) -> Result<Vec<Elem
         }
     }
     // Gauss-Jordan inverse over Z_q
-    let mut inv: Vec<Vec<u64>> = (0..n).map(|i| {
-        let mut row = vec![0u64; n];
-        row[i] = 1;
-        row
-    }).collect();
+    let mut inv: Vec<Vec<u64>> = (0..n)
+        .map(|i| {
+            let mut row = vec![0u64; n];
+            row[i] = 1;
+            row
+        })
+        .collect();
     for col in 0..n {
         // pivot
         let mut piv = col;
@@ -457,7 +478,9 @@ mod tests {
     fn sumcheck_single_factor() {
         let r = ring();
         let mu = 4;
-        let evals: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("f{i}").as_bytes())).collect();
+        let evals: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("f{i}").as_bytes()))
+            .collect();
         let mut sum = r.zero();
         for e in &evals {
             sum = r.add(&sum, e);
@@ -465,7 +488,10 @@ mod tests {
         let poly = RingVirtualPoly {
             num_vars: mu,
             claimed_sum: sum,
-            terms: vec![RingTerm { coeff: r.one(), factors: vec![RingFactor::Mle(evals.clone())] }],
+            terms: vec![RingTerm {
+                coeff: r.one(),
+                factors: vec![RingFactor::Mle(evals.clone())],
+            }],
         };
         let mut tr = Transcript::new_default(b"sc1");
         let proof = prove_sumcheck(&r, &poly, &mut tr).ok().unwrap();
@@ -486,9 +512,15 @@ mod tests {
     fn sumcheck_product_of_factors() {
         let r = ring();
         let mu = 3;
-        let a: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("a{i}").as_bytes())).collect();
-        let b: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("b{i}").as_bytes())).collect();
-        let c: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("c{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("a{i}").as_bytes()))
+            .collect();
+        let b: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("b{i}").as_bytes()))
+            .collect();
+        let c: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("c{i}").as_bytes()))
+            .collect();
         // claimed sum of a*b + c (degree-2 and degree-1 terms)
         let mut sum = r.zero();
         for i in 0..(1 << mu) {
@@ -503,7 +535,10 @@ mod tests {
                     coeff: r.one(),
                     factors: vec![RingFactor::Mle(a.clone()), RingFactor::Mle(b.clone())],
                 },
-                RingTerm { coeff: r.one(), factors: vec![RingFactor::Mle(c.clone())] },
+                RingTerm {
+                    coeff: r.one(),
+                    factors: vec![RingFactor::Mle(c.clone())],
+                },
             ],
         };
         let mut tr = Transcript::new_default(b"sc2");
@@ -541,7 +576,9 @@ mod tests {
     fn sumcheck_wrong_claim_rejected() {
         let r = ring();
         let mu = 3;
-        let a: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("w{i}").as_bytes())).collect();
+        let a: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("w{i}").as_bytes()))
+            .collect();
         let mut sum = r.zero();
         for e in &a {
             sum = r.add(&sum, e);
@@ -550,7 +587,10 @@ mod tests {
         let poly = RingVirtualPoly {
             num_vars: mu,
             claimed_sum: wrong,
-            terms: vec![RingTerm { coeff: r.one(), factors: vec![RingFactor::Mle(a.clone())] }],
+            terms: vec![RingTerm {
+                coeff: r.one(),
+                factors: vec![RingFactor::Mle(a.clone())],
+            }],
         };
         let mut tr = Transcript::new_default(b"sc3");
         // The prover itself must detect the inconsistent claim at round 0.
@@ -563,9 +603,13 @@ mod tests {
         let r = ring();
         let mu = 3;
         let mut tr = Transcript::new_default(b"zc");
-        let y: Vec<Elem> = (0..mu).map(|i| r.sample_challenge(&mut tr, format!("y{i}").as_bytes())).collect();
+        let y: Vec<Elem> = (0..mu)
+            .map(|i| r.sample_challenge(&mut tr, format!("y{i}").as_bytes()))
+            .collect();
         let eq = r.eq_row(&y);
-        let f: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("zf{i}").as_bytes())).collect();
+        let f: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("zf{i}").as_bytes()))
+            .collect();
         // h = f elementwise (so the zero-check passes)
         let h = f.clone();
         let poly = RingVirtualPoly {

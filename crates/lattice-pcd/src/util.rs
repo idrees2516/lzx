@@ -32,7 +32,11 @@ pub fn fp_from_be32(bytes: &[u8; 32]) -> Fp256 {
 }
 
 /// Absorb a field element into a transcript in canonical byte form.
-pub fn absorb_fp(t: &mut Transcript, label: &[u8], v: &Fp256) -> Result<(), lattice_core::transcript::TranscriptError> {
+pub fn absorb_fp(
+    t: &mut Transcript,
+    label: &[u8],
+    v: &Fp256,
+) -> Result<(), lattice_core::transcript::TranscriptError> {
     t.append_bytes(label, &v.from_mont().canon_bytes())
 }
 
@@ -110,11 +114,7 @@ pub fn eq_basis_eval(i: usize, x: &[Fp256]) -> Fp256 {
     let mut acc = one;
     for (k, xk) in x.iter().enumerate() {
         let bit = (i >> k) & 1;
-        let term = if bit == 1 {
-            *xk
-        } else {
-            one.sub(xk)
-        };
+        let term = if bit == 1 { *xk } else { one.sub(xk) };
         acc = acc.mul(&term);
     }
     acc

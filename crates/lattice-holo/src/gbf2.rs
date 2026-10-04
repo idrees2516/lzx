@@ -22,7 +22,9 @@
 use crate::pc::PcCommitment;
 use crate::poly::{lambda_eval, mat_vec, vec_poly_eval, Domain};
 use crate::relations::{GbfInstance, GbfWitness, RelError};
-use crate::sumcheck::{mv_prove, mv_verify, uni_mul, uni_prove, uni_verify, MvSumcheckProof, UniSumcheckProof};
+use crate::sumcheck::{
+    mv_prove, mv_verify, uni_mul, uni_prove, uni_verify, MvSumcheckProof, UniSumcheckProof,
+};
 use crate::Fp256;
 use lattice_core::transcript::Transcript;
 
@@ -313,7 +315,8 @@ pub fn gbf2_prove(
                 let mut acc = Fp256::ZERO;
                 for (ki, inst) in st.instances.iter().enumerate() {
                     let l = left_at(domain, inst, &eff.us[ki], pt).unwrap_or(Fp256::ZERO);
-                    let r = right_at(domain, inst, &eff.vs[ki], st.matrices, pt).unwrap_or(Fp256::ZERO);
+                    let r =
+                        right_at(domain, inst, &eff.vs[ki], st.matrices, pt).unwrap_or(Fp256::ZERO);
                     acc = acc.add(&gammas[ki].mul(&l.mul(&r)));
                 }
                 vec![acc]
@@ -448,17 +451,12 @@ pub fn gbf2_prove(
                                 continue;
                             }
                             // λ(α)ᵀ M_{jm} λ(pt) · v_{jv}(pt)
-                            let m_at = crate::poly::matrix_poly_eval(
-                                domain,
-                                &st.matrices[jm],
-                                pt,
-                                &alpha,
-                            )
-                            .unwrap_or(Fp256::ZERO);
-                            let v_at = vec_poly_eval(domain, &eff.vs[ki][jv], pt)
-                                .unwrap_or(Fp256::ZERO);
-                            acc = acc
-                                .add(&etas[ki * pairs.len() + pi].mul(&m_at.mul(&v_at)));
+                            let m_at =
+                                crate::poly::matrix_poly_eval(domain, &st.matrices[jm], pt, &alpha)
+                                    .unwrap_or(Fp256::ZERO);
+                            let v_at =
+                                vec_poly_eval(domain, &eff.vs[ki][jv], pt).unwrap_or(Fp256::ZERO);
+                            acc = acc.add(&etas[ki * pairs.len() + pi].mul(&m_at.mul(&v_at)));
                         }
                     }
                     vec![acc]
@@ -601,7 +599,13 @@ pub fn gbf2_verify(
     let sc1_final: Option<Fp256>;
     match (&proof.sc1, domain) {
         (ScRepr::Mv(p), Domain::Multivariate { num_vars }) => {
-            let out = mv_verify(*num_vars, dl_dr(instances).0 + dl_dr(instances).1, &[s], p, transcript)?;
+            let out = mv_verify(
+                *num_vars,
+                dl_dr(instances).0 + dl_dr(instances).1,
+                &[s],
+                p,
+                transcript,
+            )?;
             alpha = out.point;
             sc1_final = Some(out.final_evals[0]);
         }
@@ -878,7 +882,9 @@ mod tests {
         Fp256::from_canonical_u64(v)
     }
 
-    fn build_statement(domain: &Domain) -> (Vec<Vec<Vec<Fp256>>>, Vec<GbfInstance>, Vec<GbfWitness>) {
+    fn build_statement(
+        domain: &Domain,
+    ) -> (Vec<Vec<Vec<Fp256>>>, Vec<GbfInstance>, Vec<GbfWitness>) {
         let n = domain.size();
         let matrices = vec![
             crate::poly::fp_matrix(b"t2m", b"a", n),

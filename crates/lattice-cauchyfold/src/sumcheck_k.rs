@@ -10,7 +10,7 @@
 //! degree-`D` round polynomial. Verifier cost is `O(D·m)`; prover cost
 //! `O((D+1)·N)` overall (the tails telescope).
 
-use crate::field_k::{K4, KPoly};
+use crate::field_k::{KPoly, K4};
 
 /// One round message: the `D+1` coefficients of the univariate
 /// `A_i(X) = Σ_t c_t X^t`.
@@ -68,10 +68,7 @@ pub struct KSumcheck<'a> {
 
 impl<'a> KSumcheck<'a> {
     /// Prove: emit all round messages given the challenge sequence.
-    pub fn prove(
-        mut self,
-        challenges: &[K4],
-    ) -> Result<Vec<KRoundMessage>, String> {
+    pub fn prove(mut self, challenges: &[K4]) -> Result<Vec<KRoundMessage>, String> {
         if challenges.len() != self.num_vars {
             return Err("challenge count".into());
         }
@@ -80,11 +77,7 @@ impl<'a> KSumcheck<'a> {
             let msg = self.round_message()?;
             msgs.push(msg);
             // Restrict all tables.
-            self.tables = self
-                .tables
-                .iter()
-                .map(|t| restrict_table(t, &r))
-                .collect();
+            self.tables = self.tables.iter().map(|t| restrict_table(t, &r)).collect();
         }
         Ok(msgs)
     }
@@ -97,11 +90,8 @@ impl<'a> KSumcheck<'a> {
             .collect();
         let mut vals = Vec::with_capacity(d + 1);
         for v in &probes {
-            let restricted: Vec<Vec<K4>> = self
-                .tables
-                .iter()
-                .map(|t| restrict_table(t, v))
-                .collect();
+            let restricted: Vec<Vec<K4>> =
+                self.tables.iter().map(|t| restrict_table(t, v)).collect();
             // Sum g over the restricted tail cube: g is defined on tables,
             // so the "sum over the tail" is NOT Σ g(table) — the caller's g
             // must itself be the CUBE-SUM functional of its factors.
@@ -170,7 +160,12 @@ pub fn z_alpha_table(alpha: &K4, num_vars: usize) -> Vec<K4> {
 pub fn range_poly(delta: i64) -> KPoly {
     let mut p = KPoly::constant(K4::ONE);
     for a in -delta..delta {
-        let c = K4::from_coeffs([((-a).rem_euclid(crate::field_k::Q48 as i64)) as u64, 0, 0, 0]);
+        let c = K4::from_coeffs([
+            ((-a).rem_euclid(crate::field_k::Q48 as i64)) as u64,
+            0,
+            0,
+            0,
+        ]);
         p = p.mul(&KPoly::from_coeffs(vec![c, K4::ONE]));
     }
     p
@@ -182,7 +177,12 @@ mod tests {
     use crate::field_k::Fq48;
 
     fn k4(v: u64) -> K4 {
-        K4::from_coeffs([v % crate::field_k::Q48, v * 7 % crate::field_k::Q48, v * 3, v])
+        K4::from_coeffs([
+            v % crate::field_k::Q48,
+            v * 7 % crate::field_k::Q48,
+            v * 3,
+            v,
+        ])
     }
 
     #[test]
@@ -206,7 +206,11 @@ mod tests {
         let m = 4;
         let a: Vec<K4> = (0..1usize << m).map(|i| k4(i as u64 * 31 + 1)).collect();
         let b: Vec<K4> = (0..1usize << m).map(|i| k4(i as u64 * 17 + 5)).collect();
-        let claim: K4 = a.iter().zip(b.iter()).map(|(x, y)| x.mul(y)).fold(K4::ZERO, |acc, t| acc.add(&t));
+        let claim: K4 = a
+            .iter()
+            .zip(b.iter())
+            .map(|(x, y)| x.mul(y))
+            .fold(K4::ZERO, |acc, t| acc.add(&t));
         let g = move |tables: &[Vec<K4>]| -> K4 {
             let mut acc = K4::ZERO;
             for (x, y) in tables[0].iter().zip(tables[1].iter()) {
@@ -226,8 +230,12 @@ mod tests {
         let (point, terminal) =
             KSumcheck::verify(m, 2, &claim, &msgs, &challenges).expect("verify");
         // The terminal: A(r)·B(r) with the restricted tables.
-        let ra = challenges.iter().fold(a.clone(), |t, r| restrict_table(&t, r));
-        let rb = challenges.iter().fold(b.clone(), |t, r| restrict_table(&t, r));
+        let ra = challenges
+            .iter()
+            .fold(a.clone(), |t, r| restrict_table(&t, r));
+        let rb = challenges
+            .iter()
+            .fold(b.clone(), |t, r| restrict_table(&t, r));
         assert_eq!(point, challenges);
         assert_eq!(terminal, ra[0].mul(&rb[0]));
     }
@@ -265,10 +273,18 @@ mod tests {
         };
         let msgs = sc.prove(&challenges).expect("prove");
         let (_, terminal) = KSumcheck::verify(m, 17, &claim, &msgs, &challenges).expect("verify");
-        let rw = challenges.iter().fold(w.clone(), |t, r| restrict_table(&t, r));
-        let rh = challenges.iter().fold(h.clone(), |t, r| restrict_table(&t, r));
-        let rz = challenges.iter().fold(z.clone(), |t, r| restrict_table(&t, r));
-        let expect = rh[0].mul(&rw[0]).add(&r16.eval(&rw[0]).mul(&rz[0]).scale(&c));
+        let rw = challenges
+            .iter()
+            .fold(w.clone(), |t, r| restrict_table(&t, r));
+        let rh = challenges
+            .iter()
+            .fold(h.clone(), |t, r| restrict_table(&t, r));
+        let rz = challenges
+            .iter()
+            .fold(z.clone(), |t, r| restrict_table(&t, r));
+        let expect = rh[0]
+            .mul(&rw[0])
+            .add(&r16.eval(&rw[0]).mul(&rz[0]).scale(&c));
         assert_eq!(terminal, expect);
     }
 

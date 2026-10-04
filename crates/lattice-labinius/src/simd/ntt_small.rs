@@ -35,8 +35,8 @@
 //! at 0.809 q + 1.5 q = 2.309 q.
 
 use crate::params::*;
-use crate::simd::Batch32;
 pub use crate::simd::transpose::BinaryIndex32;
+use crate::simd::Batch32;
 use core::arch::x86_64::*;
 
 // ---------------------------------------------------------------------------------------------
@@ -314,7 +314,15 @@ struct Blk([i16; 162 * 32]);
 ///
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI/VBMI2/VNNI/GFNI (checked by [`crate::simd::available`]).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "avx512vbmi2", enable = "avx512vnni", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "avx512vbmi2",
+    enable = "avx512vnni",
+    enable = "gfni"
+)]
 pub unsafe fn ntt_bin_batch32<const Q: u16>(input: &BinaryIndex32, out: &mut Batch32) {
     let outp = out.v.as_mut_ptr() as *mut i16;
     let t = tables::<Q>();
@@ -385,7 +393,11 @@ pub unsafe fn ntt_bin_batch32<const Q: u16>(input: &BinaryIndex32, out: &mut Bat
             let base = 27 * j;
             let tw = t.tw4[6 * k + j].as_ptr();
             for i in 0..9 {
-                let (a0, a1, a2) = (ld(bp, base + i), ld(bp, base + 9 + i), ld(bp, base + 18 + i));
+                let (a0, a1, a2) = (
+                    ld(bp, base + i),
+                    ld(bp, base + 9 + i),
+                    ld(bp, base + 18 + i),
+                );
                 let (o0, o1, o2) = if bar {
                     r3::<true>(&c, a0, a1, a2, tw)
                 } else {

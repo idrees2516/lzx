@@ -32,7 +32,7 @@
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_ring::{RingConfig, RingElement};
 
-use crate::com::{ComKey, ComOpening, ComError};
+use crate::com::{ComError, ComKey, ComOpening};
 use lattice_salsa::ring_sc::{
     challenge_ring_elt, conj, mle_eval_ring, norm_conjugate_inner, ring_dot, ring_sc_prove,
     ring_sc_verify, ProductClaim, RingScError, RingScProof,
@@ -45,14 +45,20 @@ pub enum ProtocolError {
     Transcript(TranscriptError),
     Ring(lattice_ring::RingError),
     /// The Hermitian self-inner-product gate failed (ct(v) > β̃² or < 0).
-    NormGateFailed { ct_v: i64, beta_tilde_sq: i64 },
+    NormGateFailed {
+        ct_v: i64,
+        beta_tilde_sq: i64,
+    },
     /// A constraint failed against the revealed packed witness.
     ConstraintFailed,
     /// Commitment binding failed at the terminal opening.
     BindingFailed,
     /// The claim-batching/derivation replay mismatched (tampered).
     ReplayMismatch,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<ComError> for ProtocolError {
@@ -109,7 +115,11 @@ impl Packing {
         let mut meta = Vec::with_capacity(blocks.len());
         for i in order {
             let b = &blocks[i];
-            let log_len = if b.len() > 1 { (b.len() - 1).ilog2() as usize } else { 0 };
+            let log_len = if b.len() > 1 {
+                (b.len() - 1).ilog2() as usize
+            } else {
+                0
+            };
             meta.push((flat.len(), b.len(), log_len));
             flat.extend_from_slice(b);
         }
@@ -131,10 +141,7 @@ impl Packing {
         }
         let shift = (self.total / m).trailing_zeros() as usize;
         let base = off / m;
-        (0..shift)
-            .rev()
-            .map(|b| ((base >> b) & 1) as u32)
-            .collect()
+        (0..shift).rev().map(|b| ((base >> b) & 1) as u32).collect()
     }
 }
 
@@ -184,10 +191,7 @@ impl LinComInstance {
                 let wcol = &w[col];
                 let fw = mat_vec(&self.f[i], wcol)?;
                 // the col-th column of Y_i (ys[i][k] is row k, length r)
-                let ycol: Vec<RingElement> = ys[i]
-                    .iter()
-                    .map(|row| row[col].clone())
-                    .collect();
+                let ycol: Vec<RingElement> = ys[i].iter().map(|row| row[col].clone()).collect();
                 let hy = mat_vec(&self.h[i], &ycol)?;
                 if fw != hy {
                     return Ok(false);
@@ -207,7 +211,12 @@ impl LinComInstance {
                 norm_sq = norm_sq.saturating_add(e.euclidean_norm_squared());
             }
         }
-        if norm_sq > self.beta_w.saturating_mul(self.beta_w).saturating_mul(self.r as u64) {
+        if norm_sq
+            > self
+                .beta_w
+                .saturating_mul(self.beta_w)
+                .saturating_mul(self.r as u64)
+        {
             return Ok(false);
         }
         Ok(true)
@@ -215,7 +224,10 @@ impl LinComInstance {
 }
 
 /// Matrix-vector product over ring matrices (rows x cols).
-pub fn mat_vec(m: &[Vec<RingElement>], v: &[RingElement]) -> Result<Vec<RingElement>, ProtocolError> {
+pub fn mat_vec(
+    m: &[Vec<RingElement>],
+    v: &[RingElement],
+) -> Result<Vec<RingElement>, ProtocolError> {
     let mut out = Vec::with_capacity(m.len());
     for row in m {
         out.push(ring_dot(row, v)?);
@@ -292,11 +304,7 @@ impl ScConstraint {
 
     /// The verifier-side groups with the private slot replaced by the
     /// length-1 [z0]/[z1] tables (their MLE at any point is the value).
-    fn verifier_groups(
-        &self,
-        z0: &RingElement,
-        z1: &RingElement,
-    ) -> Vec<Vec<Vec<RingElement>>> {
+    fn verifier_groups(&self, z0: &RingElement, z1: &RingElement) -> Vec<Vec<Vec<RingElement>>> {
         match self {
             ScConstraint::Lindiff { a_l, a_r } => {
                 let neg_r: Vec<RingElement> = a_r.iter().map(|x| x.neg()).collect();
@@ -330,7 +338,11 @@ fn eq_bin_combiners(gamma: &[u32], k: usize, ring: &RingConfig) -> Vec<RingEleme
         let mut val: i128 = 1;
         for (b, &g) in gamma.iter().enumerate() {
             let bit = (i >> (log_k - 1 - b)) & 1;
-            let factor = if bit == 1 { i128::from(g) } else { 1 - i128::from(g) };
+            let factor = if bit == 1 {
+                i128::from(g)
+            } else {
+                1 - i128::from(g)
+            };
             val = (val * factor).rem_euclid(q);
         }
         out.push(ring.constant(val as u32));
@@ -433,10 +445,7 @@ pub fn fold_split_prove(
     };
     let constraints = build_constraints(inst, &packing, &c_chal, ring, &f_new, &fu, &v, l_prime);
     Ok(FoldSplitOutput {
-        proof: FoldSplitProof {
-            com: fu.clone(),
-            v,
-        },
+        proof: FoldSplitProof { com: fu.clone(), v },
         constraints,
         w_hat,
         c_chal,
@@ -483,9 +492,7 @@ fn build_constraints(
         });
     }
     // (c) exact norm: <w_hat, conj(w_hat)> = v
-    cons.push(ScConstraint::Norm {
-        value: v.clone(),
-    });
+    cons.push(ScConstraint::Norm { value: v.clone() });
     cons
 }
 
@@ -729,8 +736,8 @@ pub fn rokoko_verify(
             c0
         }
     };
-    let beta_tilde = i128::from(inst.beta_w) * 4 * i128::from(r as u64)
-        * (1i128 << (l_prime + 2).min(120));
+    let beta_tilde =
+        i128::from(inst.beta_w) * 4 * i128::from(r as u64) * (1i128 << (l_prime + 2).min(120));
     let beta_tilde_sq = beta_tilde.saturating_mul(beta_tilde);
     if i128::from(ct_v) < 0 || i128::from(ct_v) > beta_tilde_sq {
         return Err(ProtocolError::NormGateFailed {
@@ -839,7 +846,9 @@ mod tests {
         // COM commitments for vec(Y_i)
         let (com, aux) = {
             let y_flat: Vec<RingElement> = ys[0].iter().flatten().cloned().collect();
-            crate::com::com_commit(ck, ring, &y_flat, 1, 32).ok().unwrap()
+            crate::com::com_commit(ck, ring, &y_flat, 1, 32)
+                .ok()
+                .unwrap()
         };
         // left/right linear claims: ℓ^T W r = t with r = (1,0): t = ℓ·w0
         let ell = vec![small_vec(ring, m_w, b"ell", 6)];

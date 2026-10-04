@@ -16,17 +16,17 @@ use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_guest::asm::Assembler;
+use lattice_vm::decode::Instr;
 use lattice_vm::{run as vm_run, MachineState};
 use lattice_zkvm::columns::{build_cycle_witness, FetchWindow, RamWindow};
 use lattice_zkvm::constraints::{aux_shape, build_aux, prove_constraints, verify_constraints};
 use lattice_zkvm::ledger::{
-    bits_bundle_commit, values_bundle_commit, verify_bundle_opening, BaseClaim,
-    BundleLayoutEntry, BundleProver, Factor, Ledger, BITS_NORM_BOUND, VALUES_NORM_BOUND,
+    bits_bundle_commit, values_bundle_commit, verify_bundle_opening, BaseClaim, BundleLayoutEntry,
+    BundleProver, Factor, Ledger, BITS_NORM_BOUND, VALUES_NORM_BOUND,
 };
 use lattice_zkvm::semantics::{
     prove_instruction_semantics, verify_instruction_semantics, SemanticsProof, SemanticsStatement,
 };
-use lattice_vm::decode::Instr;
 
 fn fe(x: u64) -> Goldilocks {
     Goldilocks::from_u64(x)
@@ -179,9 +179,7 @@ fn main() {
     println!(
         "| log_t | cycles | exec | witness | aux | commit | families | openings | prove total | replay | pk | openings | verify total | ms/cycle | proof KB | claims |"
     );
-    println!(
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
-    );
+    println!("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
 
     for log_t_target in scales {
         // 8 instructions per iteration + ~3 setup + ecall.
@@ -331,7 +329,9 @@ fn main() {
             .filter(|c| !c.factor.in_bits_bundle())
             .cloned()
             .collect();
-        let _ = bits_prover.prove_opening(&bits_claims, &mut tr).expect("open");
+        let _ = bits_prover
+            .prove_opening(&bits_claims, &mut tr)
+            .expect("open");
         let _ = values_prover
             .prove_opening(&values_claims, &mut tr)
             .expect("open");
@@ -363,7 +363,8 @@ fn main() {
                 .expect("absorb");
             vtr.append_bytes(b"sem-in", &proof.statement.input_digest)
                 .expect("absorb");
-            vtr.append_field_slice(b"sem-meta", &fields).expect("absorb");
+            vtr.append_field_slice(b"sem-meta", &fields)
+                .expect("absorb");
         }
         vtr.append_bytes(b"sem-bits-commitment", &proof.bits_commitment)
             .expect("absorb");
@@ -380,18 +381,12 @@ fn main() {
         let pk_ms = ms(t_pk);
 
         let t_chk = Instant::now();
-        let bits_comm = AjtaiCommitment::from_bytes(
-            &ring,
-            bits_pk.params.k,
-            &proof.bits_commitment,
-        )
-        .expect("comm");
-        let values_comm = AjtaiCommitment::from_bytes(
-            &ring,
-            values_pk.params.k,
-            &proof.values_commitment,
-        )
-        .expect("comm");
+        let bits_comm =
+            AjtaiCommitment::from_bytes(&ring, bits_pk.params.k, &proof.bits_commitment)
+                .expect("comm");
+        let values_comm =
+            AjtaiCommitment::from_bytes(&ring, values_pk.params.k, &proof.values_commitment)
+                .expect("comm");
         let bcl: Vec<BaseClaim> = vclaims
             .iter()
             .filter(|c| c.factor.in_bits_bundle())

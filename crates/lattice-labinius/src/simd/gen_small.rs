@@ -352,10 +352,7 @@ unsafe fn pass_a<const Q: u16>(p: *mut __m512i) {
 unsafe fn pass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let l2 = Tw::<Q>::L2.as_ptr().add(2 * blk);
     let (zp, z) = (bc(l2), bc(l2.add(1)));
     let ta = Tw::<Q>::L3.as_ptr().add(8 * blk);
@@ -394,10 +391,7 @@ unsafe fn pass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
 unsafe fn pass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t6 = Tw::<Q>::L6.as_ptr().add(36 * k4);
     let base = k4 * 27;
     for g in 0..9 {
@@ -418,10 +412,7 @@ unsafe fn pass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
 unsafe fn pass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t4 = Tw::<Q>::L4.as_ptr().add(4 * k4);
     let base = k4 * 27;
     for c in 0..3 {
@@ -444,10 +435,7 @@ unsafe fn pass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
 unsafe fn pass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t5 = Tw::<Q>::L5.as_ptr().add(12 * k4);
     let base = k4 * 27;
     for bb in 0..3 {
@@ -822,10 +810,7 @@ unsafe fn center(x: __m512i, q: __m512i, half: __m512i, nhalf: __m512i) -> __m51
 unsafe fn ipass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t6 = TwI::<Q>::IL6.as_ptr().add(36 * k4);
     let base = k4 * 27;
     for g in 0..9 {
@@ -853,10 +838,7 @@ unsafe fn ipass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
 unsafe fn ipass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t5 = TwI::<Q>::IL5.as_ptr().add(12 * k4);
     let base = k4 * 27;
     for bb in 0..3 {
@@ -891,10 +873,7 @@ unsafe fn ipass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
 unsafe fn ipass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let t4 = TwI::<Q>::IL4.as_ptr().add(4 * k4);
     let base = k4 * 27;
     // written out so that `BAR_S4[i]` is a compile-time constant: LLVM leaves a 9-trip loop
@@ -928,10 +907,7 @@ unsafe fn ipass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
 unsafe fn ipass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
     let q = bc(&Tw::<Q>::QD);
     let bv = bc(&Tw::<Q>::BV);
-    let (omp, om) = (
-        bc(Tw::<Q>::OM.as_ptr()),
-        bc(Tw::<Q>::OM.as_ptr().add(1)),
-    );
+    let (omp, om) = (bc(Tw::<Q>::OM.as_ptr()), bc(Tw::<Q>::OM.as_ptr().add(1)));
     let l2 = TwI::<Q>::IL2.as_ptr().add(2 * blk);
     let (zp, z) = (bc(l2), bc(l2.add(1)));
     let ta = TwI::<Q>::IL3.as_ptr().add(8 * blk);

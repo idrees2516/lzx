@@ -21,6 +21,10 @@
 //!   (`prove_width_fold` / `verify_width_fold`, the (W0)–(W4) checks);
 //! * [`chain`] — the RECURSIVE width-collapse staging (log-stages of
 //!   the sound rows; the benchmark-stream coverage extension);
+//! * [`extraction`] — the multi-stage LaBRADOR extraction ledger (the
+//!   degree-law unwind, the composed knowledge gap, the norm law, the
+//!   grinding ledger, and the extractor-feasibility cap — the
+//!   machine-checked half of `docs/analysis/MULTISTAGE_EXTRACTION.md`);
 //! * [`ring_fold`] — the ring-functional width fold (the Cyclo bridge's
 //!   compact terminal layer: exact mod-q linear identities ride the
 //!   fold instead of the Goldilocks functional).
@@ -37,6 +41,7 @@
 
 pub mod chain;
 pub mod codec;
+pub mod extraction;
 pub mod fold;
 pub mod helpers;
 pub mod ring_fold;

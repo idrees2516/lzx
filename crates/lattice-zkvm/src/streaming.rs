@@ -59,15 +59,11 @@ use lattice_streaming::client::ClientProverConfig;
 use lattice_streaming::grand_product::{
     dfs_grand_product, prove_grand_product_bucketed, GrandProductProof,
 };
-use lattice_streaming::oracle::{
-    stream_mle_eval, ChunkedRegenOracle, StreamOracle,
-};
+use lattice_streaming::oracle::{stream_mle_eval, ChunkedRegenOracle, StreamOracle};
 use lattice_streaming::pcs_stream::{
     commit_streaming, prove_eval_streaming, StreamingCommitment, StreamingEvalProof,
 };
-use lattice_streaming::prefix_suffix::{
-    prove_prefix_suffix, PrefixSuffixOutput, Structure,
-};
+use lattice_streaming::prefix_suffix::{prove_prefix_suffix, PrefixSuffixOutput, Structure};
 use lattice_vm::{step as vm_step, MachineState, TraceRow};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +129,16 @@ impl StreamingProof {
             }
         };
         // pcnext: rounds + challenges + claims.
-        put_fes(&mut out, &self.pcnext.rounds.iter().flatten().copied().collect::<Vec<_>>());
+        put_fes(
+            &mut out,
+            &self
+                .pcnext
+                .rounds
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>(),
+        );
         put_fes(&mut out, &self.pcnext.challenges);
         put_fe(&mut out, &self.pcnext.u_claim);
         put_fe(&mut out, &self.pcnext.a_claim);
@@ -153,7 +158,10 @@ impl StreamingProof {
         // grand products: product + rounds + challenges + g-claims.
         for gp in [&self.fingerprint_reads, &self.fingerprint_writes] {
             put_fe(&mut out, &gp.product);
-            put_fes(&mut out, &gp.rounds.iter().flatten().copied().collect::<Vec<_>>());
+            put_fes(
+                &mut out,
+                &gp.rounds.iter().flatten().copied().collect::<Vec<_>>(),
+            );
             put_fes(&mut out, &gp.challenges);
             for c in &gp.g_claims {
                 put_fe(&mut out, c);
@@ -228,7 +236,9 @@ fn fingerprint(
     let a = Goldilocks::from_u64(addr);
     let v = Goldilocks::from_u64(value);
     let t = Goldilocks::from_u64(timestamp);
-    a.add(&gamma.mul(&v)).add(&gamma.mul(gamma).mul(&t)).sub(tau)
+    a.add(&gamma.mul(&v))
+        .add(&gamma.mul(gamma).mul(&t))
+        .sub(tau)
 }
 
 /// The regeneration-oracle generator state: the LIVE machine. Each
@@ -253,7 +263,13 @@ impl VmOracleState {
         let mut machine = MachineState::new();
         machine.load_program(0x1000, public_input);
         machine.load_program(0, program);
-        VmOracleState { machine, column, pending: Vec::new(), cycle: 0, max_steps }
+        VmOracleState {
+            machine,
+            column,
+            pending: Vec::new(),
+            cycle: 0,
+            max_steps,
+        }
     }
 }
 
@@ -326,7 +342,15 @@ fn count_shape(
         }
         cycles += 1;
     }
-    Ok((ExecShape { cycles, witness_values, reads, writes }, machine))
+    Ok((
+        ExecShape {
+            cycles,
+            witness_values,
+            reads,
+            writes,
+        },
+        machine,
+    ))
 }
 
 /// `ceil(log2(max(v, 1)))` — the padded stream's variable count.
@@ -381,8 +405,8 @@ pub fn prove_program_streaming(
     config: &ClientProverConfig,
 ) -> Result<(PublicOutput, StreamingProof), StreamingZkvmError> {
     // 1. The counting pass (one execution, O(K) space).
-    let (shape, final_machine) = count_shape(program, public_input, max_steps)
-        .map_err(StreamingZkvmError::Execution)?;
+    let (shape, final_machine) =
+        count_shape(program, public_input, max_steps).map_err(StreamingZkvmError::Execution)?;
     let snapshot_words = final_machine.memory.snapshot_pairs().len() + 48;
     let output = PublicOutput {
         final_regs: final_machine.regs,
@@ -413,16 +437,16 @@ pub fn prove_program_streaming(
         .collect::<Result<Vec<_>, _>>()?;
     let structure = Structure::Shift { r: shift_r };
     let pc_chunk = chunk_for(1u64 << n_vars, snapshot_words, config.max_field_elements);
-    let mut pc_oracle =
-        build_vm_oracle(program, public_input, VmColumn::Pc, n_vars, max_steps, pc_chunk);
-    let pcnext = prove_prefix_suffix(
-        &mut pc_oracle,
-        &structure,
+    let mut pc_oracle = build_vm_oracle(
+        program,
+        public_input,
+        VmColumn::Pc,
         n_vars,
-        None,
-        &mut transcript,
-    )
-    .map_err(StreamingZkvmError::PrefixSuffix)?;
+        max_steps,
+        pc_chunk,
+    );
+    let pcnext = prove_prefix_suffix(&mut pc_oracle, &structure, n_vars, None, &mut transcript)
+        .map_err(StreamingZkvmError::PrefixSuffix)?;
 
     // 4. Witness column (register-write values): streaming commitment +
     //    a STREAMING MLE evaluation claim (no materialized column).
@@ -489,9 +513,12 @@ pub fn prove_program_streaming(
         max_steps,
         wr_chunk,
     );
-    let fingerprint_writes =
-        prove_grand_product_bucketed(&mut writes_oracle, Some(fingerprint_reads.product), &mut transcript)
-            .map_err(StreamingZkvmError::GrandProduct)?;
+    let fingerprint_writes = prove_grand_product_bucketed(
+        &mut writes_oracle,
+        Some(fingerprint_reads.product),
+        &mut transcript,
+    )
+    .map_err(StreamingZkvmError::GrandProduct)?;
 
     let oracle_snapshots = pc_oracle.checkpoint_count()
         + w_oracle.checkpoint_count()
@@ -524,8 +551,8 @@ pub fn verify_program_streaming(
     max_steps: u64,
 ) -> Result<(), StreamingZkvmError> {
     // Re-execute through the counting pass (the differential mode).
-    let (shape, final_machine) = count_shape(program, public_input, max_steps)
-        .map_err(StreamingZkvmError::Execution)?;
+    let (shape, final_machine) =
+        count_shape(program, public_input, max_steps).map_err(StreamingZkvmError::Execution)?;
     if final_machine.regs != public_output.final_regs
         || final_machine.memory.digest() != public_output.memory_digest
     {
@@ -658,8 +685,8 @@ pub fn verify_program_streaming(
             max_steps,
             1u64 << r_vars,
         );
-        let reads_p = dfs_grand_product(&mut reads_oracle, None)
-            .map_err(StreamingZkvmError::GrandProduct)?;
+        let reads_p =
+            dfs_grand_product(&mut reads_oracle, None).map_err(StreamingZkvmError::GrandProduct)?;
         let mut writes_oracle = build_vm_oracle(
             program,
             public_input,
@@ -734,7 +761,6 @@ pub fn streaming_envelope(
     .map_err(StreamingZkvmError::Envelope)
 }
 
-
 #[cfg(test)]
 fn guest_program(n: u64) -> Vec<u8> {
     use lattice_guest::programs::fibonacci;
@@ -751,11 +777,8 @@ mod tests {
     fn streaming_roundtrip() {
         let program = guest_program(8);
         let (output, proof) =
-            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default())
-                .unwrap();
-        assert!(
-            verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok()
-        );
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default()).unwrap();
+        assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok());
         // The oracle footprint must be checkpoint-bounded, not O(T):
         // with the default budget the pc/witness/read/write oracles hold
         // only a bounded snapshot set.
@@ -767,8 +790,7 @@ mod tests {
     fn streaming_tampered_output() {
         let program = guest_program(6);
         let (output, proof) =
-            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default())
-                .unwrap();
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default()).unwrap();
         let mut bad = output.clone();
         bad.final_regs[10] = bad.final_regs[10].wrapping_add(1);
         assert!(verify_program_streaming(&program, &[], &bad, &proof, 4096).is_err());
@@ -779,8 +801,7 @@ mod tests {
     fn streaming_tampered_proof() {
         let program = guest_program(6);
         let (output, mut proof) =
-            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default())
-                .unwrap();
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default()).unwrap();
         proof.witness_claim = proof.witness_claim.add(&Goldilocks::ONE);
         assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_err());
     }
@@ -791,8 +812,7 @@ mod tests {
     fn streaming_tampered_fingerprint() {
         let program = guest_program(8);
         let (output, mut proof) =
-            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default())
-                .unwrap();
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::default()).unwrap();
         proof.fingerprint_reads.product = proof.fingerprint_reads.product.add(&Goldilocks::ONE);
         assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_err());
     }
@@ -803,11 +823,8 @@ mod tests {
     fn streaming_mobile_budget() {
         let program = guest_program(8);
         let (output, proof) =
-            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::mobile())
-                .unwrap();
-        assert!(
-            verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok()
-        );
+            prove_program_streaming(&program, &[], 4096, &ClientProverConfig::mobile()).unwrap();
+        assert!(verify_program_streaming(&program, &[], &output, &proof, 4096).is_ok());
     }
 
     /// The column oracles agree with the materialized reference: the pc
@@ -857,14 +874,7 @@ mod tests {
         }
         // Indexed access through the checkpointed regeneration: random
         // positions match the materialized reference (seek correctness).
-        let mut w2 = build_vm_oracle(
-            &program,
-            &[],
-            VmColumn::WitnessValues,
-            w_vars,
-            8192,
-            64,
-        );
+        let mut w2 = build_vm_oracle(&program, &[], VmColumn::WitnessValues, w_vars, 8192, 64);
         use lattice_streaming::oracle::IndexOracle;
         let total = shape.witness_values;
         if total > 3 {

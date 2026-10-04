@@ -31,10 +31,12 @@
 //! 7. the binary check on `c` (Construction B.19).
 
 use crate::ring_d::{Elem, RingD};
+use crate::ring_sumcheck::{
+    prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly,
+};
 use crate::subprotocols::{
     prove_binary_check, prove_integer_check, verify_binary_check, verify_integer_check, SubError,
 };
-use crate::ring_sumcheck::{prove_sumcheck, verify_sumcheck, RingFactor, RingSumcheckProof, RingTerm, RingVirtualPoly};
 use lattice_core::transcript::Transcript;
 
 /// The oracle view for the plain-PIOP verifier.
@@ -62,8 +64,11 @@ impl LogupOracles {
             _ => {
                 if let Some(j) = label.strip_prefix("lu-bc-cf") {
                     let j: usize = j.parse().map_err(|_| "bad cf index")?;
-                    let row: Vec<Elem> =
-                        self.c.iter().map(|e| ring.constant(e.coeffs()[j])).collect();
+                    let row: Vec<Elem> = self
+                        .c
+                        .iter()
+                        .map(|e| ring.constant(e.coeffs()[j]))
+                        .collect();
                     return ring.mle_eval(&row, point).map_err(|e| format!("{e:?}"));
                 }
                 return Err(format!("unknown oracle label {label}"));
@@ -170,7 +175,10 @@ pub fn prove_ring_logup(
         if !c[i].is_binary() {
             return Err(SubError::Verify("c_i not in C".into()));
         }
-        let ok = b.iter().enumerate().any(|(j, bj)| ai == bj && c[i] == ring.g_map(j as u64));
+        let ok = b
+            .iter()
+            .enumerate()
+            .any(|(j, bj)| ai == bj && c[i] == ring.g_map(j as u64));
         if !ok {
             return Err(SubError::Verify(format!("a_{i} unmatched")));
         }
@@ -199,7 +207,9 @@ pub fn prove_ring_logup(
         }
         inv_retries += 1;
         if inv_retries > 64 {
-            return Err(SubError::Verify("denominator inversion retries exceeded".into()));
+            return Err(SubError::Verify(
+                "denominator inversion retries exceeded".into(),
+            ));
         }
     };
     // NOTE: the retry salt is derived from a fixed-label transcript;
@@ -218,13 +228,19 @@ pub fn prove_ring_logup(
     let poly_a = RingVirtualPoly {
         num_vars: log_m,
         claimed_sum: v.clone(),
-        terms: vec![RingTerm { coeff: ring.one(), factors: vec![RingFactor::Mle(big_a.clone())] }],
+        terms: vec![RingTerm {
+            coeff: ring.one(),
+            factors: vec![RingFactor::Mle(big_a.clone())],
+        }],
     };
     let sc_a = prove_sumcheck(ring, &poly_a, transcript)?;
     let poly_b = RingVirtualPoly {
         num_vars: log_n,
         claimed_sum: v.clone(),
-        terms: vec![RingTerm { coeff: ring.one(), factors: vec![RingFactor::Mle(big_b.clone())] }],
+        terms: vec![RingTerm {
+            coeff: ring.one(),
+            factors: vec![RingFactor::Mle(big_b.clone())],
+        }],
     };
     let sc_b = prove_sumcheck(ring, &poly_b, transcript)?;
     // The zero-check challenges γ ∈ C^{logM}, δ ∈ C^{logN}.
@@ -378,10 +394,17 @@ pub fn verify_ring_logup(
             num_factors: 1,
         }],
     };
-    verify_sumcheck(ring, &shape_a, &proof.v, &proof.sc_a, transcript, &mut |ti, fi, pt| {
-        let _ = (ti, fi);
-        oracles.eval(ring, "lu-A", pt)
-    })?;
+    verify_sumcheck(
+        ring,
+        &shape_a,
+        &proof.v,
+        &proof.sc_a,
+        transcript,
+        &mut |ti, fi, pt| {
+            let _ = (ti, fi);
+            oracles.eval(ring, "lu-A", pt)
+        },
+    )?;
     // Sum-check 2.
     let shape_b = crate::ring_sumcheck::RingSumcheckShape {
         num_vars: log_n,
@@ -390,10 +413,17 @@ pub fn verify_ring_logup(
             num_factors: 1,
         }],
     };
-    verify_sumcheck(ring, &shape_b, &proof.v, &proof.sc_b, transcript, &mut |ti, fi, pt| {
-        let _ = (ti, fi);
-        oracles.eval(ring, "lu-B", pt)
-    })?;
+    verify_sumcheck(
+        ring,
+        &shape_b,
+        &proof.v,
+        &proof.sc_b,
+        transcript,
+        &mut |ti, fi, pt| {
+            let _ = (ti, fi);
+            oracles.eval(ring, "lu-B", pt)
+        },
+    )?;
     // Zero-check challenges.
     let gamma: Vec<Elem> = (0..log_m)
         .map(|i| ring.sample_challenge(transcript, format!("lu-gamma-{i}").as_bytes()))
@@ -425,10 +455,18 @@ pub fn verify_ring_logup(
             num_factors: 1,
         },
     ];
-    let shape_zc_a = crate::ring_sumcheck::RingSumcheckShape { num_vars: log_m, terms: terms_a };
+    let shape_zc_a = crate::ring_sumcheck::RingSumcheckShape {
+        num_vars: log_m,
+        terms: terms_a,
+    };
     let eqg_ref = &eq_g;
-    verify_sumcheck(ring, &shape_zc_a, &ring.zero(), &proof.zc_a, transcript, &mut |ti, fi, pt| {
-        match (ti, fi) {
+    verify_sumcheck(
+        ring,
+        &shape_zc_a,
+        &ring.zero(),
+        &proof.zc_a,
+        transcript,
+        &mut |ti, fi, pt| match (ti, fi) {
             (0, 0) | (1, 0) | (2, 0) | (3, 0) => {
                 ring.mle_eval(eqg_ref, pt).map_err(|e| format!("{e:?}"))
             }
@@ -436,8 +474,8 @@ pub fn verify_ring_logup(
             (0, 2) => oracles.eval(ring, "lu-a", pt),
             (1, 2) => oracles.eval(ring, "lu-c", pt),
             _ => Err("bad factor".into()),
-        }
-    })?;
+        },
+    )?;
     // Zero-check 2: terms [EQ·B·b] + α[EQ·B·g] − β[EQ·B] − [EQ·m].
     let terms_b = vec![
         crate::ring_sumcheck::RingTermShape {
@@ -457,10 +495,18 @@ pub fn verify_ring_logup(
             num_factors: 2,
         },
     ];
-    let shape_zc_b = crate::ring_sumcheck::RingSumcheckShape { num_vars: log_n, terms: terms_b };
+    let shape_zc_b = crate::ring_sumcheck::RingSumcheckShape {
+        num_vars: log_n,
+        terms: terms_b,
+    };
     let eqd_ref = &eq_d;
-    verify_sumcheck(ring, &shape_zc_b, &ring.zero(), &proof.zc_b, transcript, &mut |ti, fi, pt| {
-        match (ti, fi) {
+    verify_sumcheck(
+        ring,
+        &shape_zc_b,
+        &ring.zero(),
+        &proof.zc_b,
+        transcript,
+        &mut |ti, fi, pt| match (ti, fi) {
             (0, 0) | (1, 0) | (2, 0) | (3, 0) => {
                 ring.mle_eval(eqd_ref, pt).map_err(|e| format!("{e:?}"))
             }
@@ -469,8 +515,8 @@ pub fn verify_ring_logup(
             (1, 2) => oracles.eval(ring, "lu-gN", pt),
             (3, 1) => oracles.eval(ring, "lu-m", pt),
             _ => Err("bad factor".into()),
-        }
-    })?;
+        },
+    )?;
     // Integer check on m.
     verify_integer_check(ring, n, &proof.int_check, transcript, &|l, pt| match l {
         "ic-a" => oracles.eval(ring, "lu-m", pt),
@@ -493,7 +539,9 @@ mod tests {
     }
 
     fn build_case(r: &RingD, m: usize, n: usize, seed: &str) -> (Vec<Elem>, Vec<Elem>, Vec<Elem>) {
-        let b: Vec<Elem> = (0..n).map(|j| r.random(format!("{seed}-b{j}").as_bytes())).collect();
+        let b: Vec<Elem> = (0..n)
+            .map(|j| r.random(format!("{seed}-b{j}").as_bytes()))
+            .collect();
         let mut a = Vec::with_capacity(m);
         let mut c = Vec::with_capacity(m);
         for i in 0..m {
@@ -523,7 +571,9 @@ mod tests {
         let mut tr = Transcript::new_default(b"lu2");
         let (proof, oracles) = prove_ring_logup(&r, &a, &b, &c, &mut tr).ok().unwrap();
         let mut tr2 = Transcript::new_default(b"lu2");
-        verify_ring_logup(&r, 8, 8, &proof, &oracles, &mut tr2).ok().unwrap();
+        verify_ring_logup(&r, 8, 8, &proof, &oracles, &mut tr2)
+            .ok()
+            .unwrap();
     }
 
     #[test]
@@ -582,6 +632,10 @@ mod tests {
         let (a, b, c) = build_case(&r, 4, 4, "inv");
         let mut tr = Transcript::new_default(b"lu5");
         let (proof, _o) = prove_ring_logup(&r, &a, &b, &c, &mut tr).ok().unwrap();
-        assert!(proof.inv_retries <= 2, "expected no/low retries, got {}", proof.inv_retries);
+        assert!(
+            proof.inv_retries <= 2,
+            "expected no/low retries, got {}",
+            proof.inv_retries
+        );
     }
 }

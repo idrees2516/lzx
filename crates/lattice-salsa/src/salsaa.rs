@@ -40,8 +40,8 @@ use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_ring::{RingConfig, RingElement};
 
 use crate::ring_sc::{
-    challenge_ring_elt, conj, eq_table_ring, mle_eval_ring, norm_conjugate_inner,
-    ring_dot, ring_sc_prove, ring_sc_verify, ProductClaim, RingScError, RingScProof,
+    challenge_ring_elt, conj, eq_table_ring, mle_eval_ring, norm_conjugate_inner, ring_dot,
+    ring_sc_prove, ring_sc_verify, ProductClaim, RingScError, RingScProof,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,9 +50,14 @@ pub enum SalsaaError {
     Transcript(TranscriptError),
     Ajtai(lattice_commitment::ajtai::AjtaiError),
     /// The balanced-trace gate failed (wraparound or non-binary witness).
-    TraceGateFailed { trace: i64 },
+    TraceGateFailed {
+        trace: i64,
+    },
     /// A shape precondition (power of two / matching dimensions) failed.
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     /// The terminal identity failed.
     TerminalFailed,
     /// The claimed value does not match the honest evaluation.
@@ -155,7 +160,10 @@ impl SalsaInstance {
     }
 
     /// Π_batch power ladder: fold ALL rows with `c^i` weights into (h, s).
-    pub fn fold_rows(&self, c: &RingElement) -> Result<(Vec<RingElement>, RingElement), SalsaaError> {
+    pub fn fold_rows(
+        &self,
+        c: &RingElement,
+    ) -> Result<(Vec<RingElement>, RingElement), SalsaaError> {
         let ring = &self.ring;
         let m = self.m();
         let mut h = vec![ring.zero(); m];
@@ -361,7 +369,9 @@ pub fn bin_prove(
         &point,
     )?;
     let v1 = mle_eval_ring(
-        &w.iter().map(|x| one.sub(x)).collect::<Result<Vec<_>, _>>()?,
+        &w.iter()
+            .map(|x| one.sub(x))
+            .collect::<Result<Vec<_>, _>>()?,
         &point,
     )?;
     Ok(BinProof {
@@ -442,8 +452,7 @@ impl StaircaseInstance {
         // B W_{j-1} + A W_j = 0
         for j in 1..k {
             for (r, row) in self.a.iter().enumerate() {
-                let lhs = ring_dot(row, &blocks[j])?
-                    .add(&ring_dot(&self.b[r], &blocks[j - 1])?)?;
+                let lhs = ring_dot(row, &blocks[j])?.add(&ring_dot(&self.b[r], &blocks[j - 1])?)?;
                 if !lhs.is_zero() {
                     return Ok(false);
                 }
@@ -485,7 +494,11 @@ pub fn staircase_prove(
     // sanity: the claim value
     let mut claim = ring.zero();
     for z in 0..total {
-        claim = claim.add(&p[(z / inst.n_bar) % inst.k_blocks].mul(&d_row[z % inst.n_bar])?.mul(&w_flat[z])?)?;
+        claim = claim.add(
+            &p[(z / inst.n_bar) % inst.k_blocks]
+                .mul(&d_row[z % inst.n_bar])?
+                .mul(&w_flat[z])?,
+        )?;
     }
     if claim != s {
         return Err(SalsaaError::ClaimMismatch);
@@ -814,16 +827,18 @@ mod tests {
         let ring = ring();
         let m = 4;
         let w = binary_vec(&ring, m, b"bw");
-        let (inst, _pk) =
-            SalsaInstance::create(&ring, &w, &[], 8, [9u8; 32]).ok().unwrap();
+        let (inst, _pk) = SalsaInstance::create(&ring, &w, &[], 8, [9u8; 32])
+            .ok()
+            .unwrap();
         let mut t = Transcript::new_default(b"lzx-salsaa-bin");
         let proof = bin_prove(&inst, &mut t).ok().unwrap();
         let mut vt = Transcript::new_default(b"lzx-salsaa-bin");
         assert!(bin_verify(&inst, &proof, &mut vt).is_ok());
         // a NON-binary witness fails the Tr(t) = 0 gate
         let w2 = small_vec(&ring, m, b"nbw", 8);
-        let (inst2, _pk2) =
-            SalsaInstance::create(&ring, &w2, &[], 64, [9u8; 32]).ok().unwrap();
+        let (inst2, _pk2) = SalsaInstance::create(&ring, &w2, &[], 64, [9u8; 32])
+            .ok()
+            .unwrap();
         let mut t2 = Transcript::new_default(b"lzx-salsaa-bin");
         let proof2 = bin_prove(&inst2, &mut t2).ok().unwrap();
         let mut vt2 = Transcript::new_default(b"lzx-salsaa-bin");

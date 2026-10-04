@@ -27,9 +27,7 @@
 //!   pre-scaling and claim renormalization disappear").
 
 use crate::proj_mle::MonomialMle;
-use crate::proj_sumcheck::{
-    interpolate_with_infinity, ProjSumcheckError, ProjSumcheckProof,
-};
+use crate::proj_sumcheck::{interpolate_with_infinity, ProjSumcheckError, ProjSumcheckProof};
 use lattice_core::field_simd::{self, Sum8};
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
@@ -60,7 +58,11 @@ impl BatchedInstance {
     }
 
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 }
 
@@ -132,7 +134,12 @@ pub fn prove_batched(
     // Embedded, bound coefficient arrays per instance.
     let mut bound: Vec<Vec<Vec<Goldilocks>>> = instances
         .iter()
-        .map(|inst| inst.factors.iter().map(|f| embed(&f.coeffs, n_max)).collect())
+        .map(|inst| {
+            inst.factors
+                .iter()
+                .map(|f| embed(&f.coeffs, n_max))
+                .collect()
+        })
         .collect();
 
     // An instance is *live* at round `round` iff its own variables are
@@ -309,7 +316,9 @@ mod tests {
         let batched_claim = instances
             .iter()
             .zip(gammas.iter())
-            .fold(Goldilocks::ZERO, |acc, (inst, gam)| acc.add(&gam.mul(&inst.claim)));
+            .fold(Goldilocks::ZERO, |acc, (inst, gam)| {
+                acc.add(&gam.mul(&inst.claim))
+            });
         let v = out.proof.verify(batched_claim, 6, 2, &mut ts2).unwrap();
         assert_eq!(v.point, out.challenges);
 
@@ -345,10 +354,7 @@ mod tests {
         let out = prove_batched(&instances, &mut ts).unwrap();
         let mut ts2 = Transcript::new_default(b"single-batch");
         let gam = ts2.challenge_field(b"projsumcheck-batch-gamma").unwrap();
-        let v = out
-            .proof
-            .verify(gam.mul(&claim), 4, 2, &mut ts2)
-            .unwrap();
+        let v = out.proof.verify(gam.mul(&claim), 4, 2, &mut ts2).unwrap();
         assert_eq!(v.final_claim, gam.mul(&out.final_claims[0]));
     }
 
@@ -361,9 +367,21 @@ mod tests {
         let fc = mk(b"3-c", 5);
         let fd = mk(b"3-d", 5);
         let fe = mk(b"3-e", 2);
-        let ca = fa.coeffs.iter().zip(fb.coeffs.iter()).fold(Goldilocks::ZERO, |a, (x, y)| a.add(&x.mul(y)));
-        let cc = fc.coeffs.iter().zip(fd.coeffs.iter()).fold(Goldilocks::ZERO, |a, (x, y)| a.add(&x.mul(y)));
-        let ce = fe.coeffs.iter().map(|x| x.mul(x)).fold(Goldilocks::ZERO, |a, x| a.add(&x));
+        let ca = fa
+            .coeffs
+            .iter()
+            .zip(fb.coeffs.iter())
+            .fold(Goldilocks::ZERO, |a, (x, y)| a.add(&x.mul(y)));
+        let cc = fc
+            .coeffs
+            .iter()
+            .zip(fd.coeffs.iter())
+            .fold(Goldilocks::ZERO, |a, (x, y)| a.add(&x.mul(y)));
+        let ce = fe
+            .coeffs
+            .iter()
+            .map(|x| x.mul(x))
+            .fold(Goldilocks::ZERO, |a, x| a.add(&x));
         let instances = vec![
             BatchedInstance::product(vec![fa.clone(), fb.clone()], ca),
             BatchedInstance::product(vec![fc.clone(), fd.clone()], cc),
@@ -378,19 +396,15 @@ mod tests {
         let batched = instances
             .iter()
             .zip(gammas.iter())
-            .fold(Goldilocks::ZERO, |acc, (inst, gam)| acc.add(&gam.mul(&inst.claim)));
+            .fold(Goldilocks::ZERO, |acc, (inst, gam)| {
+                acc.add(&gam.mul(&inst.claim))
+            });
         let v = out.proof.verify(batched, 7, 2, &mut ts2).unwrap();
         assert_eq!(v.point, out.challenges);
         // Instance points are challenge suffixes of matching length.
         let r5: Vec<Goldilocks> = out.challenges[2..].to_vec();
-        assert_eq!(
-            out.factor_claims[1][0],
-            fc.evaluate(&r5).unwrap()
-        );
+        assert_eq!(out.factor_claims[1][0], fc.evaluate(&r5).unwrap());
         let r2: Vec<Goldilocks> = out.challenges[5..].to_vec();
-        assert_eq!(
-            out.factor_claims[2][0],
-            fe.evaluate(&r2).unwrap()
-        );
+        assert_eq!(out.factor_claims[2][0], fe.evaluate(&r2).unwrap());
     }
 }

@@ -227,7 +227,7 @@ impl RansCoder {
         for (s, &f) in freqs.iter().enumerate() {
             for slot in cum[s]..cum[s] + f {
                 slot_sym[slot as usize] = s as u8;
-        }
+            }
         }
         Ok(RansCoder {
             freqs,
@@ -449,9 +449,7 @@ impl WireArtifact {
             return Err(WireError::DigestMismatch);
         }
         let rd_u32 = |off: usize| -> Result<u32, WireError> {
-            let b = bytes
-                .get(off..off + 4)
-                .ok_or(WireError::Framing)?;
+            let b = bytes.get(off..off + 4).ok_or(WireError::Framing)?;
             Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         };
         let alphabet = rd_u32(38)? as usize;
@@ -469,11 +467,8 @@ impl WireArtifact {
             off += 4;
         }
         // Packed fields section.
-        let mut reader = BitReader::new(
-            bytes
-                .get(off..off + packed_len)
-                .ok_or(WireError::Framing)?,
-        );
+        let mut reader =
+            BitReader::new(bytes.get(off..off + packed_len).ok_or(WireError::Framing)?);
         let n_fields = reader.read(32).ok_or(WireError::Framing)? as usize;
         let mut small_fields = Vec::with_capacity(n_fields);
         for _ in 0..n_fields {
@@ -482,9 +477,7 @@ impl WireArtifact {
             small_fields.push((v, w));
         }
         off += packed_len;
-        let hist = bytes
-            .get(off..off + hist_len)
-            .ok_or(WireError::Framing)?;
+        let hist = bytes.get(off..off + hist_len).ok_or(WireError::Framing)?;
         let coder = RansCoder::from_histogram_bytes(hist, alphabet)?;
         off += hist_len;
         let payload = bytes
@@ -580,7 +573,9 @@ mod tests {
 
     #[test]
     fn rans_uniform_roundtrip() {
-        let symbols: Vec<u32> = (0u32..2000).map(|i| i.wrapping_mul(2654435761u32) % 97).collect();
+        let symbols: Vec<u32> = (0u32..2000)
+            .map(|i| i.wrapping_mul(2654435761u32) % 97)
+            .collect();
         let mut counts = vec![0u64; 97];
         for &s in &symbols {
             counts[s as usize] += 1;
@@ -588,7 +583,10 @@ mod tests {
         let coder = RansCoder::from_counts(&counts).ok().unwrap();
         let (hist, payload) = coder.encode(&symbols).ok().unwrap();
         let decoder = RansCoder::from_histogram_bytes(&hist, 97).ok().unwrap();
-        assert_eq!(decoder.decode(&payload, symbols.len()).ok().unwrap(), symbols);
+        assert_eq!(
+            decoder.decode(&payload, symbols.len()).ok().unwrap(),
+            symbols
+        );
     }
 
     #[test]
@@ -606,7 +604,10 @@ mod tests {
         let coder = RansCoder::from_counts(&[4, 4]).ok().unwrap();
         assert!(matches!(
             coder.encode(&[5]),
-            Err(WireError::SymbolOutOfRange { got: 5, alphabet: 2 })
+            Err(WireError::SymbolOutOfRange {
+                got: 5,
+                alphabet: 2
+            })
         ));
     }
 
@@ -624,7 +625,8 @@ mod tests {
         assert_eq!(decoded.coefficients, art.coefficients);
         // Size accounting: total covers every section.
         let header = 62 + 4 * art.blobs.len();
-        let sections = sizes.packed_fields + sizes.histogram + sizes.rans_payload + sizes.blobs + header;
+        let sections =
+            sizes.packed_fields + sizes.histogram + sizes.rans_payload + sizes.blobs + header;
         assert_eq!(sizes.total, sections);
         // Entropy: the rANS payload beats raw u32 lanes here (skewed).
         assert!(sizes.rans_payload < sizes.raw_coefficients);

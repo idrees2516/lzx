@@ -39,9 +39,7 @@
 //!   prover's (HVZK); statistical KATs in this module check it.
 
 use crate::entropy::ShakeStream;
-use lattice_commitment::ajtai::{
-    sample_small_secret, AjtaiCommitment, AjtaiError, AjtaiPublicKey,
-};
+use lattice_commitment::ajtai::{sample_small_secret, AjtaiCommitment, AjtaiError, AjtaiPublicKey};
 use lattice_commitment::linear_proof::LinearRelation;
 use lattice_core::challenge_set::{ChallengeDistribution, ChallengeSet};
 use lattice_core::transcript::Transcript;
@@ -70,7 +68,10 @@ pub struct ZkLinearProof {
 impl ZkLinearProof {
     /// Single-instance convenience accessors.
     pub fn mask_commitment(&self) -> &[RingElement] {
-        self.mask_commitments.first().map(|v| v.as_slice()).unwrap_or(&[])
+        self.mask_commitments
+            .first()
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
     pub fn response(&self) -> &[RingElement] {
         self.responses.first().map(|v| v.as_slice()).unwrap_or(&[])
@@ -283,7 +284,10 @@ impl ZkLinearProof {
     ) -> Result<(), ZkLinearProofError> {
         let m = pk.params.m;
         let instances = commitments.len();
-        if instances == 0 || self.responses.len() != instances || self.mask_commitments.len() != instances {
+        if instances == 0
+            || self.responses.len() != instances
+            || self.mask_commitments.len() != instances
+        {
             return Err(ZkLinearProofError::VerificationFailed);
         }
         for z in &self.responses {
@@ -305,8 +309,7 @@ impl ZkLinearProof {
         }
         // 2. Recompute the challenge in the FIXED order.
         let statement = statement_bytes(pk, commitments, relations);
-        let expected =
-            derive_challenge(pk, &statement, &self.mask_commitments, &self.mask_images)?;
+        let expected = derive_challenge(pk, &statement, &self.mask_commitments, &self.mask_images)?;
         if expected != self.challenge {
             return Err(ZkLinearProofError::VerificationFailed);
         }
@@ -557,9 +560,15 @@ mod tests {
         let t = pk.commit(&s).ok().unwrap();
         let rel = one_relation(&pk, &s);
         let mut st = stream(b"prove-1");
-        let proof = ZkLinearProof::prove(&pk, std::slice::from_ref(&rel), std::slice::from_ref(&s), std::slice::from_ref(&t), &mut st)
-            .ok()
-            .unwrap();
+        let proof = ZkLinearProof::prove(
+            &pk,
+            std::slice::from_ref(&rel),
+            std::slice::from_ref(&s),
+            std::slice::from_ref(&t),
+            &mut st,
+        )
+        .ok()
+        .unwrap();
         assert!(proof.verify(&pk, &[rel], &[t]).is_ok());
         assert!(proof.retries <= MAX_RETRIES);
     }
@@ -570,7 +579,15 @@ mod tests {
         let s = witness(&pk, b"witness-b");
         let t = pk.commit(&s).ok().unwrap();
         let mut st = stream(b"prove-2");
-        let mut proof = ZkLinearProof::prove(&pk, &[], std::slice::from_ref(&s), std::slice::from_ref(&t), &mut st).ok().unwrap();
+        let mut proof = ZkLinearProof::prove(
+            &pk,
+            &[],
+            std::slice::from_ref(&s),
+            std::slice::from_ref(&t),
+            &mut st,
+        )
+        .ok()
+        .unwrap();
         let ring = &pk.params.ring;
         let mut ccoeffs = proof.challenge.coeffs().to_vec();
         ccoeffs[0] = (ccoeffs[0] + 1) % ring.modulus.q;
@@ -640,10 +657,17 @@ mod tests {
         let rel = one_relation(&pk, &s);
         // Simulated proofs satisfy every verification equation.
         let mut sim_stream = stream(b"sim-1");
-        let sim = ZkLinearProof::simulate(&pk, std::slice::from_ref(&rel), std::slice::from_ref(&t), &mut sim_stream)
-            .ok()
-            .unwrap();
-        assert!(sim.verify_algebra(&pk, std::slice::from_ref(&rel), std::slice::from_ref(&t)).is_ok());
+        let sim = ZkLinearProof::simulate(
+            &pk,
+            std::slice::from_ref(&rel),
+            std::slice::from_ref(&t),
+            &mut sim_stream,
+        )
+        .ok()
+        .unwrap();
+        assert!(sim
+            .verify_algebra(&pk, std::slice::from_ref(&rel), std::slice::from_ref(&t))
+            .is_ok());
 
         // Two-sample chi-square over response coefficient magnitudes:
         // real vs simulated must be statistically indistinguishable.
@@ -654,7 +678,15 @@ mod tests {
         let trials = 24u64;
         for i in 0..trials {
             let mut st = stream(format!("real-{i}").as_bytes());
-            let proof = ZkLinearProof::prove(&pk, &[], std::slice::from_ref(&s), std::slice::from_ref(&t), &mut st).ok().unwrap();
+            let proof = ZkLinearProof::prove(
+                &pk,
+                &[],
+                std::slice::from_ref(&s),
+                std::slice::from_ref(&t),
+                &mut st,
+            )
+            .ok()
+            .unwrap();
             for z in proof.response() {
                 for c in z.coeffs() {
                     let balanced = if *c <= pk.params.ring.modulus.q / 2 {
@@ -669,7 +701,9 @@ mod tests {
                 }
             }
             let mut ss = stream(format!("sim-{i}").as_bytes());
-            let sim = ZkLinearProof::simulate(&pk, &[], std::slice::from_ref(&t), &mut ss).ok().unwrap();
+            let sim = ZkLinearProof::simulate(&pk, &[], std::slice::from_ref(&t), &mut ss)
+                .ok()
+                .unwrap();
             for z in sim.response() {
                 for c in z.coeffs() {
                     let balanced = if *c <= pk.params.ring.modulus.q / 2 {
@@ -713,7 +747,15 @@ mod tests {
                 let s = sample_small_secret(&pk.params.ring, pk.params.m, 1 << 21, label);
                 let t = pk.commit(&s).ok().unwrap();
                 let mut st = stream(format!("{label:?}-{i}").as_bytes());
-                let proof = ZkLinearProof::prove(&pk, &[], std::slice::from_ref(&s), std::slice::from_ref(&t), &mut st).ok().unwrap();
+                let proof = ZkLinearProof::prove(
+                    &pk,
+                    &[],
+                    std::slice::from_ref(&s),
+                    std::slice::from_ref(&t),
+                    &mut st,
+                )
+                .ok()
+                .unwrap();
                 total += proof.retries as u64;
             }
             total as f64 / trials as f64
@@ -722,7 +764,10 @@ mod tests {
         let dense = mean_retries(b"dense-www");
         // Both must be finite and close: rejection depends on norms, not
         // on witness *content* (both classes use the same norm bound).
-        assert!(sparse < 10.0 && dense < 10.0, "sparse={sparse} dense={dense}");
+        assert!(
+            sparse < 10.0 && dense < 10.0,
+            "sparse={sparse} dense={dense}"
+        );
         assert!(
             (sparse - dense).abs() < 3.0,
             "retry distribution appears witness-dependent: sparse={sparse} dense={dense}"

@@ -15,7 +15,12 @@ fn enc_r(f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
 }
 
 fn enc_shift_imm(f6: u32, shamt: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
-    (f6 << 26) | ((shamt as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12) | ((rd as u32) << 7) | op
+    (f6 << 26)
+        | ((shamt as u32) << 20)
+        | ((rs1 as u32) << 15)
+        | (f3 << 12)
+        | ((rd as u32) << 7)
+        | op
 }
 
 /// addi/sw/lw/ecall — the classic memory program.
@@ -56,7 +61,7 @@ fn full_program() -> Vec<u8> {
     p.extend_from_slice(&enc_shift_imm(0x10, 3, 1, 5, 16, 0x13).to_le_bytes()); // srai
     p.extend_from_slice(&enc_r(0, 11, 3, 7, 17, 0x33).to_le_bytes()); // and
     p.extend_from_slice(&enc_r(0x20, 2, 1, 0, 18, 0x33).to_le_bytes()); // sub
-    // Store + load through memory.
+                                                                        // Store + load through memory.
     p.extend_from_slice(&enc_addi(20, 0, 64).to_le_bytes());
     let sd: u32 = (18u32 << 20) | (20 << 15) | (3 << 12) | 0x23;
     p.extend_from_slice(&sd.to_le_bytes());
@@ -75,7 +80,11 @@ fn semantics_mem_program_roundtrip() {
         .unwrap();
     assert_eq!(regs[4], 15);
     for (i, l) in proof.legs.iter().enumerate() {
-        println!("leg {i}: {} round0 len = {}", l.name, l.sc.rounds.first().map(|r| r.len()).unwrap_or(0));
+        println!(
+            "leg {i}: {} round0 len = {}",
+            l.name,
+            l.sc.rounds.first().map(|r| r.len()).unwrap_or(0)
+        );
     }
     println!("claims: {}", proof.claims.len());
     for (i, c) in proof.claims.iter().enumerate().take(420).skip(378) {
@@ -85,7 +94,10 @@ fn semantics_mem_program_roundtrip() {
             c.point.iter().map(|g| g.0).collect::<Vec<_>>()
         );
     }
-    match verify_instruction_semantics(&proof, &prog, &input) { Ok(_) => {}, Err(e) => panic!("verify: {e:?}") }
+    match verify_instruction_semantics(&proof, &prog, &input) {
+        Ok(_) => {}
+        Err(e) => panic!("verify: {e:?}"),
+    }
 }
 
 #[test]
@@ -95,7 +107,10 @@ fn semantics_full_program_roundtrip() {
     let (proof, _regs) = prove_instruction_semantics(&prog, &input, 128, 6, 5)
         .ok()
         .unwrap();
-    match verify_instruction_semantics(&proof, &prog, &input) { Ok(_) => {}, Err(e) => panic!("verify: {e:?}") }
+    match verify_instruction_semantics(&proof, &prog, &input) {
+        Ok(_) => {}
+        Err(e) => panic!("verify: {e:?}"),
+    }
 }
 
 #[test]
@@ -186,13 +201,14 @@ fn semantics_proof_shape() {
     let (proof, _) = prove_instruction_semantics(&prog, &input, 128, 6, 5)
         .ok()
         .unwrap();
-    let SemanticsProof {
-        legs, claims, ..
-    } = &proof;
+    let SemanticsProof { legs, claims, .. } = &proof;
     assert_eq!(legs.len(), 15);
     assert!(!claims.is_empty());
     // Every claim's factor is one of the committed families.
     for c in claims {
-        assert!(c.factor.in_bits_bundle() || matches!(c.factor, lattice_zkvm::ledger::Factor::ValCol { .. }));
+        assert!(
+            c.factor.in_bits_bundle()
+                || matches!(c.factor, lattice_zkvm::ledger::Factor::ValCol { .. })
+        );
     }
 }

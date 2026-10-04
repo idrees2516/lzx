@@ -130,10 +130,7 @@ impl PolyK {
     pub fn scale_k(&self, lam: &K) -> PolyK {
         let nu = Fq::new(NU);
         PolyK {
-            a: self
-                .a
-                .scale(&lam.0)
-                .add(&self.b.scale(&nu.mul(&lam.1))),
+            a: self.a.scale(&lam.0).add(&self.b.scale(&nu.mul(&lam.1))),
             b: self.b.scale(&lam.0).add(&self.a.scale(&lam.1)),
         }
     }
@@ -143,10 +140,7 @@ impl PolyK {
     /// computed here as full ring products of the R_F parts.
     pub fn mul(&self, o: &PolyK) -> PolyK {
         let nu = Fq::new(NU);
-        let a = self
-            .a
-            .mul(&o.a)
-            .add(&self.b.mul(&o.b).scale(&nu));
+        let a = self.a.mul(&o.a).add(&self.b.mul(&o.b).scale(&nu));
         let b = self.a.mul(&o.b).add(&self.b.mul(&o.a));
         PolyK { a, b }
     }
@@ -168,8 +162,7 @@ impl PolyK {
     /// Degree-0 test: cf(x)_ℓ = 0 for all ℓ ≥ 2 (only the constant
     /// K-coefficient survives).
     pub fn is_degree0(&self) -> bool {
-        self.a.0.iter().skip(1).all(|c| c.is_zero())
-            && self.b.0.iter().skip(1).all(|c| c.is_zero())
+        self.a.0.iter().skip(1).all(|c| c.is_zero()) && self.b.0.iter().skip(1).all(|c| c.is_zero())
     }
 
     /// Make the degree-0 element with constant coefficient v.

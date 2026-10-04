@@ -183,7 +183,12 @@ mod tests {
     fn univariate_product_matches_naive() {
         for n in [2usize, 3, 4, 5, 7, 8, 9, 16] {
             let tables: Vec<Vec<Goldilocks>> = (0..n)
-                .map(|k| vec![fe(1 + ((k * 7) % 13) as u64), fe(2 + ((k * 11) % 17) as u64)])
+                .map(|k| {
+                    vec![
+                        fe(1 + ((k * 7) % 13) as u64),
+                        fe(2 + ((k * 11) % 17) as u64),
+                    ]
+                })
                 .collect();
             let (grid, stats) = multi_product_eval(&tables, 1);
             assert_eq!(grid.len(), n + 2);
@@ -274,8 +279,9 @@ mod tests {
         // hmm — the final message extension adds no bb. Cross-check
         // against the direct recurrence a(n) = a(n/2)·2 + (n+1).
         for n in [2usize, 4, 8, 16] {
-            let tables: Vec<Vec<Goldilocks>> =
-                (0..n).map(|k| vec![fe(k as u64 + 1), fe(k as u64 + 2)]).collect();
+            let tables: Vec<Vec<Goldilocks>> = (0..n)
+                .map(|k| vec![fe(k as u64 + 1), fe(k as u64 + 2)])
+                .collect();
             let (_, stats) = multi_product_eval(&tables, 1);
             // Direct recurrence for powers of two.
             let mut exact = 0u64;

@@ -335,7 +335,6 @@ mod tests {
         AjtaiPublicKey::from_seed(params, [9u8; 32]).ok().unwrap()
     }
 
-
     /// Regression (wave 3 FS-ordering fix): the pre-fix attack chose any
     /// short z', set w' := A·z' − c·t with the statement-only challenge,
     /// and passed verification without knowledge of s. The fixed

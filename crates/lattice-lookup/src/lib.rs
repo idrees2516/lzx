@@ -67,7 +67,10 @@ pub enum LookupError {
     LookupFailed,
     /// Accumulation identity failed.
     AccumulationFailed,
-    ShapeMismatch { expected: usize, got: usize },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
 }
 
 /// Grand product helper: Π (1 + τ·v) over values.
@@ -160,11 +163,7 @@ pub fn counting_map_difference(
         diff.push(t_sorted[ti]);
         ti += 1;
     }
-    Some(
-        diff.into_iter()
-            .map(Goldilocks::from_u64)
-            .collect(),
-    )
+    Some(diff.into_iter().map(Goldilocks::from_u64).collect())
 }
 
 /// Verify a lookup proof: T(τ) == R(τ)·Q(τ) plus the τ-consistency.
@@ -253,7 +252,10 @@ pub enum CommittedLookupError {
     /// The grand-product identity failed at the recomputed challenge.
     GrandProductFailed,
     /// Shape inconsistency between the statement and the openings.
-    ShapeMismatch { expected: usize, got: usize },
+    ShapeMismatch {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<LookupError> for CommittedLookupError {
@@ -282,7 +284,9 @@ fn derive_challenge_committed(
     transcript
         .append_bytes(b"shape", &shape)
         .map_err(LookupError::Transcript)?;
-    transcript.challenge_field(b"committed-tau").map_err(LookupError::Transcript)
+    transcript
+        .challenge_field(b"committed-tau")
+        .map_err(LookupError::Transcript)
 }
 
 /// Prove reads ⊆ table with committed T/R/Q (Q1). The three vectors are
@@ -380,15 +384,12 @@ pub fn verify_lookup_committed(
     //    lengths say how many values are real — the commitment binds the
     //    full padded vector, so truncating to the declared prefix is exact.
     let ring = &pk.params.ring;
-    let mut table =
-        lattice_ring::packing::unpack_field_elements(ring, &proof.table_opening)
-            .map_err(CommittedLookupError::Packing)?;
-    let mut reads =
-        lattice_ring::packing::unpack_field_elements(ring, &proof.reads_opening)
-            .map_err(CommittedLookupError::Packing)?;
-    let mut diff =
-        lattice_ring::packing::unpack_field_elements(ring, &proof.diff_opening)
-            .map_err(CommittedLookupError::Packing)?;
+    let mut table = lattice_ring::packing::unpack_field_elements(ring, &proof.table_opening)
+        .map_err(CommittedLookupError::Packing)?;
+    let mut reads = lattice_ring::packing::unpack_field_elements(ring, &proof.reads_opening)
+        .map_err(CommittedLookupError::Packing)?;
+    let mut diff = lattice_ring::packing::unpack_field_elements(ring, &proof.diff_opening)
+        .map_err(CommittedLookupError::Packing)?;
     if table.len() < proof.table_len || reads.len() < proof.reads_len {
         return Err(CommittedLookupError::ShapeMismatch {
             expected: proof.table_len,
@@ -448,7 +449,10 @@ pub enum QuasarError {
     Mle(lattice_core::mle::MleError),
     /// Partial-evaluation accumulation identity failed.
     AccumulationFailed,
-    VariableCountMismatch { expected: usize, got: usize },
+    VariableCountMismatch {
+        expected: usize,
+        got: usize,
+    },
 }
 
 /// Quasar accumulation: fold k instances by partially evaluating every
@@ -469,11 +473,7 @@ pub fn accumulate_partial_evaluation(
     if instances.iter().any(|f| f.num_vars != total_vars) {
         return Err(QuasarError::VariableCountMismatch {
             expected: total_vars,
-            got: instances
-                .iter()
-                .map(|f| f.num_vars)
-                .max()
-                .unwrap_or(0),
+            got: instances.iter().map(|f| f.num_vars).max().unwrap_or(0),
         });
     }
     // Number of prefix variables to collapse: leave one variable so the
@@ -487,9 +487,7 @@ pub fn accumulate_partial_evaluation(
     // Partially evaluate every instance at the shared prefix.
     let mut partials = Vec::with_capacity(instances.len());
     for f in instances {
-        let g = f
-            .fix_variables(&prefix)
-            .map_err(QuasarError::Mle)?;
+        let g = f.fix_variables(&prefix).map_err(QuasarError::Mle)?;
         partials.push(g);
     }
     // Single combination step with one challenge per instance.
@@ -593,12 +591,16 @@ mod tests {
         let table = committed_table();
         let reads = vec![table[3], table[17], table[0], table[5]]; // 4 distinct reads
         let mut pt = Transcript::new_default(b"lzx-committed-lookup");
-        let proof = prove_lookup_committed(&pk, &table, &reads, &mut pt).ok().unwrap();
+        let proof = prove_lookup_committed(&pk, &table, &reads, &mut pt)
+            .ok()
+            .unwrap();
         let mut vt = Transcript::new_default(b"lzx-committed-lookup");
         assert!(verify_lookup_committed(&pk, &proof, &mut vt).is_ok());
         // Determinism: replay produces identical τ.
         let mut pt2 = Transcript::new_default(b"lzx-committed-lookup");
-        let proof2 = prove_lookup_committed(&pk, &table, &reads, &mut pt2).ok().unwrap();
+        let proof2 = prove_lookup_committed(&pk, &table, &reads, &mut pt2)
+            .ok()
+            .unwrap();
         assert_eq!(proof.challenge, proof2.challenge);
         assert_eq!(proof.t_eval, proof2.t_eval);
     }
@@ -638,9 +640,14 @@ mod tests {
             Err(CommittedLookupError::GrandProductFailed)
         ));
         // Any single tampered evaluation is also caught.
-        let mut tampered = prove_lookup_committed(&pk, &table, &reads, &mut Transcript::new_default(b"lzx-committed-lookup"))
-            .ok()
-            .unwrap();
+        let mut tampered = prove_lookup_committed(
+            &pk,
+            &table,
+            &reads,
+            &mut Transcript::new_default(b"lzx-committed-lookup"),
+        )
+        .ok()
+        .unwrap();
         tampered.t_eval = tampered.t_eval.add(&fe(1));
         let mut vt2 = Transcript::new_default(b"lzx-committed-lookup");
         assert!(matches!(
@@ -663,8 +670,7 @@ mod tests {
         // Tamper with one coefficient of the table opening.
         let mut coeffs = proof.table_opening[0].coeffs().to_vec();
         coeffs[0] = (coeffs[0] + 7) % pk.params.ring.modulus.q;
-        proof.table_opening[0] =
-            RingElement::from_coeffs(&pk.params.ring, coeffs);
+        proof.table_opening[0] = RingElement::from_coeffs(&pk.params.ring, coeffs);
         let mut vt = Transcript::new_default(b"lzx-committed-lookup");
         assert!(matches!(
             verify_lookup_committed(&pk, &proof, &mut vt),
@@ -721,8 +727,7 @@ mod tests {
             state.wrapping_mul(0x2545_F491_4F6C_DD1D)
         };
         for trial in 0..200 {
-            let table: Vec<Goldilocks> =
-                (0..24).map(|_| fe(next() % 8)).collect();
+            let table: Vec<Goldilocks> = (0..24).map(|_| fe(next() % 8)).collect();
             // Reads: a subset-with-multiplicity of the table (honest), or
             // (even trials) an outsider value.
             let reads: Vec<Goldilocks> = (0..6)
@@ -797,10 +802,7 @@ mod tests {
         // Direct reference: replay the same transcript sequence (prefix
         // first, then lambdas) to reproduce identical challenges.
         let mut t2 = Transcript::new_default(b"lzx-quasar-test");
-        let prefix2 = t2
-            .challenge_fields(b"quasar-prefix", 5)
-            .ok()
-            .unwrap();
+        let prefix2 = t2.challenge_fields(b"quasar-prefix", 5).ok().unwrap();
         assert_eq!(prefix2, prefix);
         let lambdas = t2
             .challenge_fields(b"quasar-lambda", instances.len())

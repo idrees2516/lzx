@@ -1,12 +1,20 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~68k lines of pure-`std` Rust. 33 crates. 1,227 tests. Zero external dependencies.**
+**~68k lines of pure-`std` Rust. 33 crates. 1,237 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
-zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
+zero-knowledge proof stack: it implements **seventeen research papers** end-to-end (prover +
 verifier + exact algebraic identity tests), ports the **labinius** lattice PCS and the
 **LaBRADOR** proof system as native Rust, and assembles them into a proving zkVM for
 RV64IMAC programs with a bounded canonical proof envelope.
+
+**Repo navigation**: [`IMPLEMENTATION_LOG.md`](IMPLEMENTATION_LOG.md) (the timestamped
+build history) · [`IMPLEMENTATION_CHECKLIST.md`](IMPLEMENTATION_CHECKLIST.md) (what is
+implemented / partial / open) · [`NEXT_STEPS.md`](NEXT_STEPS.md) (the research backlog
++ the honest ledger) · [`docs/PAPERS_MAP.md`](docs/PAPERS_MAP.md) (the papers' inner
+connections) · [`docs/INDEX.md`](docs/INDEX.md) (the search index) ·
+[`docs/analysis/`](docs/analysis/) (the formal analyses: the multi-stage LaBRADOR
+extraction, the D4 binding closure).
 
 Two recent papers round out the prover stack: **the monomial-basis
 (projective) sum-check** (ePrint 2026/762 — the `{0,∞}` interpolating set,
@@ -128,8 +136,10 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **1136 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
-  VM conformance class is verified exactly (algebraic identities, not statistical approximations).
+- **1,237 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+  VM conformance class is verified exactly (algebraic identities, not statistical approximations);
+  the full workspace is now clippy-clean on ALL targets and rustfmt-normalized, with CI
+  running both profiles (debug = overflow checks ON) plus the evidence examples.
 - **Differential ISA conformance** — a second, independent byte-level RV64IMAC interpreter
   (`lattice-vm/reference.rs`) is compared against the traced executor over 131 randomized
   programs; golden vectors cover every instruction class.
@@ -155,9 +165,11 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 1136 tests
-cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace      # 1,237 tests (debug = overflow checks ON)
+cargo clippy --workspace --all-targets -- -D warnings   # clean
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
+cargo run --release -p lattice-widthfold --example extraction_table   # the extraction ledgers
+cargo run --release -p lattice-akita --example salsa_bound_size   # the D4 closure/split evidence
 cargo run --release -p lattice-labinius --example round_bench       # labinius reference round
 cargo run --release -p lattice-labinius --example backend_bench     # scalar vs AVX-512 backends
 cargo run --release -p lattice-labrador --example cmod_bench        # LaBRADOR reduction/products
@@ -205,7 +217,7 @@ in `SECURITY.md`.
 
 MIT.
 
-## The staging wave (2026-10-04)
+## The staging wave + the follow-ups (2026-10-04)
 
 The soundness/size frontier's three landings: (1) **the recursive
 width-collapse staging** (`lattice-widthfold` — the extracted shared
@@ -221,8 +233,19 @@ replaces the transmitted LDE base) — **640–928 B responses, zero
 witness disclosure, 61–671× vs the Clear mode**. (3) **the Cyclo §7
 bridge's compact-PCS terminal** (`cyclo_terminal.rs`): the decider
 decides the ride-the-fold claims without the opened witness (the
-ring-functional width fold carrying (D1)/(D2)/(D3)). Workspace
-1,227 tests green.
+ring-functional width fold carrying (D1)/(D2)/(D3)).
+
+**The three honest-ledger follow-ups, all closed the same day**: the
+**multi-stage LaBRADOR extraction ledger** (`lattice-widthfold::
+extraction` — the degree-law unwind as five machine-checked laws,
+ENFORCED in the chain gate; `docs/analysis/MULTISTAGE_EXTRACTION.md`);
+the **D4 binding closure** (`lattice-akita::salsa_binding` — the
+byte-witness↔commitment authenticated opening via the width-collapse
+chain, composed into the v2 pipeline as `Stage5Mode::Bound`;
+`docs/analysis/D4_BINDING_CLOSURE.md`); the **r-column capacity
+split** (`byte_capacity` = the exact Lemma-4 cap of 2,048
+values/commitment + the μ-weighted split beyond it — BENCHMARKS
+§2l). Workspace 1,237 tests green.
 
 ## Wave 7 state (2026-09-29)
 

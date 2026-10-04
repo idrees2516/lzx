@@ -47,8 +47,14 @@ pub struct ProjSumcheckProof {
 pub enum ProjSumcheckError {
     Mle(ProjMleError),
     Transcript(TranscriptError),
-    BadRoundShape { round: usize, got: usize, expected: usize },
-    RoundCheckFailed { round: usize },
+    BadRoundShape {
+        round: usize,
+        got: usize,
+        expected: usize,
+    },
+    RoundCheckFailed {
+        round: usize,
+    },
     ClaimMismatch,
     FinalCheckFailed,
     EmptyInstance,
@@ -59,7 +65,11 @@ impl core::fmt::Display for ProjSumcheckError {
         match self {
             ProjSumcheckError::Mle(e) => write!(f, "monomial MLE error: {e}"),
             ProjSumcheckError::Transcript(e) => write!(f, "transcript error: {e}"),
-            ProjSumcheckError::BadRoundShape { round, got, expected } => {
+            ProjSumcheckError::BadRoundShape {
+                round,
+                got,
+                expected,
+            } => {
                 write!(f, "round {round} length {got} != expected {expected}")
             }
             ProjSumcheckError::RoundCheckFailed { round } => {
@@ -92,10 +102,12 @@ impl ProjVirtualPolynomial {
 
     pub fn add_factor(&mut self, factor: MonomialMle) -> Result<usize, ProjSumcheckError> {
         if factor.num_vars != self.num_vars {
-            return Err(ProjSumcheckError::Mle(ProjMleError::WrongCoefficientCount {
-                expected: 1 << self.num_vars,
-                got: factor.coeffs.len(),
-            }));
+            return Err(ProjSumcheckError::Mle(
+                ProjMleError::WrongCoefficientCount {
+                    expected: 1 << self.num_vars,
+                    got: factor.coeffs.len(),
+                },
+            ));
         }
         self.factors.push(factor);
         Ok(self.factors.len() - 1)
@@ -110,10 +122,12 @@ impl ProjVirtualPolynomial {
             return Err(ProjSumcheckError::EmptyInstance);
         }
         if indices.iter().any(|i| *i >= self.factors.len()) {
-            return Err(ProjSumcheckError::Mle(ProjMleError::WrongCoefficientCount {
-                expected: self.factors.len(),
-                got: indices.iter().max().copied().unwrap_or(0) + 1,
-            }));
+            return Err(ProjSumcheckError::Mle(
+                ProjMleError::WrongCoefficientCount {
+                    expected: self.factors.len(),
+                    got: indices.iter().max().copied().unwrap_or(0) + 1,
+                },
+            ));
         }
         self.terms.push((coeff, indices));
         Ok(())
@@ -132,7 +146,11 @@ impl ProjVirtualPolynomial {
     }
 
     pub fn max_degree(&self) -> usize {
-        self.terms.iter().map(|(_, ids)| ids.len()).max().unwrap_or(1)
+        self.terms
+            .iter()
+            .map(|(_, ids)| ids.len())
+            .max()
+            .unwrap_or(1)
     }
 
     /// Total sum over the infinity hypercube — which equals the
@@ -171,7 +189,11 @@ pub struct ProjSumcheckOutput {
 /// nodes `0, 1, …, d−1` (`finite[k] = s(k)`) and its leading coefficient
 /// `s(∞)` — Lemma 2.2:
 /// `s(X) = s(∞)·Π_k (X − k) + Σ_k s(k)·L_k(X)`.
-pub(crate) fn interpolate_with_infinity(finite: &[Goldilocks], leading: Goldilocks, r: Goldilocks) -> Goldilocks {
+pub(crate) fn interpolate_with_infinity(
+    finite: &[Goldilocks],
+    leading: Goldilocks,
+    r: Goldilocks,
+) -> Goldilocks {
     let d = finite.len();
     // Leading-coefficient term: s(∞) · Π_k (r − k).
     let mut lead_term = leading;
@@ -239,11 +261,7 @@ fn sum_terms_over_slices(
 ///
 /// `t = 1` uses pure addition — `f(1) = f(0) + f(∞)` — which is precisely
 /// where the Boolean prover's per-pair subtraction disappears (§4.1).
-fn materialize_bound_values(
-    bound: &[MonomialMle],
-    t: u64,
-    buffers: &mut [Vec<Goldilocks>],
-) {
+fn materialize_bound_values(bound: &[MonomialMle], t: u64, buffers: &mut [Vec<Goldilocks>]) {
     let half = bound[0].coeffs.len() / 2;
     for (k, f) in bound.iter().enumerate() {
         let (lo, hi) = f.coeffs.split_at(half);
@@ -350,8 +368,7 @@ pub fn prove(
                 .map(|f| vec![Goldilocks::ZERO; f.coeffs.len() / 2])
                 .collect();
             materialize_bound_values(&bound, t as u64, &mut buffers);
-            let slices: Vec<&[Goldilocks]> =
-                buffers.iter().map(|b| b.as_slice()).collect();
+            let slices: Vec<&[Goldilocks]> = buffers.iter().map(|b| b.as_slice()).collect();
             evals.push(sum_terms_over_slices(&vp.terms, &slices));
         }
 
@@ -516,10 +533,7 @@ mod tests {
             prod
         });
         let mut verifier_ts = Transcript::new_default(b"projsc-prove");
-        let v = out
-            .proof
-            .verify(claim, 6, 2, &mut verifier_ts)
-            .unwrap();
+        let v = out.proof.verify(claim, 6, 2, &mut verifier_ts).unwrap();
         assert_eq!(v.point, out.challenges);
         assert_eq!(v.final_claim, out.final_claim);
     }
@@ -603,7 +617,7 @@ mod tests {
     /// `P(r)·Π(1+r_i) = f̂(φ(r))·ĝ(φ(r))` (the Möbius bridge).
     #[test]
     fn boolean_cross_validation() {
-        use lattice_sumcheck::sumcheck::{prove as bool_prove};
+        use lattice_sumcheck::sumcheck::prove as bool_prove;
         use lattice_sumcheck::virtual_poly::VirtualPolynomial;
 
         let n = 5;

@@ -16,9 +16,9 @@
 //! w' = w1 + r·w2 with the quadratic cross-term vector E tracked exactly;
 //! the pay-per-bit commitment sparsifies the bit-decomposed witness.
 
-use lattice_relations::ccs::{Ccs, CcsError};
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
+use lattice_relations::ccs::{Ccs, CcsError};
 
 /// A relaxed CCS instance: witness + slack vector + scalar u.
 ///
@@ -196,7 +196,11 @@ pub fn fold_relaxed_ccs(
         }
     }
     for (term_idx, ids) in ccs.selections.iter().enumerate() {
-        let c = ccs.constants.get(term_idx).copied().unwrap_or(Goldilocks::ONE);
+        let c = ccs
+            .constants
+            .get(term_idx)
+            .copied()
+            .unwrap_or(Goldilocks::ONE);
         if ids.len() == 2 {
             let (ia, ib) = (ids[0], ids[1]);
             let x1 = &a_images1[ia];
@@ -279,14 +283,13 @@ pub fn fold_relaxed_ccs(
 
 /// Verify the relaxed CCS relation exactly:
 /// `product_vector(w) − slack == u · (Σ_i B_i·w)`.
-pub fn verify_folded(
-    ccs: &Ccs,
-    inst: &RelaxedCcsInstance,
-) -> Result<bool, SuperNeoError> {
+pub fn verify_folded(ccs: &Ccs, inst: &RelaxedCcsInstance) -> Result<bool, SuperNeoError> {
     if inst.witness.len() != ccs.m || inst.slack.len() != ccs.n {
         return Ok(false);
     }
-    let v = ccs.product_vector(&inst.witness).map_err(SuperNeoError::Ccs)?;
+    let v = ccs
+        .product_vector(&inst.witness)
+        .map_err(SuperNeoError::Ccs)?;
     let mut b_span = vec![Goldilocks::ZERO; ccs.n];
     for b in &ccs.b_matrices {
         let img = b.multiply(&inst.witness).map_err(SuperNeoError::Ccs)?;
@@ -335,10 +338,8 @@ mod tests {
                 let mut hash_input = Vec::new();
                 hash_input.extend_from_slice(&tag.to_le_bytes());
                 hash_input.extend_from_slice(&(i as u64).to_le_bytes());
-                let digest = lattice_core::transcript::Transcript::hash_domain(
-                    b"bool-witness",
-                    &hash_input,
-                );
+                let digest =
+                    lattice_core::transcript::Transcript::hash_domain(b"bool-witness", &hash_input);
                 let bit = digest[0] & 1;
                 fe(bit as u64)
             })
@@ -394,7 +395,15 @@ mod tests {
         assert!(verify_folded(&ccs, &inst1).ok().unwrap());
         assert!(verify_folded(&ccs, &inst2).ok().unwrap());
 
-        let (folded, _r) = fold_relaxed_ccs(&ccs, &inst1, &inst2, &instance_digest(&inst1), &instance_digest(&inst2)).ok().unwrap();
+        let (folded, _r) = fold_relaxed_ccs(
+            &ccs,
+            &inst1,
+            &inst2,
+            &instance_digest(&inst1),
+            &instance_digest(&inst2),
+        )
+        .ok()
+        .unwrap();
         // The FOLDED instance satisfies the relaxed relation via the
         // tracked slack and u — the fold identity holds exactly.
         assert!(
@@ -418,7 +427,15 @@ mod tests {
                 slack: vec![fe(0); 8],
                 u: fe(1),
             };
-            let (next, _r) = fold_relaxed_ccs(&ccs, &acc, &fresh, &instance_digest(&acc), &instance_digest(&fresh)).ok().unwrap();
+            let (next, _r) = fold_relaxed_ccs(
+                &ccs,
+                &acc,
+                &fresh,
+                &instance_digest(&acc),
+                &instance_digest(&fresh),
+            )
+            .ok()
+            .unwrap();
             assert!(verify_folded(&ccs, &next).ok().unwrap());
             acc = next;
         }
@@ -447,8 +464,17 @@ mod tests {
         // Pure-linear product side violates the folding contract and is
         // rejected (linear constraints belong on the span side).
         assert!(matches!(
-            fold_relaxed_ccs(&ccs, &inst1, &inst2, &instance_digest(&inst1), &instance_digest(&inst2)),
-            Err(SuperNeoError::ShapeMismatch { expected: 2, got: 1 })
+            fold_relaxed_ccs(
+                &ccs,
+                &inst1,
+                &inst2,
+                &instance_digest(&inst1),
+                &instance_digest(&inst2)
+            ),
+            Err(SuperNeoError::ShapeMismatch {
+                expected: 2,
+                got: 1
+            })
         ));
         // Shape mismatch errors.
         let bad = RelaxedCcsInstance {
@@ -457,7 +483,13 @@ mod tests {
             u: fe(1),
         };
         assert!(matches!(
-            fold_relaxed_ccs(&ccs, &bad, &inst2, &instance_digest(&bad), &instance_digest(&inst2)),
+            fold_relaxed_ccs(
+                &ccs,
+                &bad,
+                &inst2,
+                &instance_digest(&bad),
+                &instance_digest(&inst2)
+            ),
             Err(SuperNeoError::ShapeMismatch { .. })
         ));
     }
@@ -493,9 +525,25 @@ mod debug_tests {
         let ccs = dbg_ccs(4);
         let w1 = vec![fe(1), fe(0), fe(1), fe(0)];
         let w2 = vec![fe(0), fe(1), fe(0), fe(1)];
-        let inst1 = RelaxedCcsInstance { witness: w1, slack: vec![fe(0); 4], u: fe(1) };
-        let inst2 = RelaxedCcsInstance { witness: w2, slack: vec![fe(0); 4], u: fe(1) };
-        let (folded, _r) = fold_relaxed_ccs(&ccs, &inst1, &inst2, &instance_digest(&inst1), &instance_digest(&inst2)).ok().unwrap();
+        let inst1 = RelaxedCcsInstance {
+            witness: w1,
+            slack: vec![fe(0); 4],
+            u: fe(1),
+        };
+        let inst2 = RelaxedCcsInstance {
+            witness: w2,
+            slack: vec![fe(0); 4],
+            u: fe(1),
+        };
+        let (folded, _r) = fold_relaxed_ccs(
+            &ccs,
+            &inst1,
+            &inst2,
+            &instance_digest(&inst1),
+            &instance_digest(&inst2),
+        )
+        .ok()
+        .unwrap();
         assert!(verify_folded(&ccs, &folded).ok().unwrap());
         // Tampered slack must fail (the check is exact, not vacuous).
         let mut bad = folded.clone();
@@ -532,14 +580,24 @@ mod debug_tests {
             slack: vec![fe(0); 4],
             u: fe(1),
         };
-        let (fa, ra) =
-            fold_relaxed_ccs(&ccs, &inst_a, &target, &instance_digest(&inst_a), &instance_digest(&target))
-                .ok()
-                .unwrap();
-        let (fb, rb) =
-            fold_relaxed_ccs(&ccs, &inst_b, &target, &instance_digest(&inst_b), &instance_digest(&target))
-                .ok()
-                .unwrap();
+        let (fa, ra) = fold_relaxed_ccs(
+            &ccs,
+            &inst_a,
+            &target,
+            &instance_digest(&inst_a),
+            &instance_digest(&target),
+        )
+        .ok()
+        .unwrap();
+        let (fb, rb) = fold_relaxed_ccs(
+            &ccs,
+            &inst_b,
+            &target,
+            &instance_digest(&inst_b),
+            &instance_digest(&target),
+        )
+        .ok()
+        .unwrap();
         // Identical challenges (witness-independent), different folded
         // witnesses — the definition of a public-coin fold.
         assert_eq!(ra, rb);
@@ -549,10 +607,15 @@ mod debug_tests {
         let mut inst_c = inst_a.clone();
         inst_c.slack[0] = fe(1);
         assert_ne!(instance_digest(&inst_a), instance_digest(&inst_c));
-        let (fc, rc) =
-            fold_relaxed_ccs(&ccs, &inst_c, &target, &instance_digest(&inst_c), &instance_digest(&target))
-                .ok()
-                .unwrap();
+        let (fc, rc) = fold_relaxed_ccs(
+            &ccs,
+            &inst_c,
+            &target,
+            &instance_digest(&inst_c),
+            &instance_digest(&target),
+        )
+        .ok()
+        .unwrap();
         assert_ne!(ra, rc);
         assert_ne!(fa.witness, fc.witness);
     }

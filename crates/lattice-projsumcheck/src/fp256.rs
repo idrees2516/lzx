@@ -105,14 +105,18 @@ impl Fp256 {
     pub fn one_mont() -> Fp256 {
         let mut v = [0u64; 8];
         v[4] = 1;
-        Fp256 { limbs: reduce_wide_ref(&v) }
+        Fp256 {
+            limbs: reduce_wide_ref(&v),
+        }
     }
 
     /// Canonical `u64` value → Montgomery form (`v·R mod p`).
     pub fn from_canonical_u64(value: u64) -> Fp256 {
         let mut v = [0u64; 8];
         v[4] = value;
-        Fp256 { limbs: reduce_wide_ref(&v) }
+        Fp256 {
+            limbs: reduce_wide_ref(&v),
+        }
     }
 
     /// Full CIOS Montgomery multiplication — phase 1: 16 limb products;
@@ -253,14 +257,15 @@ impl Fp256 {
     /// *already being in Montgomery form*.
     pub fn sample_upper_limb(hash32: &[u8; 32]) -> Fp256 {
         let lo = u64::from_le_bytes([
-            hash32[0], hash32[1], hash32[2], hash32[3],
-            hash32[4], hash32[5], hash32[6], hash32[7],
+            hash32[0], hash32[1], hash32[2], hash32[3], hash32[4], hash32[5], hash32[6], hash32[7],
         ]);
         let hi = u64::from_le_bytes([
-            hash32[8], hash32[9], hash32[10], hash32[11],
-            hash32[12], hash32[13], hash32[14], hash32[15],
+            hash32[8], hash32[9], hash32[10], hash32[11], hash32[12], hash32[13], hash32[14],
+            hash32[15],
         ]) & 0x1FFF_FFFF_FFFF_FFFF; // 61 bits: |S| = 2^125.
-        Fp256 { limbs: [0, 0, lo, hi] }
+        Fp256 {
+            limbs: [0, 0, lo, hi],
+        }
     }
 
     /// Whether this value lies in the upper-limb challenge set.
@@ -332,7 +337,9 @@ impl Fp256 {
     // -----------------------------------------------------------------
 
     /// The canonical representative of 1 (limb 0 = 1).
-    pub const ONE_CANON: Fp256 = Fp256 { limbs: [1, 0, 0, 0] };
+    pub const ONE_CANON: Fp256 = Fp256 {
+        limbs: [1, 0, 0, 0],
+    };
 
     /// `self` (a **canonical** value, limbs < p) → Montgomery form.
     /// `CIOS(a, R²) = a·R²·R^{-1} = a·R`.
@@ -359,7 +366,9 @@ impl Fp256 {
     pub fn canon_i128(s: i128) -> Fp256 {
         if s >= 0 {
             let u = s as u128;
-            Fp256 { limbs: [u as u64, (u >> 64) as u64, 0, 0] }
+            Fp256 {
+                limbs: [u as u64, (u >> 64) as u64, 0, 0],
+            }
         } else {
             let u = s.unsigned_abs();
             let small = [u as u64, (u >> 64) as u64, 0, 0];
@@ -404,7 +413,9 @@ impl Fp256 {
     pub fn mul_small(&self, s: i128) -> Fp256 {
         let neg = s < 0;
         let u = s.unsigned_abs(); // < 2^127
-        let b = Fp256 { limbs: [u as u64, (u >> 64) as u64, 0, 0] };
+        let b = Fp256 {
+            limbs: [u as u64, (u >> 64) as u64, 0, 0],
+        };
         let r = self.mul(&b);
         if neg {
             r.neg()
@@ -440,7 +451,9 @@ impl Fp256 {
     /// occupies the high half of the 512-bit workspace (`v·2^256`).
     pub fn from_canonical_u128(value: u128) -> Fp256 {
         let wide = [0, 0, 0, 0, value as u64, (value >> 64) as u64, 0, 0];
-        Fp256 { limbs: reduce_wide_ref(&wide) }
+        Fp256 {
+            limbs: reduce_wide_ref(&wide),
+        }
     }
 
     /// Montgomery exponentiation (square-and-multiply over the 256-bit
@@ -475,7 +488,6 @@ impl Fp256 {
         }
         Some(self.pow(&e))
     }
-
 }
 
 fn geq_p(x: &[u64; 4]) -> bool {

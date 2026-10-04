@@ -278,7 +278,13 @@ unsafe fn gather8(p0: *const i64, p1: *const i64, p2: *const i64, p3: *const i64
 }
 
 /// 128 `F162` (32 ring elements, 3072 contiguous bytes at `base`) -> the kernel's index rows.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "gfni"
+)]
 unsafe fn slice_raw(base: *const u8, out: &mut BinaryIndex32) {
     let mut cols: MaybeUninit<Cols> = MaybeUninit::uninit();
     let cp = cols.as_mut_ptr() as *mut __m512i;
@@ -327,16 +333,28 @@ unsafe fn slice_raw(base: *const u8, out: &mut BinaryIndex32) {
         let n = _mm512_gf2p8affine_epi64_epi8::<0>(ident, _mm512_permutexvar_epi8(am, src));
         let a = _mm512_permutexvar_epi8(da, n);
         let b = _mm512_permutexvar_epi8(db, n);
-        _mm512_store_si512(op.add(4 * t), _mm512_ternarylogic_epi32::<0xEA>(a, lo4, p16));
-        _mm512_store_si512(op.add(4 * t + 1), _mm512_ternarylogic_epi32::<0xEA>(b, lo4, p16));
+        _mm512_store_si512(
+            op.add(4 * t),
+            _mm512_ternarylogic_epi32::<0xEA>(a, lo4, p16),
+        );
+        _mm512_store_si512(
+            op.add(4 * t + 1),
+            _mm512_ternarylogic_epi32::<0xEA>(b, lo4, p16),
+        );
     }
     for t in 0..40 {
         let src = _mm512_loadu_si512(bg.add(4 * t) as *const __m512i);
         let n = _mm512_gf2p8affine_epi64_epi8::<0>(ident, _mm512_permutexvar_epi8(am, src));
         let a = _mm512_permutexvar_epi8(da, n);
         let b = _mm512_permutexvar_epi8(db, n);
-        _mm512_store_si512(op.add(4 * t + 2), _mm512_ternarylogic_epi32::<0xEA>(a, lo4, p16));
-        _mm512_store_si512(op.add(4 * t + 3), _mm512_ternarylogic_epi32::<0xEA>(b, lo4, p16));
+        _mm512_store_si512(
+            op.add(4 * t + 2),
+            _mm512_ternarylogic_epi32::<0xEA>(a, lo4, p16),
+        );
+        _mm512_store_si512(
+            op.add(4 * t + 3),
+            _mm512_ternarylogic_epi32::<0xEA>(b, lo4, p16),
+        );
     }
 }
 
@@ -345,7 +363,13 @@ unsafe fn slice_raw(base: *const u8, out: &mut BinaryIndex32) {
 ///
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI/GFNI (checked by [`super::available`]).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "gfni"
+)]
 pub unsafe fn slice_f162_into(elems: &[F162; 128], out: &mut BinaryIndex32) {
     slice_raw(elems.as_ptr() as *const u8, out)
 }
@@ -354,7 +378,13 @@ pub unsafe fn slice_f162_into(elems: &[F162; 128], out: &mut BinaryIndex32) {
 ///
 /// # Safety
 /// See [`slice_f162_into`].
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi", enable = "gfni")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi",
+    enable = "gfni"
+)]
 pub unsafe fn slice_f162(elems: &[F162; 128]) -> BinaryIndex32 {
     let mut out = BinaryIndex32::zero();
     slice_f162_into(elems, &mut out);

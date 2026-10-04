@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Debug = overflow checks ON (the honest profile); release =
+        # the performance profile the benchmarks document.
+        profile: [dev, release]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (no-deps check)
+        run: cargo build --workspace --profile ${{ matrix.profile }} 2>&1 | tail -5
+      - name: Test suite
+        run: cargo test --workspace --profile ${{ matrix.profile }} --quiet
+
+  lint:
+    name: Clippy + fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (workspace, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Rustfmt check
+        run: cargo fmt --all -- --check
+
+  evidence:
+    name: Evidence examples (the published tables)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The extraction ledger table (docs/analysis)
+        run: cargo run --release -p lattice-widthfold --example extraction_table
+      - name: The chain coverage table (BENCHMARKS 2k)
+        run: cargo run --release -p lattice-widthfold --example chain_coverage
+      - name: The D4 bound/split size evidence (BENCHMARKS 2l)
+        run: cargo run --release -p lattice-akita --example salsa_bound_size
+      - name: The D4 swap size evidence (BENCHMARKS 2k)
+        run: cargo run --release -p lattice-akita --example salsa_swap_size

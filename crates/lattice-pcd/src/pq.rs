@@ -267,7 +267,9 @@ mod tests {
         let mut x = seed;
         (0..n)
             .map(|_| {
-                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 FpBase::from_canonical_u64((x >> 33) & FR_DIGIT_BOUND)
             })
             .collect()

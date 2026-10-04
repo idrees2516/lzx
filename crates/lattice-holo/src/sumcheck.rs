@@ -482,9 +482,13 @@ mod tests {
             }
         }
         let mut t1 = Transcript::new_default(b"mv");
-        let (proof, out) = mv_prove(num_vars, degree, &eval, &claims, &mut t1).ok().unwrap();
+        let (proof, out) = mv_prove(num_vars, degree, &eval, &claims, &mut t1)
+            .ok()
+            .unwrap();
         let mut t2 = Transcript::new_default(b"mv");
-        let vout = mv_verify(num_vars, degree, &claims, &proof, &mut t2).ok().unwrap();
+        let vout = mv_verify(num_vars, degree, &claims, &proof, &mut t2)
+            .ok()
+            .unwrap();
         assert_eq!(vout.point, out.point);
         assert_eq!(vout.final_evals, out.final_evals);
         // Final evals match direct evaluation.

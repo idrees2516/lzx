@@ -27,7 +27,7 @@ pub mod core;
 pub mod ring;
 pub mod serval;
 
-pub use ring::{Poly, Q, Q_INV, N};
+pub use ring::{Poly, N, Q, Q_INV};
 
 use lattice_core::keccak::{sha3_256, KeccakSponge};
 
@@ -46,10 +46,18 @@ pub struct VectorSpec {
 
 impl VectorSpec {
     pub fn norm_bounded(n: usize, betasq: u64) -> Self {
-        Self { n, betasq, binary: false }
+        Self {
+            n,
+            betasq,
+            binary: false,
+        }
     }
     pub fn binary(n: usize) -> Self {
-        Self { n, betasq: 0, binary: true }
+        Self {
+            n,
+            betasq: 0,
+            binary: true,
+        }
     }
 }
 
@@ -102,8 +110,16 @@ impl Statement {
         st
     }
 
-    pub fn with_digest(vectors: Vec<VectorSpec>, constraints: Vec<Constraint>, digest: [u8; 32]) -> Self {
-        Self { vectors, constraints, digest }
+    pub fn with_digest(
+        vectors: Vec<VectorSpec>,
+        constraints: Vec<Constraint>,
+        digest: [u8; 32],
+    ) -> Self {
+        Self {
+            vectors,
+            constraints,
+            digest,
+        }
     }
 
     pub fn total_rank(&self) -> usize {

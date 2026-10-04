@@ -61,7 +61,10 @@ impl Fq2 {
     }
 
     pub fn from_base(c0: Goldilocks) -> Self {
-        Fq2 { c0, c1: Goldilocks::ZERO }
+        Fq2 {
+            c0,
+            c1: Goldilocks::ZERO,
+        }
     }
 
     pub fn is_zero(&self) -> bool {
@@ -198,10 +201,7 @@ impl Default for Fq2 {
 
 /// Sample one F_{p²} challenge from the transcript: both limbs drawn with
 /// the same unbiased rejection as base-field challenges, one query.
-pub fn challenge_fq2(
-    transcript: &mut Transcript,
-    label: &[u8],
-) -> Result<Fq2, TranscriptError> {
+pub fn challenge_fq2(transcript: &mut Transcript, label: &[u8]) -> Result<Fq2, TranscriptError> {
     let fields = transcript.challenge_fields(label, 2)?;
     let mut it = fields.into_iter();
     let c0 = it.next().unwrap_or(Goldilocks::ZERO);
@@ -296,8 +296,16 @@ mod tests {
         // extension constant is a non-residue).
         for (c0, c1) in [(2u64, 3), (5, 7), (11, 13), (1, 1)] {
             let z = Fq2::new(fe(c0), fe(c1));
-            assert_eq!(z.pow_u64(GOLDILOCKS_MODULUS), z.conjugate(), "z=({c0},{c1})");
-            assert_ne!(z.pow_u64(GOLDILOCKS_MODULUS), z, "Frobenius is trivial — extension degenerate");
+            assert_eq!(
+                z.pow_u64(GOLDILOCKS_MODULUS),
+                z.conjugate(),
+                "z=({c0},{c1})"
+            );
+            assert_ne!(
+                z.pow_u64(GOLDILOCKS_MODULUS),
+                z,
+                "Frobenius is trivial — extension degenerate"
+            );
         }
     }
 
@@ -305,10 +313,7 @@ mod tests {
     fn norm_multiplicative_and_trace() {
         let a = Fq2::new(fe(3), fe(5));
         let b = Fq2::new(fe(7), fe(11));
-        assert_eq!(
-            a.mul(&b).norm(),
-            a.norm().mul(&b.norm())
-        );
+        assert_eq!(a.mul(&b).norm(), a.norm().mul(&b.norm()));
         // Norm is a base-field element and multiplicative; norm of Y is
         // -D (Y·conj(Y) = -Y² = -D).
         assert_eq!(Fq2::Y.norm(), fe(GOLDILOCKS_MODULUS - EXT_D));

@@ -29,7 +29,10 @@ fn main() {
             }
         };
         if run.steps > 4096 {
-            println!("== {}: {} cycles (skip: dense cap) ==\n", prog.name, run.steps);
+            println!(
+                "== {}: {} cycles (skip: dense cap) ==\n",
+                prog.name, run.steps
+            );
             continue;
         }
         let fetch_words = prog.image.len().div_ceil(4);
@@ -52,10 +55,7 @@ fn main() {
         let Some(proof) = proof else { continue };
         println!(
             "== {}: {} cycles, ram_log_k={}, fetch_log_k={} (COMPACT) ==",
-            prog.name,
-            run.steps,
-            ram_used,
-            fetch_log_k
+            prog.name, run.steps, ram_used, fetch_log_k
         );
         breakdown_compact(&proof);
     }
@@ -96,10 +96,20 @@ fn breakdown_compact(proof: &CompactMemoryProof) {
         opening_bytes += op.response.hist.len() + op.response.payload.len() + op.response.raw.len();
         opening_bytes += 16;
     }
-    let stmt_bytes = 32 + 32 + 24 + proof.statement.final_regs.len() * 8
+    let stmt_bytes = 32
+        + 32
+        + 24
+        + proof.statement.final_regs.len() * 8
         + proof.statement.final_memory.len() * 8;
-    let total = stmt_bytes + claims_bytes + legs_bytes + bits_c + vals_c + carrier_bytes
-        + opening_bytes + 16 + 16;
+    let total = stmt_bytes
+        + claims_bytes
+        + legs_bytes
+        + bits_c
+        + vals_c
+        + carrier_bytes
+        + opening_bytes
+        + 16
+        + 16;
     println!("   claims: {} claims, {} bytes", n_claims, claims_bytes);
     println!("   legs: {} legs, {} bytes", n_legs, legs_bytes);
     println!(

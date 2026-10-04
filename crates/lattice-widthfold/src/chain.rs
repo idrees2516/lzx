@@ -66,9 +66,7 @@
 //!   `log₂|C_ℓ|` bits; the chain charges the TOTAL against every
 //!   stage's floor (the 32-bit allowance `CHAIN_GRINDING_BITS`).
 
-use crate::fold::{
-    prove_width_fold_ex, verify_width_fold_ex, WidthFoldParams, WidthFoldProof,
-};
+use crate::fold::{prove_width_fold_ex, verify_width_fold_ex, WidthFoldParams, WidthFoldProof};
 #[allow(unused_imports)]
 use crate::helpers::functional_of;
 use crate::SECURITY_FLOOR_BITS;
@@ -170,6 +168,14 @@ impl WidthChainParams {
                 self.grinding_bits()
             ));
         }
+        // The multi-stage extraction ledger (the degree-law unwind
+        // posture, laws E1–E5): every sound chain is now ALSO
+        // extraction-sound at prove AND verify time — the honest
+        // residual ("the full multi-stage extraction is the open
+        // analysis") is closed as an enforced artifact, not prose.
+        let ledger = crate::extraction::chain_extraction_ledger(self, beta1, q, ring_dim)
+            .map_err(|e| format!("extraction ledger: {e}"))?;
+        ledger.assert_extraction_sound(q)?;
         Ok(verdicts)
     }
 
@@ -215,7 +221,8 @@ impl WidthChainParams {
             let terminal_beta = beta * (1u64 << halvings_left.min(31));
             if halvings_left <= 31
                 && terminal_beta < q / 4
-                && WidthFoldParams::sound_profile_for_floor(16, terminal_beta, q, ring_dim, floor).is_ok()
+                && WidthFoldParams::sound_profile_for_floor(16, terminal_beta, q, ring_dim, floor)
+                    .is_ok()
             {
                 // Direct terminal if we're within the single-stage cover.
                 if cur <= 16 {
@@ -241,7 +248,8 @@ impl WidthChainParams {
                 u64::MAX
             };
             if terminal_beta >= q / 2
-                || WidthFoldParams::sound_profile_for_floor(16, terminal_beta, q, ring_dim, floor).is_err()
+                || WidthFoldParams::sound_profile_for_floor(16, terminal_beta, q, ring_dim, floor)
+                    .is_err()
             {
                 return Err(format!(
                     "chain dead-end at width {cur}: the terminal gate 2^{:.0} is unreachable \
@@ -407,7 +415,10 @@ fn inner_key(
     ];
     let _ = st.append_bytes(
         b"shape",
-        &shape.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(),
+        &shape
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect::<Vec<u8>>(),
     );
     let mut s = [0u8; 32];
     if let Ok(b) = st.challenge_bytes(b"key", 32) {
@@ -432,7 +443,11 @@ fn fold_psi(psi: &[Goldilocks], gammas: &[i64], w: usize, n: usize) -> Vec<Goldi
                 continue;
             }
             let term = wgt.mul(&Goldilocks::from_u64(g.unsigned_abs()));
-            acc = if *g < 0 { acc.sub(&term) } else { acc.add(&term) };
+            acc = if *g < 0 {
+                acc.sub(&term)
+            } else {
+                acc.add(&term)
+            };
         }
         out[m] = acc;
     }
@@ -451,14 +466,9 @@ fn derived_claims(
     let r2 = params.r2;
     let kappa = params.kappa;
     // t = Σ_i γ_i·T_i (the stage's (W2) RHS — the next target).
-    let t_inner =
-        crate::codec::deserialize_elements(ring, &proof.t_inner)?;
+    let t_inner = crate::codec::deserialize_elements(ring, &proof.t_inner)?;
     if t_inner.len() != r2 * kappa {
-        return Err(format!(
-            "inner count {} != {}",
-            t_inner.len(),
-            r2 * kappa
-        ));
+        return Err(format!("inner count {} != {}", t_inner.len(), r2 * kappa));
     }
     let mut t = vec![ring.zero(); kappa];
     for (i, g) in gammas.iter().enumerate() {
@@ -488,8 +498,7 @@ fn derived_claims(
             if i != j {
                 if *gi != 0 && *gj != 0 {
                     let w_ij = gi * gj;
-                    let term =
-                        g_func[idx].mul(&Goldilocks::from_u64(w_ij.unsigned_abs()));
+                    let term = g_func[idx].mul(&Goldilocks::from_u64(w_ij.unsigned_abs()));
                     u = if w_ij < 0 { u.sub(&term) } else { u.add(&term) };
                 }
                 idx += 1;
@@ -511,7 +520,11 @@ fn serialize_goldilocks(vals: &[Goldilocks]) -> Vec<u8> {
 
 fn deserialize_goldilocks(bytes: &[u8], count: usize) -> Result<Vec<Goldilocks>, String> {
     if bytes.len() != 8 * count {
-        return Err(format!("goldilocks wire length {} != {}", bytes.len(), 8 * count));
+        return Err(format!(
+            "goldilocks wire length {} != {}",
+            bytes.len(),
+            8 * count
+        ));
     }
     let mut out = Vec::with_capacity(count);
     for chunk in bytes.chunks_exact(8) {
@@ -648,11 +661,7 @@ pub fn verify_width_fold_chain(
     }
     // The fail-closed chain posture re-derivation + marker check.
     let verdicts = proof.params.assert_sound_chain(beta1, q, ring_dim)?;
-    for (ell, ((cl, _), marker)) in verdicts
-        .iter()
-        .zip(proof.classical_bits.iter())
-        .enumerate()
-    {
+    for (ell, ((cl, _), marker)) in verdicts.iter().zip(proof.classical_bits.iter()).enumerate() {
         if (cl - marker).abs() > 1.0 {
             return Err(format!(
                 "stage {ell} posture marker mismatch: proof {marker} vs verifier {cl:.1}"
@@ -720,8 +729,8 @@ mod tests {
                     .map(|j| {
                         let mut x = seed
                             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                            .wrapping_add((i as u64 + 1) * 0x2545_F491_4F6C_DD1D)
-                            .wrapping_add((j as u64 + 1) * 0x9E37_79B9_7F4A_7C15);
+                            .wrapping_add((i as u64 + 1).wrapping_mul(0x2545_F491_4F6C_DD1D))
+                            .wrapping_add((j as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
                         x ^= x >> 12;
                         x ^= x << 25;
                         x ^= x >> 27;
@@ -749,7 +758,11 @@ mod tests {
         };
         let key = AjtaiPublicKey::from_seed(params, seed).unwrap();
         let blocks = (0..n_bar)
-            .map(|c| (0..k).map(|rr| key.entry(rr, c).cloned().unwrap()).collect())
+            .map(|c| {
+                (0..k)
+                    .map(|rr| key.entry(rr, c).cloned().unwrap())
+                    .collect()
+            })
             .collect();
         (key, blocks)
     }
@@ -790,12 +803,24 @@ mod tests {
         assert!(params.final_width() <= 16);
         let mut tr = Transcript::new_default(b"test-width-chain");
         let proof = prove_width_fold_chain(
-            &ring, &v, &t, &u, &blocks, k, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &v,
+            &t,
+            &u,
+            &blocks,
+            k,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .expect("honest chain prove");
         let mut tr2 = Transcript::new_default(b"test-width-chain");
-        verify_width_fold_chain(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-            .expect("honest chain verify");
+        verify_width_fold_chain(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2,
+        )
+        .expect("honest chain verify");
     }
 
     /// n̄ = 256 — well beyond the single-stage regime.
@@ -817,8 +842,10 @@ mod tests {
         )
         .expect("honest chain prove");
         let mut tr2 = Transcript::new_default(b"test-width-chain-w");
-        verify_width_fold_chain(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-            .expect("honest chain verify");
+        verify_width_fold_chain(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2,
+        )
+        .expect("honest chain verify");
     }
 
     /// Tampering an intermediate stage's inner commitments must fail
@@ -831,8 +858,8 @@ mod tests {
         let q = u64::from(ring.modulus.q);
         let u = functional_of(&ring, &v, &psi, q);
         let beta1 = 255u64;
-        let params = WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64)
-            .expect("schedule");
+        let params =
+            WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64).expect("schedule");
         let mut tr = Transcript::new_default(b"test-width-chain");
         let mut proof = prove_width_fold_chain(
             &ring, &v, &t, &u, &blocks, k, &psi, params, beta1, seed, &mut tr,
@@ -843,10 +870,10 @@ mod tests {
         assert!(!proof.stages[0].t_inner.is_empty());
         proof.stages[0].t_inner[0] ^= 0x01;
         let mut tr2 = Transcript::new_default(b"test-width-chain");
-        assert!(
-            verify_width_fold_chain(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_width_fold_chain(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// Tampering the FINAL stage's response must fail (W2).
@@ -858,8 +885,8 @@ mod tests {
         let q = u64::from(ring.modulus.q);
         let u = functional_of(&ring, &v, &psi, q);
         let beta1 = 255u64;
-        let params = WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64)
-            .expect("schedule");
+        let params =
+            WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64).expect("schedule");
         let mut tr = Transcript::new_default(b"test-width-chain");
         let mut proof = prove_width_fold_chain(
             &ring, &v, &t, &u, &blocks, k, &psi, params, beta1, seed, &mut tr,
@@ -871,10 +898,10 @@ mod tests {
         coeffs[0] = coeffs[0].wrapping_add(1);
         proof.stages[last].response = crate::codec::encode_response(&coeffs).unwrap();
         let mut tr2 = Transcript::new_default(b"test-width-chain");
-        assert!(
-            verify_width_fold_chain(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_width_fold_chain(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// A wrong public target fails at stage 0's (W0).
@@ -886,8 +913,8 @@ mod tests {
         let q = u64::from(ring.modulus.q);
         let u = functional_of(&ring, &v, &psi, q);
         let beta1 = 255u64;
-        let params = WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64)
-            .expect("schedule");
+        let params =
+            WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64).expect("schedule");
         let mut tr = Transcript::new_default(b"test-width-chain");
         let proof = prove_width_fold_chain(
             &ring, &v, &t, &u, &blocks, k, &psi, params, beta1, seed, &mut tr,
@@ -896,10 +923,10 @@ mod tests {
         let mut t_wrong = t.clone();
         t_wrong[0] = t_wrong[0].add(&ring.one()).unwrap();
         let mut tr2 = Transcript::new_default(b"test-width-chain");
-        assert!(
-            verify_width_fold_chain(&ring, &t_wrong, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_width_fold_chain(
+            &ring, &t_wrong, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// Tampering an intermediate stage's FUNCTIONAL garbage must fail
@@ -912,8 +939,8 @@ mod tests {
         let q = u64::from(ring.modulus.q);
         let u = functional_of(&ring, &v, &psi, q);
         let beta1 = 255u64;
-        let params = WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64)
-            .expect("schedule");
+        let params =
+            WidthChainParams::sound_chain_for(64, beta1, q, ring.n() as u64).expect("schedule");
         let mut tr = Transcript::new_default(b"test-width-chain");
         let mut proof = prove_width_fold_chain(
             &ring, &v, &t, &u, &blocks, k, &psi, params, beta1, seed, &mut tr,
@@ -923,10 +950,10 @@ mod tests {
         assert!(!proof.stages[0].g_func.is_empty());
         proof.stages[0].g_func[3] ^= 0x10;
         let mut tr2 = Transcript::new_default(b"test-width-chain");
-        assert!(
-            verify_width_fold_chain(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-                .is_err()
-        );
+        assert!(verify_width_fold_chain(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// The schedule search: honest coverage + fail-closed boundaries.

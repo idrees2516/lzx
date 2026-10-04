@@ -17,6 +17,82 @@ Companion documents: `PERFORMANCE.md` (the labinius-parity performance audit),
 
 ---
 
+## Session update (2026-10-04, the extraction ledger + the D4 closure + the r-column split + productionization)
+
+Landed this session (BENCHMARKS §2l + the two formal analyses in
+`docs/analysis/` + the production docs): the three honest-ledger
+follow-ups of the staging wave, ALL CLOSED:
+
+(1) **the chain's multi-stage LaBRADOR extraction — the degree-law
+unwind** (`lattice-widthfold/src/extraction.rs` +
+`docs/analysis/MULTISTAGE_EXTRACTION.md` + `--example
+extraction_table`): the open analysis is now an executable,
+fail-closed ledger — the stage-local affine degree law (fork width 2
+by the garbage pre-commitment), the composed claim degree 2L, the
+unwind norm law `2·β_{L+1} < q/2`, the grinding ledger, and the
+extractor-feasibility cap `2^L ≤ 2^16` (laws E1–E5) — and it is
+ENFORCED: `assert_sound_chain` now builds and asserts the ledger at
+prove AND verify time. The knowledge gap (the rewind abort,
+2^0.6–2^3.2 bits on shipped schedules) and the binding security (the
+MSIS floor, 161–841 bits) are reported as distinct quantities — the
+conflation this analysis exists to prevent. The measured ledgers: the
+six boundary schedules' trees/degrees/grinding/verdicts/slacks, all
+machine-derived (no hand-typed numbers).
+
+(2) **the D4 binding closure** (`lattice-akita/src/salsa_binding.rs` +
+`docs/analysis/D4_BINDING_CLOSURE.md`):
+`prove/verify_grouped_salsa_bound` — the byte-witness↔commitment
+authenticated opening via the width-collapse chain (the compact-fold
+composition): the (W0) part-image sum PROVES the level-1 `F̄·v = t`
+equation, the (W0')/(W3) functional thread carries `f(r_sc)` (the
+ψ-functional sumcheck is subsumed), and the per-stage estimator-gated
+`[A₂ | −T]` instances are the binding — the documented outer-layer gap
+is closed, pinned by the wrong-commitment tamper test. The pipeline2
+layer composes it: `Stage5Mode::Bound`
+(`prove_v2_with_stage5`) — the v2 pipeline runs end-to-end with every
+column's byte-witness chain-bound (the swapped-commitment tamper test
+at Stage 5).
+
+(3) **the ~1,200-value capacity cap → the r-column split** (same
+module): `byte_capacity` states the Lemma-4 cap EXACTLY (2,048 values
+at ring dim 16/Q_32 — the "~1,200" prose note was this same cap,
+margin-rounded); `prove/verify_grouped_salsa_split` scales past it
+with the compact mode's discipline — r columns (each within the gate,
+each under its own domain-separated key + D1 certificate + binding
+chain), the μ-weighted ψ-decomposition
+`f(r_sc) = Σ_j μ_j·u_j` with verifier-computed column weights.
+
+Measured (`cargo run -p lattice-akita --example salsa_bound_size`,
+BENCHMARKS §2l): the bound responses 5.5–54.8 KB at 2^6–2^10 values
+(11–671× under Clear, 8.6–59× over the open mode — the honest price
+of the binding; prove 90–3,790 ms / verify 8–186 ms); the split at
+2^12/2^13 = 133.5/265.8 KB, 18.7× under Clear, 2/4 columns.
+
+(4) **productionization**: the debug-profile overflow fixes (the suite
+now passes with overflow checks ON in BOTH profiles — 1,237 green),
+the workspace-wide clippy debt retired (zero warnings on ALL targets)
++ the one-time rustfmt normalization, the CI workflow (test ×2
+profiles + clippy + fmt + the four evidence examples),
+`IMPLEMENTATION_LOG.md` (the timestamped build history),
+`IMPLEMENTATION_CHECKLIST.md` (the per-component grid),
+`docs/PAPERS_MAP.md` (the papers' inner connections — the six
+lineages, the edge-by-edge "what flows where", the composition stack),
+`docs/INDEX.md` (the concept/keyword search index), README/SECURITY
+refreshes. Workspace 1,237 tests green (+10); clippy clean everywhere.
+
+**The next highest-value items** (this session's honest ledger):
+* the Modulus-50 class as the widthfold's operating modulus — the
+  extraction ledger's norm law now measures the Q_32 ceiling directly
+  (the unwind slack is down to 2^6.6 at the β₁ = 2^15+ rows: the norm
+  headroom, not the machinery, binds);
+* the D4 split's response-size recovery — folding the r column-chains
+  into ONE accumulator (the Quasar/PCD composition) and/or the
+  single-fold-over-columns (the LaBinius secondary discipline);
+* zero-knowledge for the fold/response layers (Wave 8.6 — the
+  LatticeBlindFold stack is the designated route, now implemented);
+* the CLOB guest port + the ethrex/zoda adapter code (the research
+  docs' designs, unexecuted).
+
 ## Session update (2026-10-04, the recursive staging + D4 + the compact terminal)
 
 Landed this session (BENCHMARKS §2k + SECURITY.md's posture update):

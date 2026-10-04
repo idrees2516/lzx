@@ -52,7 +52,10 @@ pub struct FastProverOpts {
 
 impl Default for FastProverOpts {
     fn default() -> Self {
-        FastProverOpts { window: 3, collect_stats: true }
+        FastProverOpts {
+            window: 3,
+            collect_stats: true,
+        }
     }
 }
 
@@ -283,8 +286,10 @@ pub fn prove_fast_with_opts(
     for x2 in 0..suffixes {
         let mut term_grids = Vec::with_capacity(vp.terms.len());
         for (_coeff, ids) in &vp.terms {
-            let mut tables: Vec<Vec<Goldilocks>> =
-                ids.iter().map(|&k| views[k].window_table(x2, suffixes, v)).collect();
+            let mut tables: Vec<Vec<Goldilocks>> = ids
+                .iter()
+                .map(|&k| views[k].window_table(x2, suffixes, v))
+                .collect();
             // Pad lower-degree terms with constant-one factors so every
             // grid is built NATIVELY at the uniform side d+2 — extending a
             // degree-n grid to a larger domain would carry stale ∞-slot
@@ -420,20 +425,14 @@ pub fn prove_fast_with_opts(
     // is the restructured part.)
     let mut bound_mles: Vec<DenseMle> = bound
         .into_iter()
-        .map(|arr| {
-            DenseMle::new(arr).map_err(SumcheckError::Mle)
-        })
+        .map(|arr| DenseMle::new(arr).map_err(SumcheckError::Mle))
         .collect::<Result<_, _>>()?;
     for _round in v..m {
         let mut evals_at = Vec::with_capacity(d + 1);
         for t in 0..=d {
             let tf = fe(t as u64);
             stats.bb_mults += (d.saturating_sub(1).max(1) * bound_mles[0].len() / 2) as u64;
-            evals_at.push(crate::sumcheck::sum_products(
-                &bound_mles,
-                &vp.terms,
-                tf,
-            ));
+            evals_at.push(crate::sumcheck::sum_products(&bound_mles, &vp.terms, tf));
         }
         let sum01 = evals_at[0].add(&evals_at[1]);
         if sum01 != current_claim {

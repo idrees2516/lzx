@@ -36,9 +36,7 @@
 //! ONE 3-round sumcheck regardless of `ℓ_np` (the O(μ) communication
 //! story, test-pinned).
 
-use crate::pikkufold_lrp::{
-    ring_sc_prove, ring_sc_verify, RingScProof, RingVirtualPoly,
-};
+use crate::pikkufold_lrp::{ring_sc_prove, ring_sc_verify, RingScProof, RingVirtualPoly};
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiPublicKey};
 use lattice_core::short_challenge::{ShortChallengeFamily, ShortChallengeSpec};
 use lattice_core::transcript::Transcript;
@@ -48,13 +46,19 @@ use lattice_ring::{Modulus32, RingConfig, RingElement};
 pub enum SymphonyProtocolError {
     Ajtai(AjtaiError),
     Ring(lattice_ring::RingError),
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     TranscriptFailure,
     Sumcheck(&'static str),
     /// The Eq-25 terminal identity failed.
     TerminalCheckFailed,
     /// The Eq-50 feasibility gate rejected the folded witness norm.
-    Eq50GateExceeded { norm_sq: u128, bound_sq: u128 },
+    Eq50GateExceeded {
+        norm_sq: u128,
+        bound_sq: u128,
+    },
 }
 
 impl From<AjtaiError> for SymphonyProtocolError {
@@ -125,7 +129,13 @@ impl HadParams {
                 });
             }
         }
-        HadParams { m, n, d, mats, seed: seed.to_vec() }
+        HadParams {
+            m,
+            n,
+            d,
+            mats,
+            seed: seed.to_vec(),
+        }
     }
 
     /// `g_{i,j} = M_i·F_{*,j} ∈ R_q^m` (the column matvecs).
@@ -137,7 +147,10 @@ impl HadParams {
         let phi = ring.n();
         let block = phi / self.d;
         if f.len() != self.n {
-            return Err(SymphonyProtocolError::Shape { expected: self.n, got: f.len() });
+            return Err(SymphonyProtocolError::Shape {
+                expected: self.n,
+                got: f.len(),
+            });
         }
         // Unpack F ∈ R_q^{n×d} from the packed witness f: column j's block
         // [j·block, (j+1)·block) becomes the low coefficients of the
@@ -181,7 +194,10 @@ impl HadParams {
         f: &[RingElement],
     ) -> Result<Vec<Vec<RingElement>>, SymphonyProtocolError> {
         if f.len() != self.n {
-            return Err(SymphonyProtocolError::Shape { expected: self.n, got: f.len() });
+            return Err(SymphonyProtocolError::Shape {
+                expected: self.n,
+                got: f.len(),
+            });
         }
         let mut out = Vec::with_capacity(3);
         for mat in &self.mats {
@@ -346,7 +362,10 @@ pub fn prove_had(
     let out = ring_sc_prove(ring, &vp, &claim, transcript)?;
     // U claims: the g-factor claims (factor ids: 1 + 3·(ℓ·d) ordering).
     let u: Vec<RingElement> = out.factor_claims[1..].to_vec();
-    Ok(HadProof { sumcheck: out.proof, u })
+    Ok(HadProof {
+        sumcheck: out.proof,
+        u,
+    })
 }
 
 /// Verify `Π_had` / the merged Figure-4 Step-1 protocol. Returns the
@@ -365,7 +384,14 @@ pub fn verify_had(
     let num_vars = log2(params.m);
     let max_degree = 3;
     let claim = ring.zero();
-    let verdict = ring_sc_verify(ring, num_vars, max_degree, &claim, &proof.sumcheck, transcript)?;
+    let verdict = ring_sc_verify(
+        ring,
+        num_vars,
+        max_degree,
+        &claim,
+        &proof.sumcheck,
+        transcript,
+    )?;
     let point = verdict.point;
     // Eq 25 terminal cross-check, merged over instances (Eq 45 weights):
     // Σ_ℓ Σ_j α^{(ℓ−1)d+j−1}·eq(s, r)·(U₁^ℓ,j·U₂^ℓ,j − U₃^ℓ,j) = terminal.
@@ -383,7 +409,10 @@ pub fn verify_had(
     };
     let expected_u_len = 3 * params.d * ell;
     if proof.u.len() != expected_u_len {
-        return Err(SymphonyProtocolError::Shape { expected: expected_u_len, got: proof.u.len() });
+        return Err(SymphonyProtocolError::Shape {
+            expected: expected_u_len,
+            got: proof.u.len(),
+        });
     }
     let mut alpha_pow = 1u32;
     let mut recomputed = ring.zero();
@@ -420,7 +449,10 @@ pub fn verify_had(
             }
             *vi = RingElement::from_coeffs(ring, coeffs);
         }
-        outputs.push(HadOutput { r: point.clone(), v });
+        outputs.push(HadOutput {
+            r: point.clone(),
+            v,
+        });
     }
     Ok(outputs)
 }
@@ -522,14 +554,19 @@ pub fn prove_fold_symphony(
     // Step 4: β ← S^{ℓ_np} (fixed-weight short challenges, Γ_C-certified).
     let spec = ShortChallengeSpec {
         n: ring.n(),
-        family: ShortChallengeFamily::FixedWeight { weight: 3, amplitude: 1 },
+        family: ShortChallengeFamily::FixedWeight {
+            weight: 3,
+            amplitude: 1,
+        },
     };
     let mut beta = Vec::with_capacity(ell);
     for _ in 0..ell {
         let seed = transcript
             .challenge_bytes(b"symphony-fold-beta", 32)
             .map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
-        let ch = spec.sample(&seed).map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
+        let ch = spec
+            .sample(&seed)
+            .map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
         beta.push(RingElement::from_signed(ring, &ch.coefficients));
     }
     // Steps 5–6 (prover side): f* = Σ_ℓ β_ℓ·f_ℓ (ALL instances weighted —
@@ -552,7 +589,10 @@ pub fn prove_fold_symphony(
         .min(u128::from(b_bnd_cap).saturating_pow(2));
     let ns = norm_sq(&f_star);
     if ns > bound_sq {
-        return Err(SymphonyProtocolError::Eq50GateExceeded { norm_sq: ns, bound_sq });
+        return Err(SymphonyProtocolError::Eq50GateExceeded {
+            norm_sq: ns,
+            bound_sq,
+        });
     }
     Ok(SymphonyFoldProof { had })
 }
@@ -579,14 +619,19 @@ pub fn verify_fold_symphony(
     // Step 4: β replay.
     let spec = ShortChallengeSpec {
         n: ring.n(),
-        family: ShortChallengeFamily::FixedWeight { weight: 3, amplitude: 1 },
+        family: ShortChallengeFamily::FixedWeight {
+            weight: 3,
+            amplitude: 1,
+        },
     };
     let mut beta = Vec::with_capacity(ell);
     for _ in 0..ell {
         let seed = transcript
             .challenge_bytes(b"symphony-fold-beta", 32)
             .map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
-        let ch = spec.sample(&seed).map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
+        let ch = spec
+            .sample(&seed)
+            .map_err(|_| SymphonyProtocolError::TranscriptFailure)?;
         beta.push(RingElement::from_signed(ring, &ch.coefficients));
     }
     // Steps 5–6: c* = Σ_ℓ β_ℓ·c_ℓ (Eq 48 — every instance weighted),
@@ -617,9 +662,17 @@ pub fn verify_fold_symphony(
     let bound_sq = eq50_bound_squared(ell, gamma, b_f, params.n, params.d, params.d);
     let q_half_sq = ((ring.modulus.q as u64) / 2).pow(2) as u128;
     if bound_sq > q_half_sq {
-        return Err(SymphonyProtocolError::Eq50GateExceeded { norm_sq: bound_sq, bound_sq: q_half_sq });
+        return Err(SymphonyProtocolError::Eq50GateExceeded {
+            norm_sq: bound_sq,
+            bound_sq: q_half_sq,
+        });
     }
-    Ok(SymphonyFoldOutput { c_star, v_star, r, beta })
+    Ok(SymphonyFoldOutput {
+        c_star,
+        v_star,
+        r,
+        beta,
+    })
 }
 
 /// The decider for the folded output: `c*` opens `f*` (the folded witness,
@@ -659,7 +712,12 @@ mod tests {
 
     fn setup(log_n: u32, m_slots: usize) -> (AjtaiPublicKey, RingConfig) {
         let ring = RingConfig::new(Modulus32::Q_32, log_n).ok().unwrap();
-        let params = AjtaiParams { ring: ring.clone(), k: 2, m: m_slots, norm_bound: 1 << 20 };
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: m_slots,
+            norm_bound: 1 << 20,
+        };
         let pk = AjtaiPublicKey::from_seed(params, [77u8; 32]).ok().unwrap();
         (pk, ring)
     }
@@ -707,7 +765,13 @@ mod tests {
                 mat[a * n + a] = 1;
             }
         }
-        HadParams { m, n, d, mats, seed: b"sym-identity".to_vec() }
+        HadParams {
+            m,
+            n,
+            d,
+            mats,
+            seed: b"sym-identity".to_vec(),
+        }
     }
 
     #[test]
@@ -738,9 +802,19 @@ mod tests {
         let f = hadamard_witness(&ring, 8, 4, b"h1");
         let c = pk.commit(&f).ok().unwrap();
         let mut t = Transcript::new_default(b"sym-had");
-        let proof = prove_had(&ring, &params, std::slice::from_ref(&c), std::slice::from_ref(&f), &mut t).ok().unwrap();
+        let proof = prove_had(
+            &ring,
+            &params,
+            std::slice::from_ref(&c),
+            std::slice::from_ref(&f),
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         let mut vt = Transcript::new_default(b"sym-had");
-        let outputs = verify_had(&ring, &params, std::slice::from_ref(&c), &proof, &mut vt).ok().unwrap();
+        let outputs = verify_had(&ring, &params, std::slice::from_ref(&c), &proof, &mut vt)
+            .ok()
+            .unwrap();
         assert_eq!(outputs.len(), 1);
         // Decider: c opens f and ⟨M_i f, ts(r)⟩ = v_i.
         assert!(verify_had_opening(&pk, &params, &c, &f, &outputs[0]).is_ok());
@@ -772,7 +846,15 @@ mod tests {
         let f = hadamard_witness(&ring, 8, 4, b"h3");
         let c = pk.commit(&f).ok().unwrap();
         let mut t = Transcript::new_default(b"sym-had-t");
-        let mut proof = prove_had(&ring, &params, std::slice::from_ref(&c), std::slice::from_ref(&f), &mut t).ok().unwrap();
+        let mut proof = prove_had(
+            &ring,
+            &params,
+            std::slice::from_ref(&c),
+            std::slice::from_ref(&f),
+            &mut t,
+        )
+        .ok()
+        .unwrap();
         // Tampered U: the Eq-25 terminal cross-check fails.
         proof.u[0] = proof.u[0].add(&ring.one()).ok().unwrap();
         let mut vt = Transcript::new_default(b"sym-had-t");
@@ -798,19 +880,23 @@ mod tests {
         }
         let b_f = norm_sq(&ws[0]) as u64 + 1;
         let mut t = Transcript::new_default(b"sym-fold");
-        let proof =
-            prove_fold_symphony(&pk, &params, &cs, &ws, b_f, u64::MAX, &mut t).ok().unwrap();
+        let proof = prove_fold_symphony(&pk, &params, &cs, &ws, b_f, u64::MAX, &mut t)
+            .ok()
+            .unwrap();
         // ONE sumcheck: rounds = log m = 3, independent of ell.
         assert_eq!(proof.had.sumcheck.rounds.len(), 3);
         // Per-instance U claims: 3·d·ℓ.
         assert_eq!(proof.had.u.len(), 3 * 4 * ell);
         let mut vt = Transcript::new_default(b"sym-fold");
-        let out =
-            verify_fold_symphony(&pk, &params, &cs, &proof, b_f, &mut vt).ok().unwrap();
+        let out = verify_fold_symphony(&pk, &params, &cs, &proof, b_f, &mut vt)
+            .ok()
+            .unwrap();
         // Decider: f* = Σ_ℓ β_ℓ·f_ℓ (all weighted) opens c* and satisfies
         // the linear relation.
-        let mut f_star: Vec<RingElement> =
-            ws[0].iter().map(|w| w.mul(&out.beta[0]).ok().unwrap()).collect();
+        let mut f_star: Vec<RingElement> = ws[0]
+            .iter()
+            .map(|w| w.mul(&out.beta[0]).ok().unwrap())
+            .collect();
         for (li, bl) in out.beta.iter().enumerate().skip(1) {
             for (j, w) in ws[li].iter().enumerate() {
                 f_star[j] = f_star[j].add(&w.mul(bl).ok().unwrap()).ok().unwrap();

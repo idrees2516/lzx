@@ -52,7 +52,10 @@ pub enum QuasarAccError {
     Ajtai(AjtaiError),
     Ring(lattice_ring::RingError),
     Sumcheck(&'static str),
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
     TranscriptFailure,
     /// `eq(τ, r_y) = 0` — the multicast degenerates (probability ≤
     /// (log ℓ)/q; the paper re-samples, we reject).
@@ -102,7 +105,13 @@ impl MulticastParams {
             let b = (chunk[2] as usize) % n;
             terms.push((c, a, b));
         }
-        MulticastParams { ell, m, n, terms, seed: seed.to_vec() }
+        MulticastParams {
+            ell,
+            m,
+            n,
+            terms,
+            seed: seed.to_vec(),
+        }
     }
 
     /// `F(x, w)` over `Z_q`.
@@ -186,7 +195,9 @@ fn challenge_zq_vec(
     count: usize,
     q: u32,
 ) -> Result<Vec<u32>, QuasarAccError> {
-    (0..count).map(|_| challenge_zq(transcript, label, q)).collect()
+    (0..count)
+        .map(|_| challenge_zq(transcript, label, q))
+        .collect()
 }
 
 fn log2(x: usize) -> usize {
@@ -248,7 +259,10 @@ pub fn prove_multicast(
     let m = &ring.modulus;
     let q = m.q;
     if chunks.len() != params.ell {
-        return Err(QuasarAccError::Shape { expected: params.ell, got: chunks.len() });
+        return Err(QuasarAccError::Shape {
+            expected: params.ell,
+            got: chunks.len(),
+        });
     }
     // Stack the unions and commit (ONE commitment per side).
     let mut stacked_x: Vec<u32> = Vec::with_capacity(params.ell * params.m);
@@ -268,14 +282,10 @@ pub fn prove_multicast(
     let eq_tab = eq_table(m, &r_y);
     let log_ell = log2(params.ell);
     let mut vp = RingVirtualPoly::new(log_ell);
-    let eq_id = vp.add_factor(
-        eq_tab.iter().map(|&w| ring.constant(w)).collect(),
-    )?;
+    let eq_id = vp.add_factor(eq_tab.iter().map(|&w| ring.constant(w)).collect())?;
     for &(c, a, b) in &params.terms {
-        let x_tab: Vec<RingElement> =
-            chunks.iter().map(|ch| ring.constant(ch.x[a])).collect();
-        let w_tab: Vec<RingElement> =
-            chunks.iter().map(|ch| ring.constant(ch.w[b])).collect();
+        let x_tab: Vec<RingElement> = chunks.iter().map(|ch| ring.constant(ch.x[a])).collect();
+        let w_tab: Vec<RingElement> = chunks.iter().map(|ch| ring.constant(ch.w[b])).collect();
         let x_id = vp.add_factor(x_tab)?;
         let w_id = vp.add_factor(w_tab)?;
         vp.add_term(ring.constant(c), vec![eq_id, x_id, w_id])?;
@@ -318,7 +328,12 @@ pub fn prove_multicast(
     // e = H(τ) = F(x_acc, w_tilde).
     let e = params.evaluate(m, &x_acc, &w_tilde);
     Ok((
-        MulticastProof { sumcheck: out.proof, c_w: proof_c_w, c: c.clone(), vw },
+        MulticastProof {
+            sumcheck: out.proof,
+            c_w: proof_c_w,
+            c: c.clone(),
+            vw,
+        },
         AccumulatedInstance {
             c_x,
             c_w,
@@ -392,7 +407,10 @@ pub fn verify_multicast(
     let m = &ring.modulus;
     let q = m.q;
     if chunks.len() != params.ell {
-        return Err(QuasarAccError::Shape { expected: params.ell, got: chunks.len() });
+        return Err(QuasarAccError::Shape {
+            expected: params.ell,
+            got: chunks.len(),
+        });
     }
     let mut stacked_x: Vec<u32> = Vec::with_capacity(params.ell * params.m);
     for ch in chunks {
@@ -407,20 +425,28 @@ pub fn verify_multicast(
     let mut vp = RingVirtualPoly::new(log_ell);
     let eq_id = vp.add_factor(eq_tab.iter().map(|&w| ring.constant(w)).collect())?;
     for &(c, a, b) in &params.terms {
-        let x_tab: Vec<RingElement> =
-            chunks.iter().map(|ch| ring.constant(ch.x[a])).collect();
-        let w_tab: Vec<RingElement> =
-            chunks.iter().map(|ch| ring.constant(ch.w[b])).collect();
+        let x_tab: Vec<RingElement> = chunks.iter().map(|ch| ring.constant(ch.x[a])).collect();
+        let w_tab: Vec<RingElement> = chunks.iter().map(|ch| ring.constant(ch.w[b])).collect();
         let x_id = vp.add_factor(x_tab)?;
         let w_id = vp.add_factor(w_tab)?;
         vp.add_term(ring.constant(c), vec![eq_id, x_id, w_id])?;
     }
     let claim = ring.zero();
-    let verdict = ring_sc_verify(ring, log_ell, vp.max_degree(), &claim, &proof.sumcheck, transcript)?;
+    let verdict = ring_sc_verify(
+        ring,
+        log_ell,
+        vp.max_degree(),
+        &claim,
+        &proof.sumcheck,
+        transcript,
+    )?;
     let tau = verdict.point;
     // e = G(τ)·eq(τ, r_y)^{-1} = H(τ) = F(x, w̃).
     let eq_tau_ry = eq_point(m, &tau, &r_y);
-    let eq_inv = ring.modulus.inv(eq_tau_ry).ok_or(QuasarAccError::EqChallengeDegenerate)?;
+    let eq_inv = ring
+        .modulus
+        .inv(eq_tau_ry)
+        .ok_or(QuasarAccError::EqChallengeDegenerate)?;
     let e = ((verdict.final_claim as u64 * eq_inv as u64) % q as u64) as u32;
     // Absorb c and the r_x/r_w challenges + the vw claim.
     transcript
@@ -592,18 +618,18 @@ pub fn prove_fold_2to1(
             .collect()
     };
     let gamma_sq = ((gamma as u64 * gamma as u64) % q as u64) as u32;
-    let e_star = ((input.acc0.e as u64
-        + gamma as u64 * t as u64
-        + gamma_sq as u64 * input.acc1.e as u64)
-        % q as u64) as u32;
+    let e_star =
+        ((input.acc0.e as u64 + gamma as u64 * t as u64 + gamma_sq as u64 * input.acc1.e as u64)
+            % q as u64) as u32;
     // Commitment folds (Ajtai homomorphism).
-    let fold_commit = |c0: &AjtaiCommitment, c1: &AjtaiCommitment| -> Result<AjtaiCommitment, QuasarAccError> {
-        let mut rows = Vec::with_capacity(c0.rows.len());
-        for (r0, r1) in c0.rows.iter().zip(c1.rows.iter()) {
-            rows.push(r0.add(&r1.scale_i64(gamma as i64))?);
-        }
-        Ok(AjtaiCommitment { rows })
-    };
+    let fold_commit =
+        |c0: &AjtaiCommitment, c1: &AjtaiCommitment| -> Result<AjtaiCommitment, QuasarAccError> {
+            let mut rows = Vec::with_capacity(c0.rows.len());
+            for (r0, r1) in c0.rows.iter().zip(c1.rows.iter()) {
+                rows.push(r0.add(&r1.scale_i64(gamma as i64))?);
+            }
+            Ok(AjtaiCommitment { rows })
+        };
     Ok((
         FoldedQuasar {
             c_x: fold_commit(&input.acc0.c_x, &input.acc1.c_x)?,
@@ -700,11 +726,7 @@ mod tests {
     /// Chunks satisfying the predicate: pick w freely, then solve one x
     /// coordinate per term so F = 0: with terms (c, a, b), set x_a := 0
     /// for all but craft... simplest: choose x = 0 (then F = 0 for any w).
-    fn satisfying_chunks(
-        params: &MulticastParams,
-        q: u32,
-        tag: &[u8],
-    ) -> Vec<ChunkInstance> {
+    fn satisfying_chunks(params: &MulticastParams, q: u32, tag: &[u8]) -> Vec<ChunkInstance> {
         (0..params.ell)
             .map(|k| {
                 let bytes = Transcript::xof(
@@ -717,7 +739,10 @@ mod tests {
                     .take(params.n)
                     .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]) % q)
                     .collect();
-                ChunkInstance { x: vec![0u32; params.m], w }
+                ChunkInstance {
+                    x: vec![0u32; params.m],
+                    w,
+                }
             })
             .collect()
     }
@@ -729,13 +754,14 @@ mod tests {
         let params = MulticastParams::from_seed(4, 8, 8, 3, b"qp");
         let chunks = satisfying_chunks(&params, ring.modulus.q, b"mc");
         let mut t = Transcript::new_default(b"quasar-mc");
-        let (proof, acc, w_tilde) =
-            prove_multicast(&pk, &params, &chunks, &mut t).ok().unwrap();
+        let (proof, acc, w_tilde) = prove_multicast(&pk, &params, &chunks, &mut t).ok().unwrap();
         // The single sumcheck: log ℓ = 2 rounds, degree 3.
         assert_eq!(proof.sumcheck.rounds.len(), 2);
         assert!(proof.sumcheck.rounds.iter().all(|r| r.len() == 4));
         let mut vt = Transcript::new_default(b"quasar-mc");
-        let acc_v = verify_multicast(&pk, &params, &chunks, &proof, &mut vt).ok().unwrap();
+        let acc_v = verify_multicast(&pk, &params, &chunks, &proof, &mut vt)
+            .ok()
+            .unwrap();
         // The verifier's view matches the prover's derived instance.
         assert_eq!(acc_v.e, acc.e);
         assert_eq!(acc_v.x, acc.x);
@@ -766,10 +792,8 @@ mod tests {
         let params = MulticastParams::from_seed(4, 8, 8, 3, b"qp-t");
         let chunks = satisfying_chunks(&params, ring.modulus.q, b"mc-t");
         let mut t = Transcript::new_default(b"quasar-mc-t");
-        let (mut proof, _acc, _w) =
-            prove_multicast(&pk, &params, &chunks, &mut t).ok().unwrap();
-        proof.sumcheck.rounds[0][0] =
-            (proof.sumcheck.rounds[0][0] + 7) % ring.modulus.q;
+        let (mut proof, _acc, _w) = prove_multicast(&pk, &params, &chunks, &mut t).ok().unwrap();
+        proof.sumcheck.rounds[0][0] = (proof.sumcheck.rounds[0][0] + 7) % ring.modulus.q;
         let mut vt = Transcript::new_default(b"quasar-mc-t");
         assert!(verify_multicast(&pk, &params, &chunks, &proof, &mut vt).is_err());
     }
@@ -782,9 +806,13 @@ mod tests {
         let chunks_a = satisfying_chunks(&params, ring.modulus.q, b"fa");
         let chunks_b = satisfying_chunks(&params, ring.modulus.q, b"fb");
         let mut ta = Transcript::new_default(b"quasar-fa");
-        let (pa, acc_a, wa) = prove_multicast(&pk, &params, &chunks_a, &mut ta).ok().unwrap();
+        let (pa, acc_a, wa) = prove_multicast(&pk, &params, &chunks_a, &mut ta)
+            .ok()
+            .unwrap();
         let mut tb = Transcript::new_default(b"quasar-fb");
-        let (_pb, acc_b, wb) = prove_multicast(&pk, &params, &chunks_b, &mut tb).ok().unwrap();
+        let (_pb, acc_b, wb) = prove_multicast(&pk, &params, &chunks_b, &mut tb)
+            .ok()
+            .unwrap();
         let _ = pa;
         // Fold the two accumulated instances.
         let mut tf = Transcript::new_default(b"quasar-fold");
@@ -819,19 +847,19 @@ mod tests {
             (acc, w)
         };
         // Track the stacked w's of the running union for the decider.
-        let mut running_chunks: Vec<ChunkInstance> = satisfying_chunks(&params, ring.modulus.q, b"ivc0");
+        let mut running_chunks: Vec<ChunkInstance> =
+            satisfying_chunks(&params, ring.modulus.q, b"ivc0");
         for step in 1..=3 {
-            let chunks = satisfying_chunks(
-                &params,
-                ring.modulus.q,
-                format!("ivc{}", step).as_bytes(),
-            );
+            let chunks =
+                satisfying_chunks(&params, ring.modulus.q, format!("ivc{}", step).as_bytes());
             let mut t = Transcript::new_default(b"quasar-ivc-step");
             let (_proof, acc_new, w_new) =
                 prove_multicast(&pk, &params, &chunks, &mut t).ok().unwrap();
             // Verify the multicast (ACC.V).
             let mut vt = Transcript::new_default(b"quasar-ivc-step");
-            let _ = verify_multicast(&pk, &params, &chunks, &_proof, &mut vt).ok().unwrap();
+            let _ = verify_multicast(&pk, &params, &chunks, &_proof, &mut vt)
+                .ok()
+                .unwrap();
             // Decider-check the new instance before folding (the kernel
             // simplification of the Reval subrelations).
             assert!(decider_multicast(&pk, &params, &acc_new, &chunks, &w_new).is_ok());
@@ -843,8 +871,7 @@ mod tests {
                 w_tilde0: running_w.clone(),
                 w_tilde1: w_new,
             };
-            let (folded, w_star) =
-                prove_fold_2to1(&pk, &params, &input, &mut tf).ok().unwrap();
+            let (folded, w_star) = prove_fold_2to1(&pk, &params, &input, &mut tf).ok().unwrap();
             assert!(decider_fold_2to1(&pk, &params, &folded, &w_star).is_ok());
             running_acc = AccumulatedInstance {
                 c_x: folded.c_x,
@@ -866,21 +893,26 @@ mod tests {
             let _ = &running_chunks;
         }
         // Final decider on the running accumulator.
-        assert!(decider_fold_2to1(&pk, &params, &{
-            FoldedQuasar {
-                c_x: running_acc.c_x.clone(),
-                c_w: running_acc.c_w.clone(),
-                c: running_acc.c.clone(),
-                tau: running_acc.tau.clone(),
-                r_x: running_acc.r_x.clone(),
-                r_w: running_acc.r_w.clone(),
-                e: running_acc.e,
-                x: running_acc.x.clone(),
-                vx: running_acc.vx,
-                vw: running_acc.vw,
-                gamma: 0,
-            }
-        }, &running_w)
+        assert!(decider_fold_2to1(
+            &pk,
+            &params,
+            &{
+                FoldedQuasar {
+                    c_x: running_acc.c_x.clone(),
+                    c_w: running_acc.c_w.clone(),
+                    c: running_acc.c.clone(),
+                    tau: running_acc.tau.clone(),
+                    r_x: running_acc.r_x.clone(),
+                    r_w: running_acc.r_w.clone(),
+                    e: running_acc.e,
+                    x: running_acc.x.clone(),
+                    vx: running_acc.vx,
+                    vw: running_acc.vw,
+                    gamma: 0,
+                }
+            },
+            &running_w
+        )
         .is_ok());
     }
 }

@@ -83,7 +83,10 @@ const fn mont_bound(b: i32, q: u16) -> i32 {
 /// `|barrett_lut_i16(a, q)|` for the worst i16 `a`, per large prime — an exhaustive sweep,
 /// evaluated once (`q/2 + 2^10` is the theoretical bound; the sweep is a little tighter). Upstream
 /// lives in `simd::ntt::bin_large`; the values are identical.
-const BLM: [i32; 2] = [barrett_lut_sweep(QS_LARGE[0]), barrett_lut_sweep(QS_LARGE[1])];
+const BLM: [i32; 2] = [
+    barrett_lut_sweep(QS_LARGE[0]),
+    barrett_lut_sweep(QS_LARGE[1]),
+];
 
 const fn barrett_lut_sweep(q: u16) -> i32 {
     let mut m = 0i32;
@@ -450,7 +453,12 @@ unsafe fn centre(x: __m512i, q: __m512i, half: __m512i, nhalf: __m512i) -> __m51
 
 /// Levels 0 and 1: the Phi_6 split as the two products `a0 + zeta6 a1` and `a0 + zeta6^-1 a1`,
 /// then the radix-2 of level 1 on a reduced untwiddled input.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_a<const Q: u16>(p: *mut __m512i) {
     let c = C::new::<Q>();
     let z6p = bc(Tw::<Q>::Z6.as_ptr());
@@ -477,7 +485,12 @@ unsafe fn pass_a<const Q: u16>(p: *mut __m512i) {
 }
 
 /// Levels 2 and 3 for one 162-block: 27 groups of 6 vectors, 3 radix-2 then 2 radix-3.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
     let c = C::new::<Q>();
     let l2 = Tw::<Q>::L2.as_ptr().add(2 * blk);
@@ -504,7 +517,12 @@ unsafe fn pass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
     }
 }
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t4 = Tw::<Q>::L4.as_ptr().add(4 * k4);
@@ -518,7 +536,12 @@ unsafe fn pass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     }
 }
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t5 = Tw::<Q>::L5.as_ptr().add(12 * k4);
@@ -535,7 +558,12 @@ unsafe fn pass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
 }
 
 /// Level 6, whose three outputs are reduced so that the transform leaves `|x| < q`.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn pass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t6 = Tw::<Q>::L6.as_ptr().add(36 * k4);
@@ -556,7 +584,12 @@ unsafe fn pass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI (checked by `simd::available`); `b` must be 64-byte
 /// aligned (`Batch32` is).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 pub unsafe fn ntt_gen_batch32<const Q: u16>(b: &mut Batch32) {
     let p = b.v.as_mut_ptr() as *mut __m512i;
     pass_a::<Q>(p);
@@ -574,7 +607,12 @@ pub unsafe fn ntt_gen_batch32<const Q: u16>(b: &mut Batch32) {
 // inverse
 // =============================================================================================
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t6 = TwI::<Q>::IL6.as_ptr().add(36 * k4);
@@ -588,7 +626,12 @@ unsafe fn ipass_d<const Q: u16>(p: *mut __m512i, k4: usize) {
     }
 }
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t5 = TwI::<Q>::IL5.as_ptr().add(12 * k4);
@@ -604,7 +647,12 @@ unsafe fn ipass_c5<const Q: u16>(p: *mut __m512i, k4: usize) {
     }
 }
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     let c = C::new::<Q>();
     let t4 = TwI::<Q>::IL4.as_ptr().add(4 * k4);
@@ -618,7 +666,12 @@ unsafe fn ipass_c4<const Q: u16>(p: *mut __m512i, k4: usize) {
     }
 }
 
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
     let c = C::new::<Q>();
     let l2 = TwI::<Q>::IL2.as_ptr().add(2 * blk);
@@ -644,7 +697,12 @@ unsafe fn ipass_b<const Q: u16>(p: *mut __m512i, blk: usize) {
 
 /// Levels 1 and 0: the two inverse radix-2 butterflies of level 1, then the Phi_6 recombination,
 /// which carries the whole `1/648` normalisation (`TwI::KA`) and centers its four outputs.
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 unsafe fn ipass_a<const Q: u16>(p: *mut __m512i) {
     let c = C::new::<Q>();
     let half = bc(&TwI::<Q>::HALF);
@@ -685,7 +743,12 @@ unsafe fn ipass_a<const Q: u16>(p: *mut __m512i) {
 /// # Safety
 /// The host must have AVX-512 F/BW/VL/VBMI (checked by `simd::available`); `b` must be 64-byte
 /// aligned (`Batch32` is).
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vl", enable = "avx512vbmi")]
+#[target_feature(
+    enable = "avx512f",
+    enable = "avx512bw",
+    enable = "avx512vl",
+    enable = "avx512vbmi"
+)]
 pub unsafe fn intt_gen_batch32<const Q: u16>(b: &mut Batch32) {
     let p = b.v.as_mut_ptr() as *mut __m512i;
     for blk in 0..4 {

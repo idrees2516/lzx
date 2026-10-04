@@ -121,9 +121,7 @@ impl ProofEnvelope {
         if bytes.len() < 4 + 32 * 3 + 4 {
             return Err(EnvelopeError::TrailingBytes { got: bytes.len() });
         }
-        let version = u32::from_le_bytes(
-            bytes[..4].try_into().unwrap_or([0u8; 4]),
-        );
+        let version = u32::from_le_bytes(bytes[..4].try_into().unwrap_or([0u8; 4]));
         if version != Self::VERSION {
             return Err(EnvelopeError::VersionUnsupported { got: version });
         }
@@ -131,34 +129,34 @@ impl ProofEnvelope {
         let mut digests = [[0u8; 32]; 3];
         for d in digests.iter_mut() {
             d.copy_from_slice(
-                bytes.get(off..off + 32).ok_or(EnvelopeError::TrailingBytes {
-                    got: bytes.len(),
-                })?,
+                bytes
+                    .get(off..off + 32)
+                    .ok_or(EnvelopeError::TrailingBytes { got: bytes.len() })?,
             );
             off += 32;
         }
         let num_sections = u32::from_le_bytes(
-            bytes.get(off..off + 4)
+            bytes
+                .get(off..off + 4)
                 .ok_or(EnvelopeError::TrailingBytes { got: bytes.len() })?
                 .try_into()
                 .unwrap_or([0u8; 4]),
         ) as usize;
         off += 4;
         if num_sections > MAX_SECTIONS {
-            return Err(EnvelopeError::TooManySections {
-                got: num_sections,
-            });
+            return Err(EnvelopeError::TooManySections { got: num_sections });
         }
         let mut sections = Vec::with_capacity(num_sections);
         let mut seen = [false; 5];
         let mut total = 0usize;
         for _ in 0..num_sections {
-            let tag = *bytes.get(off).ok_or(EnvelopeError::TrailingBytes {
-                got: bytes.len(),
-            })?;
+            let tag = *bytes
+                .get(off)
+                .ok_or(EnvelopeError::TrailingBytes { got: bytes.len() })?;
             off += 1;
             let len = u32::from_le_bytes(
-                bytes.get(off..off + 4)
+                bytes
+                    .get(off..off + 4)
                     .ok_or(EnvelopeError::TrailingBytes { got: bytes.len() })?
                     .try_into()
                     .unwrap_or([0u8; 4]),

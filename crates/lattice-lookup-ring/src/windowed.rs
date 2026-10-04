@@ -38,7 +38,6 @@
 //! next optimization; the workspace's Serval module carries that
 //! pattern for its own relation.
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 use crate::carrier::{sample_short, CarrierCommitment, CarrierError, CarrierKey, CarrierParams};
@@ -101,7 +100,9 @@ pub fn digit_reconstruct(ring: &RingD, layers: &[Elem]) -> Elem {
 pub fn windowed_slots(ring: &RingD, v: &[Elem]) -> Result<Vec<Elem>, WindowedError> {
     let n = v.len();
     if !n.is_power_of_two() || n < 2 {
-        return Err(WindowedError::Shape("vector length must be a power of two".into()));
+        return Err(WindowedError::Shape(
+            "vector length must be a power of two".into(),
+        ));
     }
     let log_n = n.trailing_zeros() as usize;
     let h_r = log_n.div_ceil(2);
@@ -123,7 +124,9 @@ pub fn slots_to_vector(ring: &RingD, slots: &[Elem], n: usize) -> Result<Vec<Ele
     }
     let mut v = Vec::with_capacity(n);
     for i in 0..n {
-        let layers: Vec<Elem> = (0..WINDOW_COUNT).map(|k| slots[k * n + i].clone()).collect();
+        let layers: Vec<Elem> = (0..WINDOW_COUNT)
+            .map(|k| slots[k * n + i].clone())
+            .collect();
         v.push(digit_reconstruct(ring, &layers));
     }
     Ok(v)
@@ -312,8 +315,15 @@ pub fn verify_windowed_eval(
         }
     }
     // FS replay
-    let expected_chal =
-        derive_challenge(ring, key, commitment, point, y, &proof.mask_commitment, &proof.mask_image);
+    let expected_chal = derive_challenge(
+        ring,
+        key,
+        commitment,
+        point,
+        y,
+        &proof.mask_commitment,
+        &proof.mask_image,
+    );
     if expected_chal != proof.challenge {
         return Err(WindowedError::Binding);
     }
@@ -383,7 +393,9 @@ mod tests {
     #[test]
     fn grid_slots_roundtrip() {
         let r = ring();
-        let v: Vec<Elem> = (0..8).map(|i| r.random(format!("g{i}").as_bytes())).collect();
+        let v: Vec<Elem> = (0..8)
+            .map(|i| r.random(format!("g{i}").as_bytes()))
+            .collect();
         let slots = windowed_slots(&r, &v).ok().unwrap();
         assert_eq!(slots.len(), 8 * WINDOW_COUNT);
         let back = slots_to_vector(&r, &slots, 8).ok().unwrap();
@@ -394,10 +406,14 @@ mod tests {
     fn linear_image_equals_mle_eval() {
         let r = ring();
         let n = 16;
-        let v: Vec<Elem> = (0..n).map(|i| r.random(format!("li{i}").as_bytes())).collect();
+        let v: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("li{i}").as_bytes()))
+            .collect();
         let slots = windowed_slots(&r, &v).ok().unwrap();
         let mut tr = Transcript::new_default(b"pt");
-        let point: Vec<Elem> = (0..4).map(|i| r.sample_challenge(&mut tr, format!("p{i}").as_bytes())).collect();
+        let point: Vec<Elem> = (0..4)
+            .map(|i| r.sample_challenge(&mut tr, format!("p{i}").as_bytes()))
+            .collect();
         // the linear image over digit slots must equal the direct MLE eval
         let li = linear_image(&r, &slots, &point).ok().unwrap();
         let mle = r.mle_eval(&v, &point).ok().unwrap();
@@ -408,17 +424,23 @@ mod tests {
     fn windowed_eval_end_to_end() {
         let r = ring();
         let n = 8;
-        let v: Vec<Elem> = (0..n).map(|i| r.random(format!("we{i}").as_bytes())).collect();
+        let v: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("we{i}").as_bytes()))
+            .collect();
         let params = carrier_params_for(&r, n, 2, 1 << 14);
         let key = CarrierKey::from_seed(params, [11u8; 32]);
         let (slots, commitment) = windowed_commit(&key, &v).ok().unwrap();
         let mut tr = Transcript::new_default(b"pt2");
-        let point: Vec<Elem> =
-            (0..3).map(|i| r.sample_challenge(&mut tr, format!("q{i}").as_bytes())).collect();
+        let point: Vec<Elem> = (0..3)
+            .map(|i| r.sample_challenge(&mut tr, format!("q{i}").as_bytes()))
+            .collect();
         let y = r.mle_eval(&v, &point).ok().unwrap();
-        let proof =
-            prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"seed").ok().unwrap();
-        verify_windowed_eval(&r, &key, &commitment, &point, &y, &proof).ok().unwrap();
+        let proof = prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"seed")
+            .ok()
+            .unwrap();
+        verify_windowed_eval(&r, &key, &commitment, &point, &y, &proof)
+            .ok()
+            .unwrap();
         // wrong claim rejected
         let y_bad = r.add(&y, &r.one());
         assert!(prove_windowed_eval(&r, &key, &slots, &point, &y_bad, &commitment, b"s").is_err());
@@ -429,7 +451,9 @@ mod tests {
         // tampered commitment rejected
         let (proof2, commitment2) = {
             let (slots2, c2) = windowed_commit(&key, &v).ok().unwrap();
-            let p2 = prove_windowed_eval(&r, &key, &slots2, &point, &y, &c2, b"s2").ok().unwrap();
+            let p2 = prove_windowed_eval(&r, &key, &slots2, &point, &y, &c2, b"s2")
+                .ok()
+                .unwrap();
             (p2, c2)
         };
         let mut c_bad = commitment2.clone();
@@ -441,18 +465,23 @@ mod tests {
     fn wrong_point_rejected() {
         let r = ring();
         let n = 4;
-        let v: Vec<Elem> = (0..n).map(|i| r.random(format!("wp{i}").as_bytes())).collect();
+        let v: Vec<Elem> = (0..n)
+            .map(|i| r.random(format!("wp{i}").as_bytes()))
+            .collect();
         let params = carrier_params_for(&r, n, 1, 1 << 14);
         let key = CarrierKey::from_seed(params, [5u8; 32]);
         let (slots, commitment) = windowed_commit(&key, &v).ok().unwrap();
         let mut tr = Transcript::new_default(b"pt3");
-        let point: Vec<Elem> =
-            (0..2).map(|i| r.sample_challenge(&mut tr, format!("q{i}").as_bytes())).collect();
-        let other: Vec<Elem> =
-            (0..2).map(|i| r.sample_challenge(&mut tr, format!("o{i}").as_bytes())).collect();
+        let point: Vec<Elem> = (0..2)
+            .map(|i| r.sample_challenge(&mut tr, format!("q{i}").as_bytes()))
+            .collect();
+        let other: Vec<Elem> = (0..2)
+            .map(|i| r.sample_challenge(&mut tr, format!("o{i}").as_bytes()))
+            .collect();
         let y = r.mle_eval(&v, &point).ok().unwrap();
-        let proof =
-            prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"seed").ok().unwrap();
+        let proof = prove_windowed_eval(&r, &key, &slots, &point, &y, &commitment, b"seed")
+            .ok()
+            .unwrap();
         assert!(verify_windowed_eval(&r, &key, &commitment, &other, &y, &proof).is_err());
     }
 }

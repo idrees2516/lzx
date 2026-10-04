@@ -56,9 +56,8 @@ static AVX512: OnceLock<bool> = OnceLock::new();
 /// Is the vectorized convolution available? (`avx512f` + `avx512dq` — `vpmullq` needs DQ.)
 #[cfg(target_arch = "x86_64")]
 pub fn available() -> bool {
-    *AVX512.get_or_init(|| {
-        is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512dq")
-    })
+    *AVX512
+        .get_or_init(|| is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512dq"))
 }
 
 #[cfg(not(target_arch = "x86_64"))]
@@ -115,7 +114,12 @@ struct QuadAcc {
 impl QuadAcc {
     #[inline]
     const fn zero() -> Self {
-        QuadAcc { ll: 0, lh: 0, hl: 0, hh: 0 }
+        QuadAcc {
+            ll: 0,
+            lh: 0,
+            hl: 0,
+            hh: 0,
+        }
     }
     /// Combine to the exact integer accumulator: `ll + (lh + hl) * 2^24 + hh * 2^48`.
     #[inline]
@@ -160,22 +164,10 @@ unsafe fn mac_pair(
                 let ah = ahi_rev[u0 + l];
                 let wl = _mm512_loadu_si512(wbase_lo.add(l) as *const __m512i);
                 let wh = _mm512_loadu_si512(wbase_hi.add(l) as *const __m512i);
-                acc_ll = _mm512_add_epi64(
-                    acc_ll,
-                    _mm512_mullo_epi64(_mm512_set1_epi64(al), wl),
-                );
-                acc_lh = _mm512_add_epi64(
-                    acc_lh,
-                    _mm512_mullo_epi64(_mm512_set1_epi64(al), wh),
-                );
-                acc_hl = _mm512_add_epi64(
-                    acc_hl,
-                    _mm512_mullo_epi64(_mm512_set1_epi64(ah), wl),
-                );
-                acc_hh = _mm512_add_epi64(
-                    acc_hh,
-                    _mm512_mullo_epi64(_mm512_set1_epi64(ah), wh),
-                );
+                acc_ll = _mm512_add_epi64(acc_ll, _mm512_mullo_epi64(_mm512_set1_epi64(al), wl));
+                acc_lh = _mm512_add_epi64(acc_lh, _mm512_mullo_epi64(_mm512_set1_epi64(al), wh));
+                acc_hl = _mm512_add_epi64(acc_hl, _mm512_mullo_epi64(_mm512_set1_epi64(ah), wl));
+                acc_hh = _mm512_add_epi64(acc_hh, _mm512_mullo_epi64(_mm512_set1_epi64(ah), wh));
             }
         }
         // spill the block's accumulators into the QuadAccs
@@ -212,11 +204,7 @@ pub fn negacyclic_mul(a: &Poly, b: &Poly) -> Poly {
     }
     let mut acc = [QuadAcc::zero(); N];
     unsafe {
-        mac_into(
-            core::slice::from_ref(a),
-            core::slice::from_ref(b),
-            &mut acc,
-        );
+        mac_into(core::slice::from_ref(a), core::slice::from_ref(b), &mut acc);
     }
     finish(acc)
 }
@@ -290,7 +278,9 @@ mod tests {
     fn rng() -> impl FnMut() -> i64 {
         let mut r = 0x9E37_79B9_7F4A_7C15u64;
         move || {
-            r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            r = r
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((r >> 16) as i64).rem_euclid(crate::ring::Q64) - crate::ring::Q64 / 2
         }
     }
@@ -302,7 +292,13 @@ mod tests {
                 0 => f(),
                 1 => 0,
                 2 => f().rem_euclid(3) - 1,
-                3 => if f() & 1 == 0 { crate::ring::Q64 / 2 } else { -(crate::ring::Q64 / 2) },
+                3 => {
+                    if f() & 1 == 0 {
+                        crate::ring::Q64 / 2
+                    } else {
+                        -(crate::ring::Q64 / 2)
+                    }
+                }
                 _ => f(),
             };
         }
@@ -361,7 +357,11 @@ mod tests {
             for _ in 0..4 {
                 let a: Vec<Poly> = (0..k).map(|_| poly(&mut f, 0)).collect();
                 let b: Vec<Poly> = (0..k).map(|_| poly(&mut f, (k % 4) as u8)).collect();
-                assert_eq!(negacyclic_sprod(&a, &b), Poly::sprod_schoolbook(&a, &b), "k={k}");
+                assert_eq!(
+                    negacyclic_sprod(&a, &b),
+                    Poly::sprod_schoolbook(&a, &b),
+                    "k={k}"
+                );
             }
         }
         // the schoolbook's mismatched-length semantics: pair over the shorter side

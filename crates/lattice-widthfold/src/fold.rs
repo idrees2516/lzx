@@ -130,12 +130,7 @@ impl WidthFoldParams {
     /// gate: `(classical_bits, quantum_bits)` of the MSIS instance
     /// `[A₂ | −T]` at width `w + r₂`, bound `2·β₂` (the extraction's
     /// relaxed 2× factor).
-    pub fn profile_bits(
-        &self,
-        beta1: u64,
-        q: u64,
-        ring_dim: u64,
-    ) -> Result<(f64, f64), String> {
+    pub fn profile_bits(&self, beta1: u64, q: u64, ring_dim: u64) -> Result<(f64, f64), String> {
         msis_bits(
             self.kappa as u64,
             (self.w + self.r2) as u64,
@@ -147,12 +142,7 @@ impl WidthFoldParams {
 
     /// The fail-closed posture gate: refuse any profile whose final
     /// MSIS instance sits below the security floor.
-    pub fn assert_sound(
-        &self,
-        beta1: u64,
-        q: u64,
-        ring_dim: u64,
-    ) -> Result<(f64, f64), String> {
+    pub fn assert_sound(&self, beta1: u64, q: u64, ring_dim: u64) -> Result<(f64, f64), String> {
         self.assert_sound_at(beta1, q, ring_dim, SECURITY_FLOOR_BITS)
     }
 
@@ -284,7 +274,10 @@ fn derive_w2_seed(seed: [u8; 32], params: &WidthFoldParams) -> [u8; 32] {
     ];
     let _ = st.append_bytes(
         b"shape",
-        &shape.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(),
+        &shape
+            .iter()
+            .flat_map(|x| x.to_le_bytes())
+            .collect::<Vec<u8>>(),
     );
     let mut s = [0u8; 32];
     if let Ok(b) = st.challenge_bytes(b"key", 32) {
@@ -295,12 +288,7 @@ fn derive_w2_seed(seed: [u8; 32], params: &WidthFoldParams) -> [u8; 32] {
 
 /// The zero-padded part split: part i = v[i·w .. (i+1)·w], zero beyond
 /// n̄. Returns r₂ parts of exactly w elements each.
-fn split_parts(
-    ring: &RingConfig,
-    v: &[RingElement],
-    w: usize,
-    r2: usize,
-) -> Vec<Vec<RingElement>> {
+fn split_parts(ring: &RingConfig, v: &[RingElement], w: usize, r2: usize) -> Vec<Vec<RingElement>> {
     (0..r2)
         .map(|i| {
             let lo = i * w;
@@ -333,7 +321,7 @@ fn key_groups(
                 })
                 .collect()
         })
- .collect()
+        .collect()
 }
 
 /// Serialize r Goldilocks values (LE u64s — the transcript/proof wire
@@ -348,7 +336,11 @@ fn serialize_goldilocks(vals: &[Goldilocks]) -> Vec<u8> {
 
 fn deserialize_goldilocks(bytes: &[u8], count: usize) -> Result<Vec<Goldilocks>, String> {
     if bytes.len() != 8 * count {
-        return Err(format!("goldilocks wire length {} != {}", bytes.len(), 8 * count));
+        return Err(format!(
+            "goldilocks wire length {} != {}",
+            bytes.len(),
+            8 * count
+        ));
     }
     let mut out = Vec::with_capacity(count);
     for chunk in bytes.chunks_exact(8) {
@@ -540,15 +532,9 @@ pub fn prove_width_fold_ex(
     }
 
     // The FS absorption (all pre-challenge material BEFORE any γ).
-    let p_bytes = serialize_elements(
-        ring,
-        &p.iter().flatten().cloned().collect::<Vec<_>>(),
-    );
+    let p_bytes = serialize_elements(ring, &p.iter().flatten().cloned().collect::<Vec<_>>());
     let garbage_bytes = serialize_elements(ring, &garbage);
-    let t_bytes = serialize_elements(
-        ring,
-        &t_inner.iter().flatten().cloned().collect::<Vec<_>>(),
-    );
+    let t_bytes = serialize_elements(ring, &t_inner.iter().flatten().cloned().collect::<Vec<_>>());
     let u_bytes = serialize_goldilocks(&u_parts);
     let g_bytes = serialize_goldilocks(&g_func);
     transcript
@@ -649,7 +635,10 @@ pub fn prove_width_fold_ex(
     }
     // (W2) A₂·z = Σ_i γ_i·T_i.
     {
-        let az = a2.commit(&z).map(|c| c.rows).map_err(|e| format!("{e:?}"))?;
+        let az = a2
+            .commit(&z)
+            .map(|c| c.rows)
+            .map_err(|e| format!("{e:?}"))?;
         let mut rhs = vec![ring.zero(); params.kappa];
         for (i, g) in gammas.iter().enumerate() {
             if *g == 0 {
@@ -671,16 +660,23 @@ pub fn prove_width_fold_ex(
         for (i, gi) in gammas.iter().enumerate() {
             let psi_z = psi_slice_of(ring, &z, psi_weights, i, w, q);
             let mut rhs = u_parts[i].mul(&Goldilocks::from_u64(gi.unsigned_abs()));
-            rhs = if *gi < 0 { Goldilocks::ZERO.sub(&rhs) } else { rhs };
+            rhs = if *gi < 0 {
+                Goldilocks::ZERO.sub(&rhs)
+            } else {
+                rhs
+            };
             // The flat functional-garbage layout is row-major over
             // (i, j≠i): slice i's entries start at i·(r₂−1).
             let mut idx = i * (r2 - 1);
             for (j, gj) in gammas.iter().enumerate() {
                 if i != j {
                     if *gj != 0 {
-                        let term =
-                            g_func[idx].mul(&Goldilocks::from_u64(gj.unsigned_abs()));
-                        rhs = if *gj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                        let term = g_func[idx].mul(&Goldilocks::from_u64(gj.unsigned_abs()));
+                        rhs = if *gj < 0 {
+                            rhs.sub(&term)
+                        } else {
+                            rhs.add(&term)
+                        };
                     }
                     idx += 1;
                 }
@@ -783,13 +779,11 @@ pub fn verify_width_fold_ex(
         ));
     }
     // Deserialize the pre-challenge material.
-    let p_flat =
-        crate::codec::deserialize_elements(ring, &proof.p_images)?;
+    let p_flat = crate::codec::deserialize_elements(ring, &proof.p_images)?;
     if p_flat.len() != r2 * k {
         return Err(format!("p count {} != {}", p_flat.len(), r2 * k));
     }
-    let garbage =
-        crate::codec::deserialize_elements(ring, &proof.garbage)?;
+    let garbage = crate::codec::deserialize_elements(ring, &proof.garbage)?;
     if garbage.len() != r2 * (r2 - 1) * k {
         return Err(format!(
             "garbage count {} != {}",
@@ -797,8 +791,7 @@ pub fn verify_width_fold_ex(
             r2 * (r2 - 1) * k
         ));
     }
-    let t_inner =
-        crate::codec::deserialize_elements(ring, &proof.t_inner)?;
+    let t_inner = crate::codec::deserialize_elements(ring, &proof.t_inner)?;
     if t_inner.len() != r2 * params.kappa {
         return Err(format!(
             "inner count {} != {}",
@@ -935,7 +928,10 @@ pub fn verify_width_fold_ex(
         };
         let a2_seed = derive_w2_seed(seed, params);
         let a2 = AjtaiPublicKey::from_seed(a2_params, a2_seed).map_err(|e| format!("{e:?}"))?;
-        let az = a2.commit(&z).map(|c| c.rows).map_err(|e| format!("{e:?}"))?;
+        let az = a2
+            .commit(&z)
+            .map(|c| c.rows)
+            .map_err(|e| format!("{e:?}"))?;
         let mut rhs = vec![ring.zero(); params.kappa];
         for (i, g) in gammas.iter().enumerate() {
             if *g == 0 {
@@ -957,16 +953,23 @@ pub fn verify_width_fold_ex(
         for (i, gi) in gammas.iter().enumerate() {
             let psi_z = psi_slice_of(ring, &z, psi_weights, i, w, q);
             let mut rhs = u_parts[i].mul(&Goldilocks::from_u64(gi.unsigned_abs()));
-            rhs = if *gi < 0 { Goldilocks::ZERO.sub(&rhs) } else { rhs };
+            rhs = if *gi < 0 {
+                Goldilocks::ZERO.sub(&rhs)
+            } else {
+                rhs
+            };
             // The flat functional-garbage layout is row-major over
             // (i, j≠i): slice i's entries start at i·(r₂−1).
             let mut idx = i * (r2 - 1);
             for (j, gj) in gammas.iter().enumerate() {
                 if i != j {
                     if *gj != 0 {
-                        let term =
-                            g_func[idx].mul(&Goldilocks::from_u64(gj.unsigned_abs()));
-                        rhs = if *gj < 0 { rhs.sub(&term) } else { rhs.add(&term) };
+                        let term = g_func[idx].mul(&Goldilocks::from_u64(gj.unsigned_abs()));
+                        rhs = if *gj < 0 {
+                            rhs.sub(&term)
+                        } else {
+                            rhs.add(&term)
+                        };
                     }
                     idx += 1;
                 }
@@ -1010,8 +1013,8 @@ mod tests {
                         // xorshift-ish deterministic byte in [0, 255]
                         let mut x = seed
                             .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                            .wrapping_add((i as u64 + 1) * 0x2545_F491_4F6C_DD1D)
-                            .wrapping_add((j as u64 + 1) * 0x9E37_79B9_7F4A_7C15);
+                            .wrapping_add((i as u64 + 1).wrapping_mul(0x2545_F491_4F6C_DD1D))
+                            .wrapping_add((j as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
                         x ^= x >> 12;
                         x ^= x << 25;
                         x ^= x >> 27;
@@ -1042,7 +1045,11 @@ mod tests {
         };
         let key = AjtaiPublicKey::from_seed(params, seed).unwrap();
         let blocks = (0..n_bar)
-            .map(|c| (0..k).map(|rr| key.entry(rr, c).cloned().unwrap()).collect())
+            .map(|c| {
+                (0..k)
+                    .map(|rr| key.entry(rr, c).cloned().unwrap())
+                    .collect()
+            })
             .collect();
         (key, blocks)
     }
@@ -1083,12 +1090,24 @@ mod tests {
             .expect("a sound profile exists at the byte-instance gate");
         let mut tr = Transcript::new_default(b"test-width-fold");
         let proof = prove_width_fold(
-            &ring, &v, &t, &u, &blocks, k, &psi, params.clone(), beta1, seed, &mut tr,
+            &ring,
+            &v,
+            &t,
+            &u,
+            &blocks,
+            k,
+            &psi,
+            params.clone(),
+            beta1,
+            seed,
+            &mut tr,
         )
         .expect("honest prove");
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-            .expect("honest verify");
+        verify_width_fold(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2,
+        )
+        .expect("honest verify");
     }
 
     /// Tampering the folded response must fail W2 (the MSIS binding).
@@ -1113,7 +1132,10 @@ mod tests {
         coeffs[0] = coeffs[0].wrapping_add(1);
         proof.response = encode_response(&coeffs).unwrap();
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(
+            verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
+                .is_err()
+        );
     }
 
     /// Tampering the inner commitments must fail W2.
@@ -1140,7 +1162,10 @@ mod tests {
         // The transcript replay absorbs the tampered bytes — the
         // challenges differ, so W2 (or the replay divergence) rejects.
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(
+            verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
+                .is_err()
+        );
     }
 
     /// Tampering the part images must fail W0/W1.
@@ -1165,7 +1190,10 @@ mod tests {
         p_images[3] ^= 0x02;
         proof.p_images = p_images;
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(
+            verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
+                .is_err()
+        );
     }
 
     /// Tampering the quadratic garbage must fail W1.
@@ -1190,7 +1218,10 @@ mod tests {
         garbage[7] ^= 0x04;
         proof.garbage = garbage;
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(
+            verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
+                .is_err()
+        );
     }
 
     /// Tampering the functional garbage must fail W3.
@@ -1215,7 +1246,10 @@ mod tests {
         g_func[2] ^= 0x08;
         proof.g_func = g_func;
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(
+            verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
+                .is_err()
+        );
     }
 
     /// A wrong public target must fail W0.
@@ -1238,7 +1272,10 @@ mod tests {
         let mut t_wrong = t.clone();
         t_wrong[0] = t_wrong[0].add(&ring.one()).unwrap();
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t_wrong, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(verify_width_fold(
+            &ring, &t_wrong, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// A wrong functional claim must fail W0'.
@@ -1259,7 +1296,10 @@ mod tests {
         .expect("prove");
         let u_wrong = u.add(&Goldilocks::ONE);
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        assert!(verify_width_fold(&ring, &t, &u_wrong, &blocks, k, &psi, beta1, seed, &proof, &mut tr2).is_err());
+        assert!(verify_width_fold(
+            &ring, &t, &u_wrong, &blocks, k, &psi, beta1, seed, &proof, &mut tr2
+        )
+        .is_err());
     }
 
     /// The profile gate must reject the broken shapes (the honest
@@ -1335,7 +1375,9 @@ mod tests {
         )
         .expect("padded prove");
         let mut tr2 = Transcript::new_default(b"test-width-fold");
-        verify_width_fold(&ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2)
-            .expect("padded verify");
+        verify_width_fold(
+            &ring, &t, &u, &blocks, k, &psi, beta1, seed, &proof, &mut tr2,
+        )
+        .expect("padded verify");
     }
 }

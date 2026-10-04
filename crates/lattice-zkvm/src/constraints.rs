@@ -54,8 +54,8 @@ use lattice_sumcheck::SumcheckProof;
 use lattice_sumcheck::VirtualPolynomial;
 
 use crate::columns::{CycleWitness, T_IMM, T_MEM_NEW, T_MEM_OLD, T_RD, T_RS1, T_RS2};
-use lattice_vm::Instr;
 use crate::ledger::{idx_point, Factor, Ledger, LedgerError};
+use lattice_vm::Instr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstraintError {
@@ -70,7 +70,9 @@ pub enum ConstraintError {
     Sparse(String),
     /// An instruction outside the v1 constraint coverage set appeared —
     /// fail closed rather than prove an unconstrained class.
-    UncoveredInstruction { cycle: usize },
+    UncoveredInstruction {
+        cycle: usize,
+    },
 }
 
 impl From<LedgerError> for ConstraintError {
@@ -385,11 +387,7 @@ fn carry_chain64(x: u64, y: u64) -> [u8; 4] {
 /// The eq-prefix column value: 1 iff the top `i` bits (MSB-first) of x
 /// and y agree (`i = 0` is the empty prefix — always 1).
 fn eqp_full(x: u64, y: u64, i: usize) -> u8 {
-    let mask = if i == 0 {
-        0
-    } else {
-        u64::MAX << (64 - i)
-    };
+    let mask = if i == 0 { 0 } else { u64::MAX << (64 - i) };
     ((x & mask) == (y & mask)) as u8
 }
 
@@ -491,9 +489,7 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     }
     let mut carry_pc4 = [0usize; 4];
     for l in 0..4 {
-        let col: Vec<u8> = (0..t)
-            .map(|c| carry_chain64(w.pc[c].0, 4)[l])
-            .collect();
+        let col: Vec<u8> = (0..t).map(|c| carry_chain64(w.pc[c].0, 4)[l]).collect();
         carry_pc4[l] = bits.len();
         push_bit!(col, "");
     }
@@ -522,12 +518,16 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     for cmp in 0..2 {
         ltu[cmp] = bits.len();
         push_bit!(
-            (0..t).map(|c| lt_at(w, instrs, c, cmp, false)).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| lt_at(w, instrs, c, cmp, false))
+                .collect::<Vec<u8>>(),
             "ltu"
         );
         lt[cmp] = bits.len();
         push_bit!(
-            (0..t).map(|c| lt_at(w, instrs, c, cmp, true)).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| lt_at(w, instrs, c, cmp, true))
+                .collect::<Vec<u8>>(),
             "lt"
         );
     }
@@ -577,7 +577,9 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     for s in 0..64usize {
         shoh6_r[s] = bits.len();
         push_bit!(
-            (0..t).map(|c| ((rs2w(c) & 63) as usize == s) as u8).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| ((rs2w(c) & 63) as usize == s) as u8)
+                .collect::<Vec<u8>>(),
             ""
         );
     }
@@ -585,7 +587,9 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     for s in 0..64usize {
         shoh6_i[s] = bits.len();
         push_bit!(
-            (0..t).map(|c| (((iword(c) >> 20) & 0x3f) as usize == s) as u8).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| (((iword(c) >> 20) & 0x3f) as usize == s) as u8)
+                .collect::<Vec<u8>>(),
             ""
         );
     }
@@ -593,7 +597,9 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     for s in 0..32usize {
         shoh5_r[s] = bits.len();
         push_bit!(
-            (0..t).map(|c| ((rs2w(c) & 31) as usize == s) as u8).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| ((rs2w(c) & 31) as usize == s) as u8)
+                .collect::<Vec<u8>>(),
             ""
         );
     }
@@ -601,7 +607,9 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     for s in 0..32usize {
         shoh5_i[s] = bits.len();
         push_bit!(
-            (0..t).map(|c| (((iword(c) >> 20) & 0x1f) as usize == s) as u8).collect::<Vec<u8>>(),
+            (0..t)
+                .map(|c| (((iword(c) >> 20) & 0x1f) as usize == s) as u8)
+                .collect::<Vec<u8>>(),
             ""
         );
     }
@@ -640,7 +648,12 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     // --- the mul/div value columns (limbs + carries; each range-linked
     //     to boolean bit columns below) ---
     let limbs_of = |v: u64| -> [u64; 4] {
-        [v & 0xFFFF, (v >> 16) & 0xFFFF, (v >> 32) & 0xFFFF, (v >> 48) & 0xFFFF]
+        [
+            v & 0xFFFF,
+            (v >> 16) & 0xFFFF,
+            (v >> 32) & 0xFFFF,
+            (v >> 48) & 0xFFFF,
+        ]
     };
     let rdw = |c: usize| tensor_word(w, T_RD, c);
     let rs1w = |c: usize| tensor_word(w, T_RS1, c);
@@ -683,7 +696,14 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
                 let b = rs2w(c);
                 let rd = rdw(c);
                 let hi = limbs_of(((a as u128 * b as u128) >> 64) as u64);
-                mulh_borrows(hi, (a >> 63) & 1, (b >> 63) & 1, limbs_of(a), limbs_of(b), limbs_of(rd))
+                mulh_borrows(
+                    hi,
+                    (a >> 63) & 1,
+                    (b >> 63) & 1,
+                    limbs_of(a),
+                    limbs_of(b),
+                    limbs_of(rd),
+                )
             })
             .collect();
         for l in 0..4 {
@@ -881,18 +901,44 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
         eqzw,
         range_bits,
     };
-    Ok(AuxCols { bits, vals, bit_names: names, index })
+    Ok(AuxCols {
+        bits,
+        vals,
+        bit_names: names,
+        index,
+    })
 }
 
 fn raw_opcode(instr: &Instr) -> u32 {
     use Instr::*;
     match instr {
-        Addi { .. } | Slti { .. } | Sltiu { .. } | Xori { .. } | Ori { .. } | Andi { .. }
-        | Slli { .. } | Srli { .. } | Srai { .. } => 0x13,
+        Addi { .. }
+        | Slti { .. }
+        | Sltiu { .. }
+        | Xori { .. }
+        | Ori { .. }
+        | Andi { .. }
+        | Slli { .. }
+        | Srli { .. }
+        | Srai { .. } => 0x13,
         Addiw { .. } | Slliw { .. } | Srliw { .. } | Sraiw { .. } => 0x1b,
-        Add { .. } | Sub { .. } | Sll { .. } | Slt { .. } | Sltu { .. } | Xor { .. }
-        | Srl { .. } | Sra { .. } | Or { .. } | And { .. } | Mul { .. } | Mulh { .. }
-        | Mulhu { .. } | Div { .. } | Divu { .. } | Rem { .. } | Remu { .. } => 0x33,
+        Add { .. }
+        | Sub { .. }
+        | Sll { .. }
+        | Slt { .. }
+        | Sltu { .. }
+        | Xor { .. }
+        | Srl { .. }
+        | Sra { .. }
+        | Or { .. }
+        | And { .. }
+        | Mul { .. }
+        | Mulh { .. }
+        | Mulhu { .. }
+        | Div { .. }
+        | Divu { .. }
+        | Rem { .. }
+        | Remu { .. } => 0x33,
         Addw { .. }
         | Subw { .. }
         | Sllw { .. }
@@ -926,8 +972,14 @@ fn raw_funct3(instr: &Instr) -> u32 {
         Ori { .. } => 6,
         Andi { .. } => 7,
         Slli { .. } | Slliw { .. } | Sllw { .. } | Sll { .. } => 1,
-        Srli { .. } | Srai { .. } | Srliw { .. } | Sraiw { .. } | Srl { .. } | Sra { .. }
-        | Srlw { .. } | Sraw { .. } => 5,
+        Srli { .. }
+        | Srai { .. }
+        | Srliw { .. }
+        | Sraiw { .. }
+        | Srl { .. }
+        | Sra { .. }
+        | Srlw { .. }
+        | Sraw { .. } => 5,
         // OP
         Add { .. } | Sub { .. } | Mul { .. } | Addw { .. } | Subw { .. } | Addiw { .. } => 0,
         Slt { .. } => 2,
@@ -990,9 +1042,19 @@ fn raw_funct7(instr: &Instr) -> u32 {
         | Remu { .. }
         | Remw { .. }
         | Remuw { .. } => 0x01,
-        Add { .. } | Sll { .. } | Slt { .. } | Sltu { .. } | Xor { .. } | Srl { .. }
-        | Or { .. } | And { .. } | Addw { .. } | Sllw { .. } | Srlw { .. }
-        | Slliw { .. } | Srliw { .. } => 0x00,
+        Add { .. }
+        | Sll { .. }
+        | Slt { .. }
+        | Sltu { .. }
+        | Xor { .. }
+        | Srl { .. }
+        | Or { .. }
+        | And { .. }
+        | Addw { .. }
+        | Sllw { .. }
+        | Srlw { .. }
+        | Slliw { .. }
+        | Srliw { .. } => 0x00,
         _ => 0,
     }
 }
@@ -1023,7 +1085,14 @@ fn branch_taken(instr: &Instr, w: &CycleWitness, c: usize) -> bool {
     }
 }
 
-fn carry_at(w: &CycleWitness, instrs: &[Instr], c: usize, src_imm: bool, l: usize, name: &str) -> u8 {
+fn carry_at(
+    w: &CycleWitness,
+    instrs: &[Instr],
+    c: usize,
+    src_imm: bool,
+    l: usize,
+    name: &str,
+) -> u8 {
     let _ = instrs;
     let a = tensor_word(w, T_RS1, c);
     let b = if src_imm {
@@ -1112,7 +1181,12 @@ pub const RG_RLT_OUT: usize = 805;
 
 /// The 4-limb decomposition of a u64.
 fn limbs64(v: u64) -> [u64; 4] {
-    [v & 0xFFFF, (v >> 16) & 0xFFFF, (v >> 32) & 0xFFFF, (v >> 48) & 0xFFFF]
+    [
+        v & 0xFFFF,
+        (v >> 16) & 0xFFFF,
+        (v >> 32) & 0xFFFF,
+        (v >> 48) & 0xFFFF,
+    ]
 }
 
 /// The multiplication recurrence over 16-bit limbs:
@@ -1141,7 +1215,11 @@ fn mul_recurrence(a: u64, b: u64) -> ([u64; 4], [u64; 4], [u64; 7]) {
             carries[k] = c; // carries[k] = c_{k+1}
         }
     }
-    ([out[0], out[1], out[2], out[3]], [out[4], out[5], out[6], out[7]], carries)
+    (
+        [out[0], out[1], out[2], out[3]],
+        [out[4], out[5], out[6], out[7]],
+        carries,
+    )
 }
 
 /// The division recurrence `a = q·b + r` over 16-bit limbs: at position
@@ -1262,7 +1340,10 @@ fn div_witness_of(a: u64, b: u64, _rd: u64, ins: &Instr) -> DivWitness {
             let (q, r) = if b == 0 {
                 (u64::MAX, a)
             } else {
-                ((a as i64).wrapping_div(b as i64) as u64, (a as i64).wrapping_rem(b as i64) as u64)
+                (
+                    (a as i64).wrapping_div(b as i64) as u64,
+                    (a as i64).wrapping_rem(b as i64) as u64,
+                )
             };
             let ma = (a as i64).unsigned_abs();
             let mb = (b as i64).unsigned_abs();
@@ -1274,7 +1355,10 @@ fn div_witness_of(a: u64, b: u64, _rd: u64, ins: &Instr) -> DivWitness {
             let (q, r) = if b == 0 {
                 (u64::MAX, a)
             } else {
-                ((a as i64).wrapping_div(b as i64) as u64, (a as i64).wrapping_rem(b as i64) as u64)
+                (
+                    (a as i64).wrapping_div(b as i64) as u64,
+                    (a as i64).wrapping_rem(b as i64) as u64,
+                )
             };
             let ma = (a as i64).unsigned_abs();
             let mb = (b as i64).unsigned_abs();
@@ -1292,7 +1376,14 @@ fn div_witness_of(a: u64, b: u64, _rd: u64, ins: &Instr) -> DivWitness {
             };
             let q64 = q as u64;
             let r64 = r as u64;
-            (q64, r64, a32.unsigned_abs(), b32.unsigned_abs(), q.unsigned_abs(), r.unsigned_abs())
+            (
+                q64,
+                r64,
+                a32.unsigned_abs(),
+                b32.unsigned_abs(),
+                q.unsigned_abs(),
+                r.unsigned_abs(),
+            )
         }
         Remw { .. } => {
             let a32 = a as u32 as i32 as i64;
@@ -1304,7 +1395,14 @@ fn div_witness_of(a: u64, b: u64, _rd: u64, ins: &Instr) -> DivWitness {
             };
             let q64 = q as u64;
             let r64 = r as u64;
-            (q64, r64, a32.unsigned_abs(), b32.unsigned_abs(), q.unsigned_abs(), r.unsigned_abs())
+            (
+                q64,
+                r64,
+                a32.unsigned_abs(),
+                b32.unsigned_abs(),
+                q.unsigned_abs(),
+                r.unsigned_abs(),
+            )
         }
         Divuw { .. } => {
             let au = a as u32 as u64;
@@ -1374,10 +1472,18 @@ pub enum FV {
     Val(usize),
     /// A fixed tensor row, lifted constant over the bit block: the claim
     /// is the tensor-row claim.
-    TensorRow { factor: Factor, nbits: usize, row: usize },
+    TensorRow {
+        factor: Factor,
+        nbits: usize,
+        row: usize,
+    },
     /// The complement of a fixed tensor row (the flipped-polarity
     /// factors of the selector decode): the claim is 1 - the row.
-    FlipTensorRow { factor: Factor, nbits: usize, row: usize },
+    FlipTensorRow {
+        factor: Factor,
+        nbits: usize,
+        row: usize,
+    },
 }
 
 /// A (VP factor index, view) pair — the explicit pairing that keeps the
@@ -1507,10 +1613,13 @@ impl<'a, 'b, 'c> FamilyCtx<'a, 'b, 'c> {
     ) -> Result<Vec<Goldilocks>, ConstraintError> {
         absorb_leg(self.transcript, name)?;
         let _timer = family_timer(name);
-        let out = sumcheck::prove(vp, claim, self.transcript)
-            .map_err(ConstraintError::Sumcheck)?;
+        let out = sumcheck::prove(vp, claim, self.transcript).map_err(ConstraintError::Sumcheck)?;
         bind_views(self.ledger, views, &out.challenges, &out.factor_claims)?;
-        self.legs.push(ConstraintLeg { name, sc: out.proof, claim });
+        self.legs.push(ConstraintLeg {
+            name,
+            sc: out.proof,
+            claim,
+        });
         Ok(out.challenges)
     }
 }
@@ -1536,7 +1645,6 @@ fn verify_leg_header(
 // ---------------------------------------------------------------------------
 // Family: booleanity
 // ---------------------------------------------------------------------------
-
 
 /// Add a bit-column factor (from `cols`) with its view registration.
 fn add_bit_factor(
@@ -1599,23 +1707,39 @@ fn add_vbit_factor(
     let row = 63 - bit;
     let col = row_mle(&w.values[slot], row, log_t);
     let fi = vp.add_factor(col).map_err(ConstraintError::Virtual)?;
-    views.push((fi, FV::TensorRow {
-        factor: Factor::ValueBits { slot },
-        nbits: 64,
-        row,
-    }));
+    views.push((
+        fi,
+        FV::TensorRow {
+            factor: Factor::ValueBits { slot },
+            nbits: 64,
+            row,
+        },
+    ));
     Ok(fi)
 }
 
 /// Add an instruction-bit row factor (bit in LSB numbering).
 /// Ledger claim helpers (verify side).
-fn claim_bit(ledger: &mut Ledger<'_>, id: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
+fn claim_bit(
+    ledger: &mut Ledger<'_>,
+    id: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
     Ok(ledger.tensor_claim(Factor::BitCol { id }, pt)?)
 }
-fn claim_val(ledger: &mut Ledger<'_>, id: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
+fn claim_val(
+    ledger: &mut Ledger<'_>,
+    id: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
     Ok(ledger.tensor_claim(Factor::ValCol { id }, pt)?)
 }
-fn claim_limb(ledger: &mut Ledger<'_>, slot: usize, limb: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
+fn claim_limb(
+    ledger: &mut Ledger<'_>,
+    slot: usize,
+    limb: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
     Ok(ledger.limb(slot, limb, pt)?)
 }
 /// Resolve a value-tensor bit (LSB numbering) at the verdict point.
@@ -1643,7 +1767,12 @@ fn claim_carry(
     claim_val(ledger, cols[k - 1], pt)
 }
 
-fn claim_vbit(ledger: &mut Ledger<'_>, slot: usize, bit: usize, pt: &[Goldilocks]) -> Result<Goldilocks, ConstraintError> {
+fn claim_vbit(
+    ledger: &mut Ledger<'_>,
+    slot: usize,
+    bit: usize,
+    pt: &[Goldilocks],
+) -> Result<Goldilocks, ConstraintError> {
     let row = 63 - bit;
     let mut p = idx_point(6, row);
     p.extend_from_slice(pt);
@@ -1669,7 +1798,9 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
             .map_err(ConstraintError::Transcript)?;
         let eq = DenseMle::eq_extension(&r);
         let mut vp = VirtualPolynomial::new(log_t);
-        let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+        let ei = vp
+            .add_factor(eq.clone())
+            .map_err(ConstraintError::Virtual)?;
         let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
         for (slot, alpha) in alphas.iter().enumerate().take(6) {
             for row in 0..64usize {
@@ -1686,11 +1817,14 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
                 let i2 = vp.add_factor(b2).map_err(ConstraintError::Virtual)?;
                 vp.add_term(*alpha, vec![i1, i2, ei])
                     .map_err(ConstraintError::Virtual)?;
-                views.push((i1, FV::TensorRow {
-                    factor: Factor::ValueBits { slot },
-                    nbits: 64,
-                    row,
-                }));
+                views.push((
+                    i1,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot },
+                        nbits: 64,
+                        row,
+                    },
+                ));
             }
         }
         ctx.stage("bool-tensors", &mut vp, &views, Goldilocks::ZERO)?;
@@ -1704,7 +1838,9 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
             .map_err(ConstraintError::Transcript)?;
         let eq = DenseMle::eq_extension(&r);
         let mut vp = VirtualPolynomial::new(log_t);
-        let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+        let ei = vp
+            .add_factor(eq.clone())
+            .map_err(ConstraintError::Virtual)?;
         let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
         for row in 0..32usize {
             let b = row_mle(&w.instr_bits, row, log_t);
@@ -1720,11 +1856,14 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
             let i2 = vp.add_factor(b2).map_err(ConstraintError::Virtual)?;
             vp.add_term(Goldilocks::ONE, vec![i1, i2, ei])
                 .map_err(ConstraintError::Virtual)?;
-            views.push((i1, FV::TensorRow {
-                factor: Factor::InstrBits,
-                nbits: 32,
-                row,
-            }));
+            views.push((
+                i1,
+                FV::TensorRow {
+                    factor: Factor::InstrBits,
+                    nbits: 32,
+                    row,
+                },
+            ));
         }
         ctx.stage("bool-instr", &mut vp, &views, Goldilocks::ZERO)?;
     }
@@ -1740,7 +1879,9 @@ fn prove_booleanity(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErr
             .map_err(ConstraintError::Transcript)?;
         let eq = DenseMle::eq_extension(&r);
         let mut vp = VirtualPolynomial::new(log_t);
-        let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+        let ei = vp
+            .add_factor(eq.clone())
+            .map_err(ConstraintError::Virtual)?;
         let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
         for (id, col) in aux.bits.iter().enumerate() {
             let c = DenseMle {
@@ -1897,11 +2038,12 @@ fn prove_selectors(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErro
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // Instruction-bit row factors, both polarities, memoized by (bit, req).
-    let mut memo: std::collections::HashMap<(usize, u8), usize> =
-        std::collections::HashMap::new();
+    let mut memo: std::collections::HashMap<(usize, u8), usize> = std::collections::HashMap::new();
     for (j, (name, op, f3, f7, f6)) in SELECTOR_TABLE.iter().enumerate() {
         let _ = name;
         let mask = selector_mask(*op, *f3, *f7, *f6);
@@ -1927,27 +2069,29 @@ fn prove_selectors(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintErro
                 let row = 31 - bit;
                 let m = w.instr_bits.clone();
                 let col = instr_row_of(&m, row, log_t);
-                let f = if *req == 1 {
-                    col
-                } else {
-                    flip_mle(&col)
-                };
+                let f = if *req == 1 { col } else { flip_mle(&col) };
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
                 // BOTH polarities claim their row (the queue stays in
                 // lockstep with the verifier's per-row resolution; the
                 // flipped factor's view resolves to 1 - the row).
                 if *req == 1 {
-                    views.push((fi, FV::TensorRow {
-                        factor: Factor::InstrBits,
-                        nbits: 32,
-                        row,
-                    }));
+                    views.push((
+                        fi,
+                        FV::TensorRow {
+                            factor: Factor::InstrBits,
+                            nbits: 32,
+                            row,
+                        },
+                    ));
                 } else {
-                    views.push((fi, FV::FlipTensorRow {
-                        factor: Factor::InstrBits,
-                        nbits: 32,
-                        row,
-                    }));
+                    views.push((
+                        fi,
+                        FV::FlipTensorRow {
+                            factor: Factor::InstrBits,
+                            nbits: 32,
+                            row,
+                        },
+                    ));
                 }
                 memo.insert(key, fi);
                 fi
@@ -1973,7 +2117,11 @@ fn instr_row_of(m: &DenseMle, row: usize, log_t: usize) -> DenseMle {
 fn flip_mle(m: &DenseMle) -> DenseMle {
     DenseMle {
         num_vars: m.num_vars,
-        evaluations: m.evaluations.iter().map(|v| Goldilocks::ONE.sub(v)).collect(),
+        evaluations: m
+            .evaluations
+            .iter()
+            .map(|v| Goldilocks::ONE.sub(v))
+            .collect(),
     }
 }
 
@@ -2001,7 +2149,12 @@ fn verify_selectors(
         std::collections::HashMap::new();
     let mut expect = Goldilocks::ZERO;
     for (j, (_, op, f3, f7, f6)) in SELECTOR_TABLE.iter().enumerate() {
-        let s = ledger.tensor_claim(Factor::BitCol { id: aux.index.sel[j] }, &verdict.point)?;
+        let s = ledger.tensor_claim(
+            Factor::BitCol {
+                id: aux.index.sel[j],
+            },
+            &verdict.point,
+        )?;
         let mask = selector_mask(*op, *f3, *f7, *f6);
         let mut prod = Goldilocks::ONE;
         for (bit, req) in &mask {
@@ -2019,7 +2172,11 @@ fn verify_selectors(
                     row_memo.insert(row, b);
                     b
                 };
-                let v = if *req == 1 { b } else { Goldilocks::ONE.sub(&b) };
+                let v = if *req == 1 {
+                    b
+                } else {
+                    Goldilocks::ONE.sub(&b)
+                };
                 memo.insert(key, v);
                 v
             };
@@ -2053,21 +2210,21 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
-    let neg_sum_terms = |vp: &mut VirtualPolynomial,
-                         target: usize,
-                         ids: &[usize]|
-     -> Result<(), ConstraintError> {
-        // eq * (target - sum(ids)) = sum eq*target - sum eq*id
-        vp.add_term(alphas[0].mul(&fe(1)), vec![target, ei])
-            .map_err(ConstraintError::Virtual)?;
-        for id in ids {
-            vp.add_term(alphas[0].neg(), vec![*id, ei])
+    let neg_sum_terms =
+        |vp: &mut VirtualPolynomial, target: usize, ids: &[usize]| -> Result<(), ConstraintError> {
+            // eq * (target - sum(ids)) = sum eq*target - sum eq*id
+            vp.add_term(alphas[0].mul(&fe(1)), vec![target, ei])
                 .map_err(ConstraintError::Virtual)?;
-        }
-        Ok(())
-    };
+            for id in ids {
+                vp.add_term(alphas[0].neg(), vec![*id, ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            Ok(())
+        };
     // (1) mem_re = lw + lwu + ld
     {
         let tgt = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_re, log_t)?;
@@ -2127,8 +2284,20 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let bne = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_bne"), log_t)?;
         let blt = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_blt"), log_t)?;
         let bge = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_bge"), log_t)?;
-        let bltu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_bltu"), log_t)?;
-        let bgeu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_bgeu"), log_t)?;
+        let bltu = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_bltu"),
+            log_t,
+        )?;
+        let bgeu = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_bgeu"),
+            log_t,
+        )?;
         // taken - (beq*eq + bne*(1-eq) + blt*lt + bge*(1-lt)
         //           + bltu*ltu + bgeu*(1-ltu)) = 0
         vp.add_term(alphas[1], vec![tgt, ei])
@@ -2162,7 +2331,13 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         ];
         let mut w_ids = Vec::new();
         for name in write_classes {
-            w_ids.push(add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?);
+            w_ids.push(add_bit_factor(
+                &mut vp,
+                &mut views,
+                &aux.bits,
+                idx.sel_by(name),
+                log_t,
+            )?);
         }
         // term A: rd_we
         vp.add_term(alphas[2], vec![tgt, ei])
@@ -2181,11 +2356,14 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let col = instr_row_of(&w.instr_bits, row, log_t);
             let f = flip_mle(&col);
             let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-            views.push((fi, FV::FlipTensorRow {
-                factor: Factor::InstrBits,
-                nbits: 32,
-                row,
-            }));
+            views.push((
+                fi,
+                FV::FlipTensorRow {
+                    factor: Factor::InstrBits,
+                    nbits: 32,
+                    row,
+                },
+            ));
             not_rd_ids.push(fi);
         }
         for id in &w_ids {
@@ -2228,8 +2406,7 @@ fn verify_flags(
         let a = claim_bit(ledger, idx.sel_by("sel_lw"), pt)?;
         let b = claim_bit(ledger, idx.sel_by("sel_lwu"), pt)?;
         let c = claim_bit(ledger, idx.sel_by("sel_ld"), pt)?;
-        expect = expect
-            .add(&alphas[0].mul(&t.sub(&a).sub(&b).sub(&c)).mul(&eq_at));
+        expect = expect.add(&alphas[0].mul(&t.sub(&a).sub(&b).sub(&c)).mul(&eq_at));
     }
     // (2) mem_we
     {
@@ -2250,7 +2427,8 @@ fn verify_flags(
         let bge = claim_bit(ledger, idx.sel_by("sel_bge"), pt)?;
         let bltu = claim_bit(ledger, idx.sel_by("sel_bltu"), pt)?;
         let bgeu = claim_bit(ledger, idx.sel_by("sel_bgeu"), pt)?;
-        let v = beq.mul(&eq0)
+        let v = beq
+            .mul(&eq0)
             .add(&bne.mul(&one.sub(&eq0)))
             .add(&blt.mul(&lt0))
             .add(&bge.mul(&one.sub(&lt0)))
@@ -2319,7 +2497,9 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     let limb_of = |vp: &mut VirtualPolynomial,
                    views: &mut Vec<ViewPair>,
@@ -2345,7 +2525,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let x = limb_of(&mut vp, &mut views, T_RS1, l)?;
             let y = limb_of(&mut vp, &mut views, T_RS2, l)?;
             let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_add_r[l], log_t)?;
-            vp.add_term(*a, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![sel, x, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![sel, y, ei])
@@ -2353,8 +2534,13 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             vp.add_term(a.mul(&fe(1 << 16)), vec![sel, c_out, ei])
                 .map_err(ConstraintError::Virtual)?;
             if l > 0 {
-                let c_in =
-                    add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_add_r[l - 1], log_t)?;
+                let c_in = add_bit_factor(
+                    &mut vp,
+                    &mut views,
+                    &aux.bits,
+                    idx.carry_add_r[l - 1],
+                    log_t,
+                )?;
                 vp.add_term(a.neg(), vec![sel, c_in, ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -2368,7 +2554,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let x = limb_of(&mut vp, &mut views, T_RS1, l)?;
             let y = limb_of(&mut vp, &mut views, T_IMM, l)?;
             let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_add_i[l], log_t)?;
-            vp.add_term(*a, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![sel, x, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![sel, y, ei])
@@ -2376,8 +2563,13 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             vp.add_term(a.mul(&fe(1 << 16)), vec![sel, c_out, ei])
                 .map_err(ConstraintError::Virtual)?;
             if l > 0 {
-                let c_in =
-                    add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_add_i[l - 1], log_t)?;
+                let c_in = add_bit_factor(
+                    &mut vp,
+                    &mut views,
+                    &aux.bits,
+                    idx.carry_add_i[l - 1],
+                    log_t,
+                )?;
                 vp.add_term(a.neg(), vec![sel, c_in, ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -2392,10 +2584,12 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let x = limb_of(&mut vp, &mut views, T_RS1, l)?;
             let y = limb_of(&mut vp, &mut views, T_RS2, l)?;
             let bo = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.borrow_sub_r[l], log_t)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sel, x, ei])
                 .map_err(ConstraintError::Virtual)?;
-            vp.add_term(*b, vec![sel, y, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, y, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.mul(&fe(1 << 16).neg()), vec![sel, bo, ei])
                 .map_err(ConstraintError::Virtual)?;
             if l > 0 {
@@ -2427,7 +2621,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 limb_of(&mut vp, &mut views, T_RS2, l)?
             };
             let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, chain[l], log_t)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sel, x, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sel, y, ei])
@@ -2435,8 +2630,7 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             vp.add_term(b.mul(&fe(1 << 16)), vec![sel, c_out, ei])
                 .map_err(ConstraintError::Virtual)?;
             if l > 0 {
-                let c_in =
-                    add_bit_factor(&mut vp, &mut views, &aux.bits, chain[l - 1], log_t)?;
+                let c_in = add_bit_factor(&mut vp, &mut views, &aux.bits, chain[l - 1], log_t)?;
                 vp.add_term(b.neg(), vec![sel, c_in, ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -2451,10 +2645,12 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let x = limb_of(&mut vp, &mut views, T_RS1, l)?;
             let y = limb_of(&mut vp, &mut views, T_RS2, l)?;
             let bo = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.borrow_subw_r[l], log_t)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sel, x, ei])
                 .map_err(ConstraintError::Virtual)?;
-            vp.add_term(*b, vec![sel, y, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, y, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.mul(&fe(1 << 16).neg()), vec![sel, bo, ei])
                 .map_err(ConstraintError::Virtual)?;
             if l > 0 {
@@ -2476,11 +2672,14 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let sign = w.values[T_RD].clone();
         let sign_col = row_mle(&sign, 32, log_t);
         let sign_f = vp.add_factor(sign_col).map_err(ConstraintError::Virtual)?;
-        views.push((sign_f, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RD },
-            nbits: 64,
-            row: 32,
-        }));
+        views.push((
+            sign_f,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RD },
+                nbits: 64,
+                row: 32,
+            },
+        ));
         let b = &alphas[4];
         for name in ["sel_addw", "sel_addiw", "sel_subw"] {
             let sel = sel_of(&mut vp, &mut views, name)?;
@@ -2500,7 +2699,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         for l in 0..4 {
             let rd = limb_of(&mut vp, &mut views, T_RD, l)?;
             let y = limb_of(&mut vp, &mut views, T_IMM, l)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sel, y, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -2513,7 +2713,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let rd = limb_of(&mut vp, &mut views, T_RD, l)?;
             let imm = limb_of(&mut vp, &mut views, T_IMM, l)?;
             let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_ctrl[l], log_t)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             if l < 3 {
                 let pc = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_pc_l[l], log_t)?;
                 vp.add_term(b.neg(), vec![sel, pc, ei])
@@ -2538,7 +2739,8 @@ fn prove_arith(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         for l in 0..4 {
             let rd = limb_of(&mut vp, &mut views, T_RD, l)?;
             let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_pc4[l], log_t)?;
-            vp.add_term(*b, vec![sel, rd, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sel, rd, ei])
+                .map_err(ConstraintError::Virtual)?;
             if l < 3 {
                 let pc = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_pc_l[l], log_t)?;
                 vp.add_term(b.neg(), vec![sel, pc, ei])
@@ -2749,7 +2951,9 @@ fn prove_cmp(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // x slot and y slot per comparison: cmp0 = (rs1, rs2), cmp1 = (rs1, imm).
     let y_slot = [T_RS2, T_IMM];
@@ -2757,30 +2961,29 @@ fn prove_cmp(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         // (1) eqp recurrence: eqp[i+1] = eqp[i] * eq(bit(63 - i))
         //     eq(bit) = 1 - a - b + 2ab.
         for i in 0..64 {
-            let next =
-                add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqp[cmp][i + 1], log_t)?;
+            let next = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqp[cmp][i + 1], log_t)?;
             let prev = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqp[cmp][i], log_t)?;
             let a_f = add_vbit_factor(&mut vp, &mut views, w, T_RS1, 63 - i, log_t)?;
             let b_f = add_vbit_factor(&mut vp, &mut views, w, y_slot[cmp], 63 - i, log_t)?;
             // next - prev*(1 - a - b + 2ab)
             //   = next - prev + prev*a + prev*b - 2*prev*a*b
             let al = &alphas[0];
-            vp.add_term(*al, vec![next, ei]).map_err(ConstraintError::Virtual)?;
-            vp.add_term(al.neg(), vec![prev, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*al, vec![next, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(al.neg(), vec![prev, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(*al, vec![prev, a_f, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(*al, vec![prev, b_f, ei])
                 .map_err(ConstraintError::Virtual)?;
-            vp.add_term(
-                al.mul(&fe(2).neg()),
-                vec![prev, a_f, b_f, ei],
-            )
-            .map_err(ConstraintError::Virtual)?;
+            vp.add_term(al.mul(&fe(2).neg()), vec![prev, a_f, b_f, ei])
+                .map_err(ConstraintError::Virtual)?;
         }
         // (2) ltu = sum_p eqp[63-p] * (1 - a_p) * b_p
         let ltu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.ltu[cmp], log_t)?;
         let al = &alphas[1];
-        vp.add_term(*al, vec![ltu, ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(*al, vec![ltu, ei])
+            .map_err(ConstraintError::Virtual)?;
         for p in 0..64usize {
             let pref = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqp[cmp][63 - p], log_t)?;
             let a_f = add_vbit_factor(&mut vp, &mut views, w, T_RS1, p, log_t)?;
@@ -2795,9 +2998,12 @@ fn prove_cmp(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let a63 = add_vbit_factor(&mut vp, &mut views, w, T_RS1, 63, log_t)?;
         let b63 = add_vbit_factor(&mut vp, &mut views, w, y_slot[cmp], 63, log_t)?;
         let al = &alphas[2];
-        vp.add_term(*al, vec![lt, ei]).map_err(ConstraintError::Virtual)?;
-        vp.add_term(al.neg(), vec![a63, ei]).map_err(ConstraintError::Virtual)?;
-        vp.add_term(*al, vec![a63, b63, ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(*al, vec![lt, ei])
+            .map_err(ConstraintError::Virtual)?;
+        vp.add_term(al.neg(), vec![a63, ei])
+            .map_err(ConstraintError::Virtual)?;
+        vp.add_term(*al, vec![a63, b63, ei])
+            .map_err(ConstraintError::Virtual)?;
         for p in 0..63usize {
             let pref = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.eqp[cmp][63 - p], log_t)?;
             let a_f = add_vbit_factor(&mut vp, &mut views, w, T_RS1, p, log_t)?;
@@ -2842,12 +3048,9 @@ fn verify_cmp(
             let prev = claim_bit(ledger, idx.eqp[cmp][i], pt)?;
             let a = claim_vbit(ledger, T_RS1, 63 - i, pt)?;
             let b = claim_vbit(ledger, y_slot[cmp], 63 - i, pt)?;
-            let e = next.sub(&prev).add(
-                &prev.mul(
-                    &a.add(&b)
-                        .sub(&Goldilocks::from_u64(2).mul(&a.mul(&b))),
-                ),
-            );
+            let e = next
+                .sub(&prev)
+                .add(&prev.mul(&a.add(&b).sub(&Goldilocks::from_u64(2).mul(&a.mul(&b)))));
             expect = expect.add(&alphas[0].mul(&e).mul(&eq_at));
         }
         // ltu
@@ -2903,14 +3106,17 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     let a = &alphas[0];
     // (1) pc = 4 * fetch_word (Val columns, exact: pc < 2^48).
     {
         let pc = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_pc, log_t)?;
         let fw = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_fetch_word, log_t)?;
-        vp.add_term(*a, vec![pc, ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(*a, vec![pc, ei])
+            .map_err(ConstraintError::Virtual)?;
         vp.add_term(a.mul(&fe(4).neg()), vec![fw, ei])
             .map_err(ConstraintError::Virtual)?;
     }
@@ -2931,7 +3137,13 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             .map(|l| {
                 let f = limb_mle(w, T_IMM, l, log_t);
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-                views.push((fi, FV::Limb { slot: T_IMM, limb: l }));
+                views.push((
+                    fi,
+                    FV::Limb {
+                        slot: T_IMM,
+                        limb: l,
+                    },
+                ));
                 Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
@@ -2939,14 +3151,32 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             .map(|l| {
                 let f = limb_mle(w, T_RS1, l, log_t);
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-                views.push((fi, FV::Limb { slot: T_RS1, limb: l }));
+                views.push((
+                    fi,
+                    FV::Limb {
+                        slot: T_RS1,
+                        limb: l,
+                    },
+                ));
                 Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
-        let b = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_branch"), log_t)?;
+        let b = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_branch"),
+            log_t,
+        )?;
         let t = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.taken, log_t)?;
         let j = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_jal"), log_t)?;
-        let rr = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_jalr"), log_t)?;
+        let rr = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_jalr"),
+            log_t,
+        )?;
         let ca: Vec<usize> = (0..3)
             .map(|l| add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_pc4[l], log_t))
             .collect::<Result<_, _>>()?;
@@ -2958,7 +3188,8 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             .collect::<Result<_, _>>()?;
         for l in 0..3 {
             // np_l - A_l = np_l - pc_l - 4d - c_in^A + 2^16 c_out^A
-            vp.add_term(*a, vec![np_l[l], ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![np_l[l], ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![pc_l[l], ei])
                 .map_err(ConstraintError::Virtual)?;
             if l == 0 {
@@ -3065,9 +3296,12 @@ fn prove_ctrl(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let mw = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_we, log_t)?;
         let mr = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_re, log_t)?;
         let b = &alphas[1];
-        vp.add_term(*b, vec![h, rw, ei]).map_err(ConstraintError::Virtual)?;
-        vp.add_term(*b, vec![h, mw, ei]).map_err(ConstraintError::Virtual)?;
-        vp.add_term(*b, vec![h, mr, ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(*b, vec![h, rw, ei])
+            .map_err(ConstraintError::Virtual)?;
+        vp.add_term(*b, vec![h, mw, ei])
+            .map_err(ConstraintError::Virtual)?;
+        vp.add_term(*b, vec![h, mr, ei])
+            .map_err(ConstraintError::Virtual)?;
     }
     ctx.stage("ctrl", &mut vp, &views, Goldilocks::ZERO)
         .map(|_| ())
@@ -3134,20 +3368,11 @@ fn verify_ctrl(
             };
             let delta4 = if l == 0 { fe(4) } else { Goldilocks::ZERO };
             // A_l = pc + 4d + c_in^A - 2^16 c_out^A
-            let al = pc
-                .add(&delta4)
-                .add(&ca_in)
-                .sub(&fe(1 << 16).mul(&ca_out));
+            let al = pc.add(&delta4).add(&ca_in).sub(&fe(1 << 16).mul(&ca_out));
             // T_l = pc + imm + c_in^T - 2^16 c_out^T
-            let tl = pc
-                .add(&imm)
-                .add(&ct_in)
-                .sub(&fe(1 << 16).mul(&ct_out));
+            let tl = pc.add(&imm).add(&ct_in).sub(&fe(1 << 16).mul(&ct_out));
             // J_l = rs1 + imm + c_in^J - 2^16 c_out^J
-            let jl = rs1
-                .add(&imm)
-                .add(&cj_in)
-                .sub(&fe(1 << 16).mul(&cj_out));
+            let jl = rs1.add(&imm).add(&cj_in).sub(&fe(1 << 16).mul(&cj_out));
             let e = np
                 .sub(&al)
                 .sub(&b.mul(&t).mul(&tl.sub(&al)))
@@ -3190,7 +3415,9 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // (1) effective address: mem_addr = (rs1 + imm) mod 2^64, limb-wise
     //     via carry_jalr; the addr limbs are committed value columns.
@@ -3202,7 +3429,13 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             .map(|l| {
                 let f = limb_mle(w, T_RS1, l, log_t);
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-                views.push((fi, FV::Limb { slot: T_RS1, limb: l }));
+                views.push((
+                    fi,
+                    FV::Limb {
+                        slot: T_RS1,
+                        limb: l,
+                    },
+                ));
                 Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
@@ -3210,7 +3443,13 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             .map(|l| {
                 let f = limb_mle(w, T_IMM, l, log_t);
                 let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-                views.push((fi, FV::Limb { slot: T_IMM, limb: l }));
+                views.push((
+                    fi,
+                    FV::Limb {
+                        slot: T_IMM,
+                        limb: l,
+                    },
+                ));
                 Ok(fi)
             })
             .collect::<Result<_, ConstraintError>>()?;
@@ -3219,7 +3458,8 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let we = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_we, log_t)?;
         for act in [re, we] {
             for l in 0..4 {
-                let c_out = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_jalr[l], log_t)?;
+                let c_out =
+                    add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_jalr[l], log_t)?;
                 vp.add_term(*a, vec![act, addr_l[l], ei])
                     .map_err(ConstraintError::Virtual)?;
                 vp.add_term(a.neg(), vec![act, rs1_l[l], ei])
@@ -3229,8 +3469,13 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 vp.add_term(a.mul(&fe(1 << 16)), vec![act, c_out, ei])
                     .map_err(ConstraintError::Virtual)?;
                 if l > 0 {
-                    let c_in =
-                        add_bit_factor(&mut vp, &mut views, &aux.bits, idx.carry_jalr[l - 1], log_t)?;
+                    let c_in = add_bit_factor(
+                        &mut vp,
+                        &mut views,
+                        &aux.bits,
+                        idx.carry_jalr[l - 1],
+                        log_t,
+                    )?;
                     vp.add_term(a.neg(), vec![act, c_in, ei])
                         .map_err(ConstraintError::Virtual)?;
                 }
@@ -3246,7 +3491,8 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         let a = &alphas[1];
         for name in ["sel_lw", "sel_lwu", "sel_sw"] {
             let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
-            vp.add_term(*a, vec![sel, addr, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![sel, addr, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.mul(&fe(8).neg()), vec![sel, word, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.mul(&fe(4).neg()), vec![sel, half, ei])
@@ -3254,7 +3500,8 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         }
         for name in ["sel_ld", "sel_sd"] {
             let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
-            vp.add_term(*a, vec![sel, addr, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![sel, addr, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.mul(&fe(8).neg()), vec![sel, word, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -3269,10 +3516,12 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let oldl = add_limb_factor(&mut vp, &mut views, w, T_MEM_OLD, l, log_t)?;
             let rs2l = add_limb_factor(&mut vp, &mut views, w, T_RS2, l, log_t)?;
             let rdl = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
-            vp.add_term(*a, vec![sd, newl, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![sd, newl, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![sd, rs2l, ei])
                 .map_err(ConstraintError::Virtual)?;
-            vp.add_term(*a, vec![ld, rdl, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![ld, rdl, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a.neg(), vec![ld, oldl, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -3293,7 +3542,8 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             };
             // sw*(new - src + h*src - h*other) = 0
             let (src, other) = if l < 2 { (rs2l, oldl) } else { (oldl, rs2l) };
-            vp.add_term(*b, vec![sw, newl, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*b, vec![sw, newl, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(b.neg(), vec![sw, src, ei])
                 .map_err(ConstraintError::Virtual)?;
             vp.add_term(*b, vec![sw, h, src, ei])
@@ -3467,9 +3717,7 @@ fn verify_route(
         let half = claim_bit(ledger, idx.mem_half, pt)?;
         for name in ["sel_lw", "sel_lwu", "sel_sw"] {
             let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
-            let e = addr
-                .sub(&word.mul(&fe(8)))
-                .sub(&half.mul(&fe(4)));
+            let e = addr.sub(&word.mul(&fe(8))).sub(&half.mul(&fe(4)));
             expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
         }
         for name in ["sel_ld", "sel_sd"] {
@@ -3510,10 +3758,7 @@ fn verify_route(
             } else {
                 claim_limb(ledger, T_RS2, l - 2, pt)?
             };
-            let e = newl
-                .sub(&src)
-                .add(&h.mul(&src))
-                .sub(&h.mul(&other));
+            let e = newl.sub(&src).add(&h.mul(&src)).sub(&h.mul(&other));
             expect = expect.add(&b.mul(&sw).mul(&e).mul(&eq_at));
         }
     }
@@ -3527,10 +3772,7 @@ fn verify_route(
             let rdl = claim_limb(ledger, T_RD, l, pt)?;
             let oldl = claim_limb(ledger, T_MEM_OLD, l, pt)?;
             let oldh = claim_limb(ledger, T_MEM_OLD, l + 2, pt)?;
-            let e = rdl
-                .sub(&oldl)
-                .add(&h.mul(&oldl))
-                .sub(&h.mul(&oldh));
+            let e = rdl.sub(&oldl).add(&h.mul(&oldl)).sub(&h.mul(&oldh));
             for sel in [lw, lwu] {
                 expect = expect.add(&b.mul(&sel).mul(&e).mul(&eq_at));
             }
@@ -3614,17 +3856,15 @@ fn prove_halt(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     let e_last = DenseMle::eq_extension(&ones);
     let mut vp = VirtualPolynomial::new(log_t);
     let hi = vp.add_factor(h.clone()).map_err(ConstraintError::Virtual)?;
-    let li = vp.add_factor(e_last.clone()).map_err(ConstraintError::Virtual)?;
+    let li = vp
+        .add_factor(e_last.clone())
+        .map_err(ConstraintError::Virtual)?;
     vp.add_term(Goldilocks::ONE, vec![hi, li])
         .map_err(ConstraintError::Virtual)?;
-    let views: Vec<ViewPair> = vec![
-        (hi, FV::Bit(aux.index.halted)),
-        (li, FV::PubTable(e_last)),
-    ];
+    let views: Vec<ViewPair> = vec![(hi, FV::Bit(aux.index.halted)), (li, FV::PubTable(e_last))];
     // Sum over the cube = h[T-1] (the indicator selects the last cycle).
     let claim = fe(aux.bits[aux.index.halted][(1 << log_t) - 1] as u64);
-    ctx.stage("halt-end", &mut vp, &views, claim)
-        .map(|_| ())
+    ctx.stage("halt-end", &mut vp, &views, claim).map(|_| ())
 }
 
 fn verify_halt(
@@ -3634,13 +3874,19 @@ fn verify_halt(
     transcript: &mut Transcript,
 ) -> Result<(), ConstraintError> {
     let idx = &aux.index;
-    let log_t = aux.bits.first().map(|c| c.len().trailing_zeros() as usize).unwrap_or(0);
+    let log_t = aux
+        .bits
+        .first()
+        .map(|c| c.len().trailing_zeros() as usize)
+        .unwrap_or(0);
     let leg = next_constraint_leg(iter, "halt-end")?;
     let verdict = verify_leg_header("halt-end", leg, log_t, 2, transcript)?;
     let h = ledger.tensor_claim(Factor::BitCol { id: idx.halted }, &verdict.point)?;
     let ones = vec![Goldilocks::ONE; log_t];
     let e_last = DenseMle::eq_extension(&ones);
-    let e_at = e_last.evaluate(&verdict.point).map_err(ConstraintError::Mle)?;
+    let e_at = e_last
+        .evaluate(&verdict.point)
+        .map_err(ConstraintError::Mle)?;
     let expect = h.mul(&e_at);
     if expect != verdict.final_claim {
         return Err(ConstraintError::FinalCheck("halt-end"));
@@ -3727,20 +3973,20 @@ fn prove_range_links(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintEr
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     for (g, (base, cols, width, n)) in groups.iter().enumerate() {
         for l in 0..*n {
             let limb = add_val_factor(&mut vp, &mut views, &aux.vals, cols[l], log_t)?;
-            vp.add_term(alphas[g], vec![limb, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(alphas[g], vec![limb, ei])
+                .map_err(ConstraintError::Virtual)?;
             for j in 0..*width {
                 let bit = aux.index.range_bits[base + l * width + j];
                 let bf = add_bit_factor(&mut vp, &mut views, &aux.bits, bit, log_t)?;
-                vp.add_term(
-                    alphas[g].mul(&fe(1u64 << j).neg()),
-                    vec![bf, ei],
-                )
-                .map_err(ConstraintError::Virtual)?;
+                vp.add_term(alphas[g].mul(&fe(1u64 << j).neg()), vec![bf, ei])
+                    .map_err(ConstraintError::Virtual)?;
             }
         }
     }
@@ -3815,23 +4061,52 @@ const SUBCLASS_PARTITIONS: [(&str, &[&str]); 7] = [
     (
         "sel_op",
         &[
-            "sel_add", "sel_sub", "sel_xor", "sel_or", "sel_and", "sel_sll", "sel_srl",
-            "sel_sra", "sel_slt", "sel_sltu", "sel_mul", "sel_mulh", "sel_mulhu", "sel_div",
-            "sel_divu", "sel_rem", "sel_remu",
+            "sel_add",
+            "sel_sub",
+            "sel_xor",
+            "sel_or",
+            "sel_and",
+            "sel_sll",
+            "sel_srl",
+            "sel_sra",
+            "sel_slt",
+            "sel_sltu",
+            "sel_mul",
+            "sel_mulh",
+            "sel_mulhu",
+            "sel_div",
+            "sel_divu",
+            "sel_rem",
+            "sel_remu",
         ],
     ),
     (
         "sel_opimm",
         &[
-            "sel_addi", "sel_slti", "sel_sltiu", "sel_xori", "sel_ori", "sel_andi", "sel_slli",
-            "sel_srli", "sel_srai",
+            "sel_addi",
+            "sel_slti",
+            "sel_sltiu",
+            "sel_xori",
+            "sel_ori",
+            "sel_andi",
+            "sel_slli",
+            "sel_srli",
+            "sel_srai",
         ],
     ),
     (
         "sel_op32",
         &[
-            "sel_addw", "sel_subw", "sel_sllw", "sel_srlw", "sel_sraw", "sel_mulw", "sel_divw",
-            "sel_divuw", "sel_remw", "sel_remuw",
+            "sel_addw",
+            "sel_subw",
+            "sel_sllw",
+            "sel_srlw",
+            "sel_sraw",
+            "sel_mulw",
+            "sel_divw",
+            "sel_divuw",
+            "sel_remw",
+            "sel_remuw",
         ],
     ),
     (
@@ -3863,7 +4138,9 @@ fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> 
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // (1) the fetch binding: sum_i 2^i * instr_bit_i = fetch_word.
     {
@@ -3872,16 +4149,20 @@ fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> 
             let row = 31 - i;
             let f = instr_row_of(&w.instr_bits, row, log_t);
             let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-            views.push((fi, FV::TensorRow {
-                factor: Factor::InstrBits,
-                nbits: 32,
-                row,
-            }));
+            views.push((
+                fi,
+                FV::TensorRow {
+                    factor: Factor::InstrBits,
+                    nbits: 32,
+                    row,
+                },
+            ));
             vp.add_term(a.mul(&fe(1u64 << i)), vec![fi, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
         let iw = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_instr, log_t)?;
-        vp.add_term(a.neg(), vec![iw, ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(a.neg(), vec![iw, ei])
+            .map_err(ConstraintError::Virtual)?;
     }
     // (2) the class partition: sum(classes) - 1 = 0 (the constant rides
     //     the eq table whose cube-sum is 1).
@@ -3889,19 +4170,23 @@ fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> 
         let a = &alphas[1];
         for name in CLASS_SELECTORS {
             let s = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
-            vp.add_term(*a, vec![s, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![s, ei])
+                .map_err(ConstraintError::Virtual)?;
         }
-        vp.add_term(a.neg(), vec![ei]).map_err(ConstraintError::Virtual)?;
+        vp.add_term(a.neg(), vec![ei])
+            .map_err(ConstraintError::Virtual)?;
     }
     // (3) the sub-class partitions: sum(subs) - class = 0.
     {
         let a = &alphas[2];
         for (class, subs) in SUBCLASS_PARTITIONS {
             let cf = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class), log_t)?;
-            vp.add_term(a.neg(), vec![cf, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![cf, ei])
+                .map_err(ConstraintError::Virtual)?;
             for name in subs {
                 let s = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
-                vp.add_term(*a, vec![s, ei]).map_err(ConstraintError::Virtual)?;
+                vp.add_term(*a, vec![s, ei])
+                    .map_err(ConstraintError::Virtual)?;
             }
         }
     }
@@ -3909,16 +4194,25 @@ fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> 
     //     funct12 in {0, 1} (ECALL/EBREAK; CSR space excluded).
     {
         let a = &alphas[3];
-        let sys = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_system"), log_t)?;
+        let sys = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_system"),
+            log_t,
+        )?;
         for bit in [12usize, 13, 14, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31] {
             let row = 31 - bit;
             let f = instr_row_of(&w.instr_bits, row, log_t);
             let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-            views.push((fi, FV::TensorRow {
-                factor: Factor::InstrBits,
-                nbits: 32,
-                row,
-            }));
+            views.push((
+                fi,
+                FV::TensorRow {
+                    factor: Factor::InstrBits,
+                    nbits: 32,
+                    row,
+                },
+            ));
             vp.add_term(*a, vec![sys, fi, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -4016,18 +4310,78 @@ struct ShiftClass {
 }
 
 const SHIFT_CLASSES: [ShiftClass; 12] = [
-    ShiftClass { sel: "sel_sll", oh: 0, kind: 0, is_w: false },
-    ShiftClass { sel: "sel_srl", oh: 0, kind: 1, is_w: false },
-    ShiftClass { sel: "sel_sra", oh: 0, kind: 2, is_w: false },
-    ShiftClass { sel: "sel_slli", oh: 1, kind: 0, is_w: false },
-    ShiftClass { sel: "sel_srli", oh: 1, kind: 1, is_w: false },
-    ShiftClass { sel: "sel_srai", oh: 1, kind: 2, is_w: false },
-    ShiftClass { sel: "sel_sllw", oh: 2, kind: 0, is_w: true },
-    ShiftClass { sel: "sel_srlw", oh: 2, kind: 1, is_w: true },
-    ShiftClass { sel: "sel_sraw", oh: 2, kind: 2, is_w: true },
-    ShiftClass { sel: "sel_slliw", oh: 3, kind: 0, is_w: true },
-    ShiftClass { sel: "sel_srliw", oh: 3, kind: 1, is_w: true },
-    ShiftClass { sel: "sel_sraiw", oh: 3, kind: 2, is_w: true },
+    ShiftClass {
+        sel: "sel_sll",
+        oh: 0,
+        kind: 0,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_srl",
+        oh: 0,
+        kind: 1,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_sra",
+        oh: 0,
+        kind: 2,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_slli",
+        oh: 1,
+        kind: 0,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_srli",
+        oh: 1,
+        kind: 1,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_srai",
+        oh: 1,
+        kind: 2,
+        is_w: false,
+    },
+    ShiftClass {
+        sel: "sel_sllw",
+        oh: 2,
+        kind: 0,
+        is_w: true,
+    },
+    ShiftClass {
+        sel: "sel_srlw",
+        oh: 2,
+        kind: 1,
+        is_w: true,
+    },
+    ShiftClass {
+        sel: "sel_sraw",
+        oh: 2,
+        kind: 2,
+        is_w: true,
+    },
+    ShiftClass {
+        sel: "sel_slliw",
+        oh: 3,
+        kind: 0,
+        is_w: true,
+    },
+    ShiftClass {
+        sel: "sel_srliw",
+        oh: 3,
+        kind: 1,
+        is_w: true,
+    },
+    ShiftClass {
+        sel: "sel_sraiw",
+        oh: 3,
+        kind: 2,
+        is_w: true,
+    },
 ];
 
 fn prove_shift(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
@@ -4054,7 +4408,9 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // Memoized tensor-row factors.
     let mut rs1_rows: Vec<Option<usize>> = vec![None; 64];
@@ -4070,11 +4426,14 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         let row = 63 - bit;
         let f = row_mle(&w.values[T_RS1], row, log_t);
         let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-        views.push((fi, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RS1 },
-            nbits: 64,
-            row,
-        }));
+        views.push((
+            fi,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS1 },
+                nbits: 64,
+                row,
+            },
+        ));
         rs1_rows[bit] = Some(fi);
         Ok(fi)
     };
@@ -4088,11 +4447,14 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         let row = 63 - bit;
         let f = row_mle(&w.values[T_RS2], row, log_t);
         let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-        views.push((fi, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RS2 },
-            nbits: 64,
-            row,
-        }));
+        views.push((
+            fi,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS2 },
+                nbits: 64,
+                row,
+            },
+        ));
         rs2_rows[bit] = Some(fi);
         Ok(fi)
     };
@@ -4106,11 +4468,14 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         let row = 31 - bit;
         let f = instr_row_of(&w.instr_bits, row, log_t);
         let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-        views.push((fi, FV::TensorRow {
-            factor: Factor::InstrBits,
-            nbits: 32,
-            row,
-        }));
+        views.push((
+            fi,
+            FV::TensorRow {
+                factor: Factor::InstrBits,
+                nbits: 32,
+                row,
+            },
+        ));
         instr_rows[bit] = Some(fi);
         Ok(fi)
     };
@@ -4121,11 +4486,14 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         let row = 63 - bit;
         let f = row_mle(&w.values[T_RD], row, log_t);
         let fi = vp.add_factor(f).map_err(ConstraintError::Virtual)?;
-        views.push((fi, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RD },
-            nbits: 64,
-            row,
-        }));
+        views.push((
+            fi,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RD },
+                nbits: 64,
+                row,
+            },
+        ));
         Ok(fi)
     };
     // (1) the one-hot decodes: shoh[s] = prod over the source bits
@@ -4142,7 +4510,8 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
         for (ohs, nbits, src) in groups {
             for s in 0..(1usize << nbits) {
                 let oh = add_bit_factor(&mut vp, &mut views, &aux.bits, ohs[s], log_t)?;
-                vp.add_term(*a, vec![oh, ei]).map_err(ConstraintError::Virtual)?;
+                vp.add_term(*a, vec![oh, ei])
+                    .map_err(ConstraintError::Virtual)?;
                 // -prod(polarized source bits)
                 let mut ids = Vec::with_capacity(nbits + 1);
                 for b in 0..nbits {
@@ -4170,7 +4539,8 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
                     }
                 }
                 ids.push(ei);
-                vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                vp.add_term(a.neg(), ids)
+                    .map_err(ConstraintError::Virtual)?;
             }
         }
     }
@@ -4203,7 +4573,7 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
                 }
                 // The in-range source bit and the shift bound.
                 let (lo_s, hi_s): (usize, usize) = match class.kind {
-                    0 => (0, i.min(width - 1)), // s <= i
+                    0 => (0, i.min(width - 1)),             // s <= i
                     _ => (0, (top - 1 - i).min(width - 1)), // i + s <= top-1
                 };
                 let alpha = if class.is_w { *b2 } else { *a };
@@ -4364,29 +4734,21 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                     let req = (s >> b) & 1;
                     if req == 1 {
                         let di = if src == 0 {
-                            add_row!(
-                                w.values[T_RS2],
-                                64,
-                                b,
-                                rs2_memo,
-                                |row: usize| FV::TensorRow {
+                            add_row!(w.values[T_RS2], 64, b, rs2_memo, |row: usize| {
+                                FV::TensorRow {
                                     factor: Factor::ValueBits { slot: T_RS2 },
                                     nbits: 64,
                                     row,
                                 }
-                            )
+                            })
                         } else {
-                            add_row!(
-                                w.instr_bits,
-                                32,
-                                20 + b,
-                                instr_memo,
-                                |row: usize| FV::TensorRow {
+                            add_row!(w.instr_bits, 32, 20 + b, instr_memo, |row: usize| {
+                                FV::TensorRow {
                                     factor: Factor::InstrBits,
                                     nbits: 32,
                                     row,
                                 }
-                            )
+                            })
                         };
                         dense_ids.push(di);
                     } else {
@@ -4476,31 +4838,21 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
             let top = if class.is_w { 32usize } else { 64usize };
             for i in 0..64usize {
                 // rd's row (memoized dense + view).
-                let rd_di = add_row!(
-                    w.values[T_RD],
-                    64,
-                    i,
-                    rd_memo,
-                    |row: usize| FV::TensorRow {
-                        factor: Factor::ValueBits { slot: T_RD },
-                        nbits: 64,
-                        row,
-                    }
-                );
+                let rd_di = add_row!(w.values[T_RD], 64, i, rd_memo, |row: usize| FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RD },
+                    nbits: 64,
+                    row,
+                });
                 if i >= top {
                     // The W sign extension: rd_bit[i] = rd_bit[31].
                     if class.is_w {
-                        let rd31 = add_row!(
-                            w.values[T_RD],
-                            64,
-                            31,
-                            rd_memo,
-                            |row: usize| FV::TensorRow {
+                        let rd31 = add_row!(w.values[T_RD], 64, 31, rd_memo, |row: usize| {
+                            FV::TensorRow {
                                 factor: Factor::ValueBits { slot: T_RD },
                                 nbits: 64,
                                 row,
                             }
-                        );
+                        });
                         terms.push(SparseTerm {
                             coeff: *b2,
                             positions: sel_support.iter().map(|e| e.0).collect(),
@@ -4543,17 +4895,13 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                             e
                         }
                     };
-                    let sb_di = add_row!(
-                        w.values[T_RS1],
-                        64,
-                        src_bit,
-                        rs1_memo,
-                        |row: usize| FV::TensorRow {
+                    let sb_di = add_row!(w.values[T_RS1], 64, src_bit, rs1_memo, |row: usize| {
+                        FV::TensorRow {
                             factor: Factor::ValueBits { slot: T_RS1 },
                             nbits: 64,
                             row,
                         }
-                    );
+                    });
                     let oh_fi = sparse.len();
                     sparse.push(SparseFactor {
                         entries: oh_entries.clone(),
@@ -4571,17 +4919,13 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                 // the sign bit via the one-hot complement.
                 if class.kind == 2 {
                     let sign_bit = top - 1;
-                    let sg_di = add_row!(
-                        w.values[T_RS1],
-                        64,
-                        sign_bit,
-                        rs1_memo,
-                        |row: usize| FV::TensorRow {
+                    let sg_di = add_row!(w.values[T_RS1], 64, sign_bit, rs1_memo, |row: usize| {
+                        FV::TensorRow {
                             factor: Factor::ValueBits { slot: T_RS1 },
                             nbits: 64,
                             row,
                         }
-                    );
+                    });
                     terms.push(SparseTerm {
                         coeff: alpha.neg(),
                         positions: sel_support.iter().map(|e| e.0).collect(),
@@ -4660,11 +5004,18 @@ fn verify_shift(
     // references (the memoized factor pool), so the verifier must pop
     // in the same on-demand pattern — resolving every row upfront would
     // desync the claim queue.
-    let mut rs1_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
-    let mut rs2_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
-    let mut instr_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
-    let mut rd_memo: std::collections::HashMap<usize, Goldilocks> = std::collections::HashMap::new();
-    let rs1_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+    let mut rs1_memo: std::collections::HashMap<usize, Goldilocks> =
+        std::collections::HashMap::new();
+    let mut rs2_memo: std::collections::HashMap<usize, Goldilocks> =
+        std::collections::HashMap::new();
+    let mut instr_memo: std::collections::HashMap<usize, Goldilocks> =
+        std::collections::HashMap::new();
+    let mut rd_memo: std::collections::HashMap<usize, Goldilocks> =
+        std::collections::HashMap::new();
+    let rs1_bits = |ledger: &mut Ledger<'_>,
+                    memo: &mut std::collections::HashMap<usize, Goldilocks>,
+                    bit: usize|
+     -> Result<Goldilocks, ConstraintError> {
         if let Some(v) = memo.get(&bit) {
             return Ok(*v);
         }
@@ -4675,7 +5026,10 @@ fn verify_shift(
         Ok(v)
     };
     let _ = &rs1_bits;
-    let rs2_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+    let rs2_bits = |ledger: &mut Ledger<'_>,
+                    memo: &mut std::collections::HashMap<usize, Goldilocks>,
+                    bit: usize|
+     -> Result<Goldilocks, ConstraintError> {
         if let Some(v) = memo.get(&bit) {
             return Ok(*v);
         }
@@ -4685,7 +5039,10 @@ fn verify_shift(
         memo.insert(bit, v);
         Ok(v)
     };
-    let instr_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+    let instr_bits = |ledger: &mut Ledger<'_>,
+                      memo: &mut std::collections::HashMap<usize, Goldilocks>,
+                      bit: usize|
+     -> Result<Goldilocks, ConstraintError> {
         if let Some(v) = memo.get(&bit) {
             return Ok(*v);
         }
@@ -4695,7 +5052,10 @@ fn verify_shift(
         memo.insert(bit, v);
         Ok(v)
     };
-    let rd_bits = |ledger: &mut Ledger<'_>, memo: &mut std::collections::HashMap<usize, Goldilocks>, bit: usize| -> Result<Goldilocks, ConstraintError> {
+    let rd_bits = |ledger: &mut Ledger<'_>,
+                   memo: &mut std::collections::HashMap<usize, Goldilocks>,
+                   bit: usize|
+     -> Result<Goldilocks, ConstraintError> {
         if let Some(v) = memo.get(&bit) {
             return Ok(*v);
         }
@@ -4812,7 +5172,9 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // Memoized operand-limb factors.
     let mut a_limbs: Vec<Option<usize>> = vec![None; 4];
@@ -4899,17 +5261,20 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 .map_err(ConstraintError::Virtual)?;
             if k < 7 {
                 let cf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_c[k], log_t)?;
-                vp.add_term(
-                    a1.mul(&fe(1u64 << 16).neg()),
-                    vec![sel, cf, ei],
-                )
-                .map_err(ConstraintError::Virtual)?;
+                vp.add_term(a1.mul(&fe(1u64 << 16).neg()), vec![sel, cf, ei])
+                    .map_err(ConstraintError::Virtual)?;
             }
         }
     }
     // (3) MULW: k = 0..1 over the low limbs (c_2 free).
     {
-        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulw"), log_t)?;
+        let sel = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_mulw"),
+            log_t,
+        )?;
         let a2 = alphas[2];
         for k in 0..2usize {
             for i in 0..2usize {
@@ -4937,11 +5302,14 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         // The W sign extension: rd_2 = rd_3 = s31·0xFFFF.
         let sign = row_mle(&w.values[T_RD], 32, log_t);
         let sf = vp.add_factor(sign).map_err(ConstraintError::Virtual)?;
-        views.push((sf, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RD },
-            nbits: 64,
-            row: 32,
-        }));
+        views.push((
+            sf,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RD },
+                nbits: 64,
+                row: 32,
+            },
+        ));
         for l in 2..4usize {
             let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
             vp.add_term(a2, vec![sel, rd, ei])
@@ -4952,7 +5320,13 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     }
     // (4) MULHU rd routing: rd_l = hi_l (limb copies).
     {
-        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulhu"), log_t)?;
+        let sel = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_mulhu"),
+            log_t,
+        )?;
         let a3 = alphas[3];
         for l in 0..4usize {
             let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
@@ -4966,30 +5340,43 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     // (5) MULH rd composition: rd_l = hi_l - sa·b_l - sb·a_l - bor_l +
     //     2^16·bor_{l+1} (bor_0 = 0, bor_4 free — the mod-2^64 wrap).
     {
-        let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_mulh"), log_t)?;
+        let sel = add_bit_factor(
+            &mut vp,
+            &mut views,
+            &aux.bits,
+            idx.sel_by("sel_mulh"),
+            log_t,
+        )?;
         let a4 = alphas[4];
         // sa = rs1 bit 63 (row 0), sb = rs2 bit 63 (row 0).
         let sa = row_mle(&w.values[T_RS1], 0, log_t);
         let saf = vp.add_factor(sa).map_err(ConstraintError::Virtual)?;
-        views.push((saf, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RS1 },
-            nbits: 64,
-            row: 0,
-        }));
+        views.push((
+            saf,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS1 },
+                nbits: 64,
+                row: 0,
+            },
+        ));
         let sb = row_mle(&w.values[T_RS2], 0, log_t);
         let sbf = vp.add_factor(sb).map_err(ConstraintError::Virtual)?;
-        views.push((sbf, FV::TensorRow {
-            factor: Factor::ValueBits { slot: T_RS2 },
-            nbits: 64,
-            row: 0,
-        }));
+        views.push((
+            sbf,
+            FV::TensorRow {
+                factor: Factor::ValueBits { slot: T_RS2 },
+                nbits: 64,
+                row: 0,
+            },
+        ));
         for l in 0..4usize {
             let hi = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mul_hi[l], log_t)?;
             let rd = add_limb_factor(&mut vp, &mut views, w, T_RD, l, log_t)?;
             let bf = add_b(&mut vp, &mut views, l)?;
             let af = add_a(&mut vp, &mut views, l)?;
             // + hi_l
-            vp.add_term(a4, vec![sel, hi, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(a4, vec![sel, hi, ei])
+                .map_err(ConstraintError::Virtual)?;
             // - sa·b_l - sb·a_l
             vp.add_term(a4.neg(), vec![sel, saf, bf, ei])
                 .map_err(ConstraintError::Virtual)?;
@@ -5001,7 +5388,8 @@ fn prove_mul(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             // - bor_l (l > 0) + 2^16·bor_{l+1} (all l: bor_4 is the free
             // mod-2^64 wrap borrow — it MUST appear to close the chain).
             if l > 0 {
-                let bor = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mulh_bor[l - 1], log_t)?;
+                let bor =
+                    add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mulh_bor[l - 1], log_t)?;
                 vp.add_term(a4.neg(), vec![sel, bor, ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -5034,13 +5422,15 @@ fn verify_mul(
     let verdict = verify_leg_header("mul", leg, log_t, 4, transcript)?;
     let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
     let pt = &verdict.point;
-    let mut a_limbs = vec![Goldilocks::ZERO; 4];
-    let mut b_limbs = vec![Goldilocks::ZERO; 4];
+    let mut a_limbs = [Goldilocks::ZERO; 4];
+    let mut b_limbs = [Goldilocks::ZERO; 4];
     for l in 0..4usize {
         a_limbs[l] = claim_limb(ledger, T_RS1, l, pt)?;
         b_limbs[l] = claim_limb(ledger, T_RS2, l, pt)?;
     }
-    let rd_limbs: Vec<Goldilocks> = (0..4).map(|l| claim_limb(ledger, T_RD, l, pt)).collect::<Result<_, _>>()?;
+    let rd_limbs: Vec<Goldilocks> = (0..4)
+        .map(|l| claim_limb(ledger, T_RD, l, pt))
+        .collect::<Result<_, _>>()?;
     let mut expect = Goldilocks::ZERO;
     // (1) MUL.
     {
@@ -5054,7 +5444,12 @@ fn verify_mul(
                     }
                 }
             }
-            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mul_c, k + 1, pt)?));
+            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(
+                ledger,
+                &idx.v_mul_c,
+                k + 1,
+                pt,
+            )?));
             expect = expect.add(&alphas[0].mul(&sel).mul(&e).mul(&eq_at));
         }
     }
@@ -5096,7 +5491,12 @@ fn verify_mul(
                     }
                 }
             }
-            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(ledger, &idx.v_mul_c, k + 1, pt)?));
+            let e = s.sub(&rd_limbs[k]).sub(&fe(1u64 << 16).mul(&claim_carry(
+                ledger,
+                &idx.v_mul_c,
+                k + 1,
+                pt,
+            )?));
             expect = expect.add(&alphas[2].mul(&sel).mul(&e).mul(&eq_at));
         }
         let mut sgn_pt = idx_point(6, 32);
@@ -5165,14 +5565,54 @@ struct DivClass {
 }
 
 const DIV_CLASSES: [DivClass; 8] = [
-    DivClass { sel: "sel_divu", signed: false, is_w: false, is_rem: false },
-    DivClass { sel: "sel_remu", signed: false, is_w: false, is_rem: true },
-    DivClass { sel: "sel_div", signed: true, is_w: false, is_rem: false },
-    DivClass { sel: "sel_rem", signed: true, is_w: false, is_rem: true },
-    DivClass { sel: "sel_divuw", signed: false, is_w: true, is_rem: false },
-    DivClass { sel: "sel_remuw", signed: false, is_w: true, is_rem: true },
-    DivClass { sel: "sel_divw", signed: true, is_w: true, is_rem: false },
-    DivClass { sel: "sel_remw", signed: true, is_w: true, is_rem: true },
+    DivClass {
+        sel: "sel_divu",
+        signed: false,
+        is_w: false,
+        is_rem: false,
+    },
+    DivClass {
+        sel: "sel_remu",
+        signed: false,
+        is_w: false,
+        is_rem: true,
+    },
+    DivClass {
+        sel: "sel_div",
+        signed: true,
+        is_w: false,
+        is_rem: false,
+    },
+    DivClass {
+        sel: "sel_rem",
+        signed: true,
+        is_w: false,
+        is_rem: true,
+    },
+    DivClass {
+        sel: "sel_divuw",
+        signed: false,
+        is_w: true,
+        is_rem: false,
+    },
+    DivClass {
+        sel: "sel_remuw",
+        signed: false,
+        is_w: true,
+        is_rem: true,
+    },
+    DivClass {
+        sel: "sel_divw",
+        signed: true,
+        is_w: true,
+        is_rem: false,
+    },
+    DivClass {
+        sel: "sel_remw",
+        signed: true,
+        is_w: true,
+        is_rem: true,
+    },
 ];
 
 fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
@@ -5190,7 +5630,9 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
-    let ei = vp.add_factor(eq.clone()).map_err(ConstraintError::Virtual)?;
+    let ei = vp
+        .add_factor(eq.clone())
+        .map_err(ConstraintError::Virtual)?;
     let mut views: Vec<ViewPair> = vec![(ei, FV::PubTable(eq.clone()))];
     // Memoized factors.
     let mut rs1_limbs: Vec<Option<usize>> = vec![None; 4];
@@ -5238,14 +5680,19 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let row = 63 - (63 - i); // bit (63 - i) at row (63 - (63-i)) = i
             let b = row_mle(&w.values[T_RS2], row, log_t);
             let bf = vp.add_factor(b).map_err(ConstraintError::Virtual)?;
-            views.push((bf, FV::TensorRow {
-                factor: Factor::ValueBits { slot: T_RS2 },
-                nbits: 64,
-                row,
-            }));
+            views.push((
+                bf,
+                FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS2 },
+                    nbits: 64,
+                    row,
+                },
+            ));
             // next - prev + prev·b = 0
-            vp.add_term(*a, vec![next, ei]).map_err(ConstraintError::Virtual)?;
-            vp.add_term(a.neg(), vec![prev, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![next, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![prev, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(*a, vec![prev, bf, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -5255,13 +5702,18 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let row = 63 - i; // bit i at row 63 - i
             let b = row_mle(&w.values[T_RS2], row, log_t);
             let bf = vp.add_factor(b).map_err(ConstraintError::Virtual)?;
-            views.push((bf, FV::TensorRow {
-                factor: Factor::ValueBits { slot: T_RS2 },
-                nbits: 64,
-                row,
-            }));
-            vp.add_term(*a, vec![next, ei]).map_err(ConstraintError::Virtual)?;
-            vp.add_term(a.neg(), vec![prev, ei]).map_err(ConstraintError::Virtual)?;
+            views.push((
+                bf,
+                FV::TensorRow {
+                    factor: Factor::ValueBits { slot: T_RS2 },
+                    nbits: 64,
+                    row,
+                },
+            ));
+            vp.add_term(*a, vec![next, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![prev, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(*a, vec![prev, bf, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -5301,18 +5753,24 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 let row = if class.is_w { 32 } else { 0 };
                 let fa = row_mle(&w.values[T_RS1], row, log_t);
                 let saf = vp.add_factor(fa).map_err(ConstraintError::Virtual)?;
-                views.push((saf, FV::TensorRow {
-                    factor: Factor::ValueBits { slot: T_RS1 },
-                    nbits: 64,
-                    row,
-                }));
+                views.push((
+                    saf,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RS1 },
+                        nbits: 64,
+                        row,
+                    },
+                ));
                 let fb = row_mle(&w.values[T_RS2], row, log_t);
                 let sbf = vp.add_factor(fb).map_err(ConstraintError::Virtual)?;
-                views.push((sbf, FV::TensorRow {
-                    factor: Factor::ValueBits { slot: T_RS2 },
-                    nbits: 64,
-                    row,
-                }));
+                views.push((
+                    sbf,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RS2 },
+                        nbits: 64,
+                        row,
+                    },
+                ));
                 (Some(saf), Some(sbf))
             };
             let limb_hi = if class.is_w { 2 } else { 4 };
@@ -5320,7 +5778,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 let delta = if l == 0 { 1u64 } else { 0 };
                 // mag_a vs rs1's limb l.
                 {
-                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_a[l], log_t)?;
+                    let mag =
+                        add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_a[l], log_t)?;
                     let x = add_rs1(&mut vp, &mut views, l)?;
                     vp.add_term(*a, vec![sel, mag, ei])
                         .map_err(ConstraintError::Virtual)?;
@@ -5335,7 +5794,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 }
                 // mag_b vs rs2's limb l.
                 {
-                    let mag = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[l], log_t)?;
+                    let mag =
+                        add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[l], log_t)?;
                     let x = add_rs2(&mut vp, &mut views, l)?;
                     vp.add_term(*a, vec![sel, mag, ei])
                         .map_err(ConstraintError::Virtual)?;
@@ -5353,7 +5813,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             if class.is_w {
                 for l in 2..4usize {
                     for mag_cols in [&idx.v_mag_a, &idx.v_mag_b] {
-                        let mag = add_val_factor(&mut vp, &mut views, &aux.vals, mag_cols[l], log_t)?;
+                        let mag =
+                            add_val_factor(&mut vp, &mut views, &aux.vals, mag_cols[l], log_t)?;
                         vp.add_term(*a, vec![sel, mag, ei])
                             .map_err(ConstraintError::Virtual)?;
                     }
@@ -5374,8 +5835,20 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 for i in 0..4usize {
                     for j in 0..4usize {
                         if i + j == k {
-                            let qf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_q[i], log_t)?;
-                            let bf = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_b[j], log_t)?;
+                            let qf = add_val_factor(
+                                &mut vp,
+                                &mut views,
+                                &aux.vals,
+                                idx.v_mag_q[i],
+                                log_t,
+                            )?;
+                            let bf = add_val_factor(
+                                &mut vp,
+                                &mut views,
+                                &aux.vals,
+                                idx.v_mag_b[j],
+                                log_t,
+                            )?;
                             vp.add_term(*a, vec![sel, nbz, qf, bf, ei])
                                 .map_err(ConstraintError::Virtual)?;
                         }
@@ -5383,7 +5856,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 }
                 // + d_k (k > 0) + mag_r_k - mag_a_k
                 if k > 0 {
-                    let df = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k - 1], log_t)?;
+                    let df =
+                        add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k - 1], log_t)?;
                     vp.add_term(*a, vec![sel, nbz, df, ei])
                         .map_err(ConstraintError::Virtual)?;
                 }
@@ -5400,7 +5874,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             }
             // The closure: d_{k_hi} = 0 under (1 - bz).
             {
-                let df = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k_hi - 1], log_t)?;
+                let df =
+                    add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mag_d[k_hi - 1], log_t)?;
                 vp.add_term(*a2, vec![sel, nbz, df, ei])
                     .map_err(ConstraintError::Virtual)?;
             }
@@ -5416,12 +5891,16 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let out = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_rlt_out[l], log_t)?;
             // mag_r_l - mag_b_l - bor_l + 2^16·bor_{l+1} - out_l = 0
             // (bor_4 = the [mag_r < mag_b] indicator appears at l = 3).
-            vp.add_term(*a, vec![rf, ei]).map_err(ConstraintError::Virtual)?;
-            vp.add_term(a.neg(), vec![bf, ei]).map_err(ConstraintError::Virtual)?;
-            vp.add_term(a.neg(), vec![out, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a, vec![rf, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![bf, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.neg(), vec![out, ei])
+                .map_err(ConstraintError::Virtual)?;
             if l > 0 {
                 let bor = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[l - 1], log_t)?;
-                vp.add_term(a.neg(), vec![bor, ei]).map_err(ConstraintError::Virtual)?;
+                vp.add_term(a.neg(), vec![bor, ei])
+                    .map_err(ConstraintError::Virtual)?;
             }
             {
                 let bor = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[l], log_t)?;
@@ -5435,7 +5914,8 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(class.sel), log_t)?;
             let (_bz, nbz) = bz_of(&mut vp, &mut views, class.is_w)?;
             let bor4 = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.v_rbor[3], log_t)?;
-            vp.add_term(*a4, vec![sel, nbz, ei]).map_err(ConstraintError::Virtual)?;
+            vp.add_term(*a4, vec![sel, nbz, ei])
+                .map_err(ConstraintError::Virtual)?;
             vp.add_term(a4.neg(), vec![sel, nbz, bor4, ei])
                 .map_err(ConstraintError::Virtual)?;
         }
@@ -5451,11 +5931,14 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             if class.is_w {
                 let sign = row_mle(&w.values[T_RD], 32, log_t);
                 let sf = vp.add_factor(sign).map_err(ConstraintError::Virtual)?;
-                views.push((sf, FV::TensorRow {
-                    factor: Factor::ValueBits { slot: T_RD },
-                    nbits: 64,
-                    row: 32,
-                }));
+                views.push((
+                    sf,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RD },
+                        nbits: 64,
+                        row: 32,
+                    },
+                ));
                 for l in 2..4usize {
                     let rd = add_rd(&mut vp, &mut views, l)?;
                     vp.add_term(*a5, vec![sel, rd, ei])
@@ -5468,7 +5951,11 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             // The value routing.
             if !class.signed {
                 // rd_l = mag_l (copies) — q for DIV, r for REM.
-                let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+                let src = if class.is_rem {
+                    &idx.v_mag_r
+                } else {
+                    &idx.v_mag_q
+                };
                 for l in 0..n_limbs {
                     let rd = add_rd(&mut vp, &mut views, l)?;
                     let mag = add_val_factor(&mut vp, &mut views, &aux.vals, src[l], log_t)?;
@@ -5480,22 +5967,32 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             } else {
                 // The conditional negation: rd_l = (1-s)·mag_l + s·(0xFFFF
                 // - mag_l) + s·delta_l with s the composed sign.
-                let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+                let src = if class.is_rem {
+                    &idx.v_mag_r
+                } else {
+                    &idx.v_mag_q
+                };
                 let row = if class.is_w { 32 } else { 0 };
                 let sa = row_mle(&w.values[T_RS1], row, log_t);
                 let saf = vp.add_factor(sa).map_err(ConstraintError::Virtual)?;
-                views.push((saf, FV::TensorRow {
-                    factor: Factor::ValueBits { slot: T_RS1 },
-                    nbits: 64,
-                    row,
-                }));
+                views.push((
+                    saf,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RS1 },
+                        nbits: 64,
+                        row,
+                    },
+                ));
                 let sb = row_mle(&w.values[T_RS2], row, log_t);
                 let sbf = vp.add_factor(sb).map_err(ConstraintError::Virtual)?;
-                views.push((sbf, FV::TensorRow {
-                    factor: Factor::ValueBits { slot: T_RS2 },
-                    nbits: 64,
-                    row,
-                }));
+                views.push((
+                    sbf,
+                    FV::TensorRow {
+                        factor: Factor::ValueBits { slot: T_RS2 },
+                        nbits: 64,
+                        row,
+                    },
+                ));
                 for l in 0..n_limbs {
                     let rd = add_rd(&mut vp, &mut views, l)?;
                     let mag = add_val_factor(&mut vp, &mut views, &aux.vals, src[l], log_t)?;
@@ -5509,31 +6006,19 @@ fn prove_div(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                     if class.is_rem {
                         vp.add_term(a5.mul(&fe(2)), vec![sel, saf, mag, ei])
                             .map_err(ConstraintError::Virtual)?;
-                        vp.add_term(
-                            a5.mul(&fe(0xFFFF + delta).neg()),
-                            vec![sel, saf, ei],
-                        )
-                        .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a5.mul(&fe(0xFFFF + delta).neg()), vec![sel, saf, ei])
+                            .map_err(ConstraintError::Virtual)?;
                     } else {
                         for sf in [saf, sbf] {
                             vp.add_term(a5.mul(&fe(2)), vec![sel, sf, mag, ei])
                                 .map_err(ConstraintError::Virtual)?;
-                            vp.add_term(
-                                a5.mul(&fe(0xFFFF + delta).neg()),
-                                vec![sel, sf, ei],
-                            )
-                            .map_err(ConstraintError::Virtual)?;
+                            vp.add_term(a5.mul(&fe(0xFFFF + delta).neg()), vec![sel, sf, ei])
+                                .map_err(ConstraintError::Virtual)?;
                         }
-                        vp.add_term(
-                            a5.mul(&fe(4).neg()),
-                            vec![sel, saf, sbf, mag, ei],
-                        )
-                        .map_err(ConstraintError::Virtual)?;
-                        vp.add_term(
-                            a5.mul(&fe(2 * (0xFFFF + delta))),
-                            vec![sel, saf, sbf, ei],
-                        )
-                        .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a5.mul(&fe(4).neg()), vec![sel, saf, sbf, mag, ei])
+                            .map_err(ConstraintError::Virtual)?;
+                        vp.add_term(a5.mul(&fe(2 * (0xFFFF + delta))), vec![sel, saf, sbf, ei])
+                            .map_err(ConstraintError::Virtual)?;
                     }
                 }
             }
@@ -5620,7 +6105,11 @@ fn verify_div(
         let sel = claim_bit(ledger, idx.sel_by(class.sel), pt)?;
         let bz = claim_bit(
             ledger,
-            if class.is_w { idx.eqzw[32] } else { idx.eqz[64] },
+            if class.is_w {
+                idx.eqzw[32]
+            } else {
+                idx.eqz[64]
+            },
             pt,
         )?;
         let nbz = Goldilocks::ONE.sub(&bz);
@@ -5629,12 +6118,22 @@ fn verify_div(
         {
             let a = &alphas[1];
             let sa = if class.signed {
-                Some(claim_tensor_bit(ledger, T_RS1, if class.is_w { 31 } else { 63 }, pt)?)
+                Some(claim_tensor_bit(
+                    ledger,
+                    T_RS1,
+                    if class.is_w { 31 } else { 63 },
+                    pt,
+                )?)
             } else {
                 None
             };
             let sb = if class.signed {
-                Some(claim_tensor_bit(ledger, T_RS2, if class.is_w { 31 } else { 63 }, pt)?)
+                Some(claim_tensor_bit(
+                    ledger,
+                    T_RS2,
+                    if class.is_w { 31 } else { 63 },
+                    pt,
+                )?)
             } else {
                 None
             };
@@ -5673,7 +6172,11 @@ fn verify_div(
                 for i in 0..4usize {
                     for j in 0..4usize {
                         if i + j == k {
-                            s = s.add(&claim_val(ledger, idx.v_mag_q[i], pt)?.mul(&claim_val(ledger, idx.v_mag_b[j], pt)?));
+                            s = s.add(&claim_val(ledger, idx.v_mag_q[i], pt)?.mul(&claim_val(
+                                ledger,
+                                idx.v_mag_b[j],
+                                pt,
+                            )?));
                         }
                     }
                 }
@@ -5703,7 +6206,11 @@ fn verify_div(
                     expect = expect.add(&a5.mul(&sel).mul(&e).mul(&eq_at));
                 }
             }
-            let src = if class.is_rem { &idx.v_mag_r } else { &idx.v_mag_q };
+            let src = if class.is_rem {
+                &idx.v_mag_r
+            } else {
+                &idx.v_mag_q
+            };
             if !class.signed {
                 for l in 0..limb_hi {
                     let e = rd_limbs[l].sub(&claim_val(ledger, src[l], pt)?);
@@ -5798,10 +6305,19 @@ pub fn prove_constraints(
             return Err(ConstraintError::UncoveredInstruction { cycle: c });
         }
     }
-    let mut ctx = FamilyCtx { w, aux, ledger, legs, transcript };
+    let mut ctx = FamilyCtx {
+        w,
+        aux,
+        ledger,
+        legs,
+        transcript,
+    };
     let dbg = std::env::var_os("LZX_SEM_TIMING").is_some();
     for (name, f) in [
-        ("booleanity", prove_booleanity as fn(&mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError>),
+        (
+            "booleanity",
+            prove_booleanity as fn(&mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError>,
+        ),
         ("selectors", prove_selectors),
         ("decode", prove_decode),
         ("flags", prove_flags),
@@ -5953,12 +6469,18 @@ mod shift_sparse_tests {
     /// program (mixed addi + shifts of both shamt widths).
     fn shift_program() -> Vec<u8> {
         let r = |f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32| {
-            (f7 << 25) | ((rs2 as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12)
+            (f7 << 25)
+                | ((rs2 as u32) << 20)
+                | ((rs1 as u32) << 15)
+                | (f3 << 12)
                 | ((rd as u32) << 7)
                 | op
         };
         let i = |f6: u32, shamt: u8, rs1: u8, f3: u32, rd: u8, op: u32| {
-            (f6 << 26) | ((shamt as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12)
+            (f6 << 26)
+                | ((shamt as u32) << 20)
+                | ((rs1 as u32) << 15)
+                | (f3 << 12)
                 | ((rd as u32) << 7)
                 | op
         };
@@ -5969,12 +6491,12 @@ mod shift_sparse_tests {
             addi(1, 0, -1),
             addi(2, 0, 0x123),
             addi(3, 0, 0x40000000),
-            i(0x00, 5, 1, 1, 4, 0x13),   // slli shamt 5
-            i(0x00, 37, 1, 5, 5, 0x13),  // srli shamt 37
-            i(0x10, 13, 1, 5, 6, 0x13),  // srai shamt 13
-            r(0, 3, 2, 1, 7, 0x1b),      // slliw
-            r(0, 9, 2, 5, 8, 0x1b),      // srliw
-            r(0x20, 7, 2, 5, 9, 0x1b),   // sraiw
+            i(0x00, 5, 1, 1, 4, 0x13),  // slli shamt 5
+            i(0x00, 37, 1, 5, 5, 0x13), // srli shamt 37
+            i(0x10, 13, 1, 5, 6, 0x13), // srai shamt 13
+            r(0, 3, 2, 1, 7, 0x1b),     // slliw
+            r(0, 9, 2, 5, 8, 0x1b),     // srliw
+            r(0x20, 7, 2, 5, 9, 0x1b),  // sraiw
             addi(10, 0, 40),
             r(0, 10, 1, 1, 11, 0x33),    // sll
             r(0, 10, 1, 5, 12, 0x33),    // srl

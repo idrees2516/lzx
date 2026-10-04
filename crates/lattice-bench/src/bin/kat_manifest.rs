@@ -108,9 +108,11 @@ fn packing_kats() -> Vec<(String, String)> {
     let cfg = RingConfig::new(Modulus32::Q_32, 4).ok().unwrap();
     let bytes = Transcript::xof(b"kat-pack", b"v", 64 * 8);
     let values: Vec<Goldilocks> = (0..64)
-        .map(|i| Goldilocks::from_u64(u64::from_le_bytes(
-            bytes[i * 8..(i + 1) * 8].try_into().unwrap_or([0u8; 8]),
-        )))
+        .map(|i| {
+            Goldilocks::from_u64(u64::from_le_bytes(
+                bytes[i * 8..(i + 1) * 8].try_into().unwrap_or([0u8; 8]),
+            ))
+        })
         .collect();
     let packed = pack_field_elements(&cfg, &values);
     let mut pb = Vec::new();
@@ -242,9 +244,6 @@ fn main() {
     println!("{manifest}");
     println!("manifest digest: {}", hex32(&digest));
     let _ = std::fs::write("target/kat/lzx-kat-manifest.json", manifest);
-    let _ = std::fs::write(
-        "target/kat/lzx-kat-manifest.digest",
-        hex32(&digest),
-    );
+    let _ = std::fs::write("target/kat/lzx-kat-manifest.digest", hex32(&digest));
     println!("Artifacts: target/kat/lzx-kat-manifest.json (.digest)");
 }

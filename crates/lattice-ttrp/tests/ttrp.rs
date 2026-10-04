@@ -13,6 +13,7 @@
 //! 7. The verifier's tensor evaluation vs the naive MLE evaluation.
 //! 8. The parameter search (§7.2) satisfying its constraints.
 
+use lattice_core::transcript::Transcript;
 use lattice_ring::{Modulus32, RingConfig};
 use lattice_ttrp::bounds;
 use lattice_ttrp::cores::{materialize_row, sample_cores, tt_entry_naive, TtrpParams};
@@ -21,7 +22,6 @@ use lattice_ttrp::projection::{
     project_ring, spatial_matrix,
 };
 use lattice_ttrp::protocol::{mle_eval_ring, prove, verify, TtrpStatement};
-use lattice_core::transcript::Transcript;
 
 /// A small test instance: φ = 2^4, m̄r = 2^8, d = 4 ⟹ µ = 6 (µ₁=4, µ₂=2).
 fn small_params() -> TtrpParams {
@@ -59,7 +59,12 @@ fn seed(bytes: &[u8]) -> Vec<u8> {
     bytes.to_vec()
 }
 
-fn rand_witness(ring: &RingConfig, m_bar: usize, bound: u32, salt: u8) -> Vec<lattice_ring::RingElement> {
+fn rand_witness(
+    ring: &RingConfig,
+    m_bar: usize,
+    bound: u32,
+    salt: u8,
+) -> Vec<lattice_ring::RingElement> {
     // Deterministic small-coefficient witness: ||cf(v)||∞ ≤ bound.
     let mut coeffs_all = Vec::with_capacity(m_bar * ring.n());
     let mut x = (salt as u64) | 1;
@@ -77,17 +82,27 @@ fn rand_witness(ring: &RingConfig, m_bar: usize, bound: u32, salt: u8) -> Vec<la
         .collect()
 }
 
-
 /// Centered representative of a canonical residue.
 fn cen(c: i64, q: u32) -> i64 {
     let qi = q as i64;
     let c = c.rem_euclid(qi);
-    if c > qi / 2 { c - qi } else { c }
+    if c > qi / 2 {
+        c - qi
+    } else {
+        c
+    }
 }
 
 /// Euclidean norm of a canonical-residue coefficient vector (centered).
 fn norm_centered(x: &[i64], q: u32) -> u64 {
-    (x.iter().map(|&c| { let v = cen(c, q); (v * v) as f64 }).sum::<f64>().sqrt().ceil()) as u64
+    (x.iter()
+        .map(|&c| {
+            let v = cen(c, q);
+            (v * v) as f64
+        })
+        .sum::<f64>()
+        .sqrt()
+        .ceil()) as u64
 }
 
 // ---------------------------------------------------------------------------
@@ -123,11 +138,16 @@ fn core_sampling_is_deterministic() {
     let zeros = rows_entries(&a).filter(|&e| e == 0).count();
     let total = rows_entries(&a).count();
     let zero_frac = zeros as f64 / total as f64;
-    assert!((0.44..0.56).contains(&zero_frac), "zero fraction {zero_frac}");
+    assert!(
+        (0.44..0.56).contains(&zero_frac),
+        "zero fraction {zero_frac}"
+    );
 }
 
 fn rows_entries(rows: &[Vec<lattice_ttrp::cores::CoreTensor>]) -> impl Iterator<Item = i8> + '_ {
-    rows.iter().flat_map(|cores| cores.iter()).flat_map(|c| c.entries.iter().copied())
+    rows.iter()
+        .flat_map(|cores| cores.iter())
+        .flat_map(|c| c.entries.iter().copied())
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +187,10 @@ fn constant_term_identity_and_sw_projection() {
             let term = m_row[h].mul(&v_bar[h]).ok().unwrap();
             direct = direct.add(&term).ok().unwrap();
         }
-        assert_eq!(direct, y[j], "S/W projection differs from direct for row {j}");
+        assert_eq!(
+            direct, y[j],
+            "S/W projection differs from direct for row {j}"
+        );
         // And the integer row against x.
         let mut acc: i128 = 0;
         for n in 0..params.cols() {
@@ -354,11 +377,21 @@ fn protocol_completeness_and_outer_claim() {
     let mut prover_t = Transcript::new_default(b"ttrp-prover");
     let proof = match prove(&stmt, &v, &mut prover_t) {
         Ok(p) => p,
-        Err(e) => panic!("prove error: {e:?} (b_hat_sq={}, norm_sq_witness={})", stmt.b_hat_squared(), {
-            let x2 = cf_vec(&v);
-            let qi = ring.modulus.q as i64;
-            x2.iter().map(|&c| { let v = c.rem_euclid(qi); let v = if v > qi/2 { v - qi } else { v }; (v*v) as u64 }).sum::<u64>()
-        }),
+        Err(e) => panic!(
+            "prove error: {e:?} (b_hat_sq={}, norm_sq_witness={})",
+            stmt.b_hat_squared(),
+            {
+                let x2 = cf_vec(&v);
+                let qi = ring.modulus.q as i64;
+                x2.iter()
+                    .map(|&c| {
+                        let v = c.rem_euclid(qi);
+                        let v = if v > qi / 2 { v - qi } else { v };
+                        (v * v) as u64
+                    })
+                    .sum::<u64>()
+            }
+        ),
     };
 
     let mut verifier_t = Transcript::new_default(b"ttrp-prover");
@@ -480,7 +513,10 @@ fn protocol_long_witness_rejected_overwhelmingly() {
             }
         }
     }
-    assert!(rejections >= attempts - 1, "{rejections}/{attempts} accepted");
+    assert!(
+        rejections >= attempts - 1,
+        "{rejections}/{attempts} accepted"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -527,11 +563,11 @@ fn parameter_search_finds_valid_configs() {
     let choices = bounds::search_parameters(
         1 << 20, // cols
         q,
-        128.0,  // slack target 2^7
-        90,     // p bits (the paper's p ≈ 2^-90)
-        300,    // k_max
-        16,     // c_max
-        5,      // ell_max
+        128.0, // slack target 2^7
+        90,    // p bits (the paper's p ≈ 2^-90)
+        300,   // k_max
+        16,    // c_max
+        5,     // ell_max
     );
     assert!(!choices.is_empty(), "no valid configuration found");
     let best = &choices[0];

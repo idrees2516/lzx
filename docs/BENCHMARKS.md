@@ -569,6 +569,57 @@ binding — the honest price of the decider's witness-freedom at small
 m; the win is the disclosure removal and the binding posture (the
 [A₂ | −T] instance at the digit gate β₁ = k−1, estimator-gated).
 
+## 2l. The extraction ledger + the D4 binding closure + the r-column split (2026-10-04, this session)
+
+The three honest-ledger follow-ups of §2k, measured:
+
+**(1) The multi-stage LaBRADOR extraction ledger**
+(`lattice-widthfold::extraction` + `docs/analysis/
+MULTISTAGE_EXTRACTION.md`): the degree-law unwind as an executable,
+fail-closed artifact — now enforced inside `assert_sound_chain` at
+prove AND verify time. The published table (`cargo run -p
+lattice-widthfold --example extraction_table`): the six boundary
+schedules' rewind trees (2–128 leaves), unwind degrees (2L = 2–14),
+grinding ledgers (3.2–31.7 bits under the 32-bit allowance), the
+per-stage kernel verdicts (min 161.5–841.4 classical bits), and the
+unwind-norm slack (2^20.6 down to 2^6.6 — the honest Q_32 ceiling,
+now measured per schedule by law E3).
+
+**(2) The D4 binding closure** (`lattice-akita::salsa_binding::
+prove/verify_grouped_salsa_bound` — the compact-fold composition):
+the byte-witness↔commitment authenticated opening. Measured
+(`cargo run -p lattice-akita --example salsa_bound_size`, ring dim
+16, the pipeline's pk shape):
+
+| values | Clear (B) | Salsa open (B) | Salsa BOUND (B) | bound/open | bound prove | bound verify |
+|---|---|---|---|---|---|---|
+| 2^6 | 39,056 | 640 | **5,523** | 8.6× | 90 ms | 8 ms |
+| 2^8 | 155,840 | 784 | **24,962** | 31.8× | 945 ms | 60 ms |
+| 2^10 | 622,832 | 928 | **54,759** | 59.0× | 3,790 ms | 186 ms |
+
+The honest reading: the bound response is 6–11× under Clear at
+8.6–59× the open mode's size — the price of closing the documented
+outer-layer gap (the chain's transmitted fold material grows with the
+stream; the open mode stays polylog but unbound). The closure itself
+is pinned by the wrong-commitment tamper test (the (W0) rejection
+the open mode lacked); the pipeline-level composition
+(`Stage5Mode::Bound`, `pipeline2.rs`) verifies end-to-end.
+
+**(3) The r-column capacity split** (same module): `byte_capacity`
+states the Lemma-4 cap exactly — **2,048 values per commitment** at
+ring dim 16/Q_32 (the §2k "~1,200" prose note was this same cap,
+margin-rounded). Beyond it, the compact mode's discipline:
+
+| values | columns | split response (B) | vs Clear | prove / verify |
+|---|---|---|---|---|
+| 2^12 | 2 | **133,541** | 18.7× | 8.5 s / 384 ms |
+| 2^13 | 4 | **265,805** | 18.7× | 16.9 s / 761 ms |
+
+The response grows as `r·(D1 + chain)` — the honest O(r) scaling
+price at fixed modulus; the single-fold-over-columns composition (the
+LaBinius secondary discipline) and the accumulator folding (the
+Quasar/PCD route) are the documented size-recovery follow-ups.
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

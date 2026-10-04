@@ -70,9 +70,11 @@ impl OsEntropy {
     /// Read `n` bytes of OS entropy.
     pub fn fill(n: usize) -> Result<Vec<u8>, EntropyError> {
         use std::io::Read;
-        let mut file = std::fs::File::open("/dev/urandom").map_err(|_| EntropyError::OsUnavailable)?;
+        let mut file =
+            std::fs::File::open("/dev/urandom").map_err(|_| EntropyError::OsUnavailable)?;
         let mut buf = vec![0u8; n];
-        file.read_exact(&mut buf).map_err(|_| EntropyError::OsShort)?;
+        file.read_exact(&mut buf)
+            .map_err(|_| EntropyError::OsShort)?;
         Ok(buf)
     }
 
@@ -290,7 +292,10 @@ mod tests {
             max = max.max(c);
         }
         // 2000 uniform draws over ~2^64 must spread widely.
-        assert!(max - min > (1u64 << 60), "field samples not spread: {min}..{max}");
+        assert!(
+            max - min > (1u64 << 60),
+            "field samples not spread: {min}..{max}"
+        );
     }
 
     #[test]

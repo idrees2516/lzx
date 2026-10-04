@@ -14,7 +14,10 @@
 use crate::batch::batch_m;
 use crate::collapse::collapse;
 use crate::gbf2::{gbf2_prove, gbf2_verify, Gbf2Proof, Gbf2Statement};
-use crate::pc::{batch_claimed_sum, batch_prove_pce, batch_verify_pcep, PceBatchProof, PceClaim, PcCommitment, PcError, PcKey};
+use crate::pc::{
+    batch_claimed_sum, batch_prove_pce, batch_verify_pcep, PcCommitment, PcError, PcKey,
+    PceBatchProof, PceClaim,
+};
 use crate::relations::{Ccs, GbfInstance, GbfWitness, RelError};
 use crate::Fp256;
 use lattice_core::transcript::Transcript;
@@ -175,10 +178,7 @@ pub fn barebones_prove(
             commitment: *com,
             claimed: adjusted,
         });
-        witnesses.push((
-            col.w_witness.encoding.clone(),
-            col.w_witness.blind,
-        ));
+        witnesses.push((col.w_witness.encoding.clone(), col.w_witness.blind));
     }
     let pcep_point = gbf2_out.beta.clone();
     let claims = pce_claims;
@@ -251,7 +251,12 @@ pub fn barebones_verify(
         return Ok(false);
     }
     // 2. GBF2 verification.
-    let vout = gbf2_verify(&key.domain, std::slice::from_ref(&proof.gbf_alpha), &proof.gbf2, transcript)?;
+    let vout = gbf2_verify(
+        &key.domain,
+        std::slice::from_ref(&proof.gbf_alpha),
+        &proof.gbf2,
+        transcript,
+    )?;
     // 3. batchM replay.
     let (_gbf_ab, _c) = batch_m(
         matrix_commitments,

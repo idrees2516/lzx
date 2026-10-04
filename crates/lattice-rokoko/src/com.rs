@@ -12,7 +12,7 @@
 //!
 //! Keys are seed-derived per (n, m) shape (transparent setup, cached).
 
-use lattice_commitment::ajtai::{AjtaiParams, AjtaiError, AjtaiPublicKey};
+use lattice_commitment::ajtai::{AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_ring::{RingConfig, RingElement};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,12 +20,18 @@ pub enum ComError {
     Ajtai(AjtaiError),
     Ring(lattice_ring::RingError),
     /// ‖w‖₂ exceeded the β0 gate (fail closed).
-    NormBoundExceeded { norm_sq: u64, beta0: u64 },
+    NormBoundExceeded {
+        norm_sq: u64,
+        beta0: u64,
+    },
     /// Gadget recomposition failed (b1).
     RecompositionFailed,
     /// Recursive structure mismatch (b2).
     StructureMismatch,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 impl From<AjtaiError> for ComError {
@@ -42,12 +48,12 @@ impl From<lattice_ring::RingError> for ComError {
 /// RoKoko kernel parameters.
 #[derive(Clone, Debug)]
 pub struct RokokoParams {
-    pub n_ring: u32,     // log2 ring dimension
-    pub n0: usize,       // vSIS rows per commitment level
+    pub n_ring: u32,       // log2 ring dimension
+    pub n0: usize,         // vSIS rows per commitment level
     pub gadget_len: usize, // l: binary gadget digits per element
     pub com_depth: usize,  // COM recursion depth d
-    pub r: usize,        // witness column count (power of two)
-    pub beta_w: u64,     // witness l2 bound per column
+    pub r: usize,          // witness column count (power of two)
+    pub beta_w: u64,       // witness l2 bound per column
 }
 
 impl RokokoParams {
@@ -74,7 +80,12 @@ impl ComKey {
     }
 
     /// The A_{n, m} key (derived on first use, cached after).
-    pub fn key(&mut self, ring: &RingConfig, n: usize, m: usize) -> Result<&AjtaiPublicKey, ComError> {
+    pub fn key(
+        &mut self,
+        ring: &RingConfig,
+        n: usize,
+        m: usize,
+    ) -> Result<&AjtaiPublicKey, ComError> {
         if !self.cache.contains_key(&(n, m)) {
             let mut seed = self.seed;
             for (i, b) in format!("|{}|{}", n, m).bytes().enumerate() {
@@ -89,9 +100,10 @@ impl ComKey {
             let pk = AjtaiPublicKey::from_seed(params, seed)?;
             self.cache.insert((n, m), pk);
         }
-        self.cache
-            .get(&(n, m))
-            .ok_or(ComError::Shape { expected: 1, got: 0 })
+        self.cache.get(&(n, m)).ok_or(ComError::Shape {
+            expected: 1,
+            got: 0,
+        })
     }
 
     /// `A_{n, m}·w` — the plain level commitment.
@@ -260,7 +272,9 @@ pub fn com_verify(
     if &recomputed != x_star {
         return Ok(false);
     }
-    if x_star != com { eprintln!("DEBUG final com mismatch"); }
+    if x_star != com {
+        eprintln!("DEBUG final com mismatch");
+    }
     Ok(x_star == com)
 }
 

@@ -14,7 +14,7 @@ use lattice_labinius::ring::Modulus;
 use lattice_labinius::scalar::{ntt, ntt_quad, Coeffs};
 use lattice_labinius::simd::commit as mac;
 use lattice_labinius::simd::commit::{
-    finish, finish_quad, Acc, QuadAcc, ACC_VECS, QBLOCKS, QACC01_PER_BLK, QACC2_PER_BLK,
+    finish, finish_quad, Acc, QuadAcc, ACC_VECS, QACC01_PER_BLK, QACC2_PER_BLK, QBLOCKS,
 };
 use lattice_labinius::simd::ntt_quad;
 use lattice_labinius::simd::ntt_small;
@@ -276,7 +276,10 @@ fn test_mac_against_scalar(q: u16, seed: u64) {
             y_simd[j] = (y_simd[j] as u64 + yb[j] as u64 % q as u64) as u32 % q as u32;
         }
     }
-    assert_eq!(y_simd, y, "q={q}: SIMD MAC != scalar pointwise inner product");
+    assert_eq!(
+        y_simd, y,
+        "q={q}: SIMD MAC != scalar pointwise inner product"
+    );
 }
 
 #[test]
@@ -304,7 +307,10 @@ fn test_commit_backend_pair(base: Modulus, additional: &[Modulus], seed: u64) {
     let (m_simd, aux_simd) = key.commit_with(&witness, r, Backend::Simd);
     assert_eq!(m_scalar, m_simd, "commitment matrices differ");
     assert_eq!(aux_scalar.raw, aux_simd.raw, "raw commitments differ");
-    assert!(aux_simd.batches.is_empty(), "the SIMD backend no longer scatters");
+    assert!(
+        aux_simd.batches.is_empty(),
+        "the SIMD backend no longer scatters"
+    );
     let nr = len_f162 / 4;
     let nb = nr / 32;
     assert_eq!(aux_simd.vertical.len(), r * nb, "kept vertical batches");

@@ -107,12 +107,7 @@ impl RelRow {
             .weights
             .first()
             .map(|(_, _, w)| w.d())
-            .or_else(|| {
-                slot_arrays
-                    .first()
-                    .and_then(|b| b.first())
-                    .map(|p| p.d())
-            })
+            .or_else(|| slot_arrays.first().and_then(|b| b.first()).map(|p| p.d()))
             .unwrap_or(0);
         let mut acc = PolyK::zero(d);
         for (blk, slot, w) in &self.weights {
@@ -152,7 +147,10 @@ pub struct RelRows {
 
 impl RelRows {
     pub fn eval_all(&self, slot_arrays: &[Vec<Poly>]) -> Vec<PolyK> {
-        self.rows.iter().map(|r| r.eval_weighted(slot_arrays)).collect()
+        self.rows
+            .iter()
+            .map(|r| r.eval_weighted(slot_arrays))
+            .collect()
     }
 
     /// The u-vector: rows applied to the real messages.
@@ -240,7 +238,10 @@ impl QuadRelation {
         let d = self.constant.d();
         let mut acc = self.constant.clone();
         for ((ba, ma), (bb, mb), w) in &self.products {
-            if let (Some(xa), Some(xb)) = (msgs.get(*ba).and_then(|b| b.get(*ma)), msgs.get(*bb).and_then(|b| b.get(*mb))) {
+            if let (Some(xa), Some(xb)) = (
+                msgs.get(*ba).and_then(|b| b.get(*ma)),
+                msgs.get(*bb).and_then(|b| b.get(*mb)),
+            ) {
                 let prod = xa.mul(xb);
                 acc.add_assign(&prod.scale_k(&w.ct()));
             }
@@ -262,7 +263,10 @@ impl QuadRelation {
     pub fn quad_part(&self, msgs: &[Vec<PolyK>]) -> PolyK {
         let mut acc = PolyK::zero(self.constant.d());
         for ((ba, ma), (bb, mb), w) in &self.products {
-            if let (Some(xa), Some(xb)) = (msgs.get(*ba).and_then(|b| b.get(*ma)), msgs.get(*bb).and_then(|b| b.get(*mb))) {
+            if let (Some(xa), Some(xb)) = (
+                msgs.get(*ba).and_then(|b| b.get(*ma)),
+                msgs.get(*bb).and_then(|b| b.get(*mb)),
+            ) {
                 acc.add_assign(&xa.mul(xb).scale_k(&w.ct()));
             }
         }
@@ -297,11 +301,11 @@ impl QuadRelation {
 /// The linear PoK transcript (Π_many^(1)).
 #[derive(Clone, Debug)]
 pub struct LinearPokTranscript {
-    pub w: Vec<Vec<Poly>>,     // per block: A₁y₁ + A₂y₂
-    pub v: Vec<PolyK>,         // rows(−B·y₂)
-    pub c: Poly,               // the challenge
-    pub z1: Vec<Vec<Poly>>,    // per block
-    pub z2: Vec<Vec<Poly>>,    // per block
+    pub w: Vec<Vec<Poly>>,       // per block: A₁y₁ + A₂y₂
+    pub v: Vec<PolyK>,           // rows(−B·y₂)
+    pub c: Poly,                 // the challenge
+    pub z1: Vec<Vec<Poly>>,      // per block
+    pub z2: Vec<Vec<Poly>>,      // per block
     pub norm_bounds: (f64, f64), // (τ·s₁, τ·s₂) for the verifier's checks
 }
 
@@ -346,15 +350,7 @@ pub fn pok_linear(
         let masks = pok_linear_sample_masks(pp, blocks.len(), widths, tau, rng);
         let sub_budget = 8u32.min(wmax - spent);
         if let Ok(tr) = pok_linear_with_masks(
-            pp,
-            blocks,
-            rows,
-            widths,
-            tau,
-            beta_ch,
-            sub_budget,
-            &masks,
-            rng,
+            pp, blocks, rows, widths, tau, beta_ch, sub_budget, &masks, rng,
         ) {
             return Ok(tr);
         }
@@ -379,8 +375,16 @@ pub fn pok_linear_sample_masks(
     let mut ys1: Vec<Vec<Poly>> = Vec::with_capacity(n_blocks);
     let mut ys2: Vec<Vec<Poly>> = Vec::with_capacity(n_blocks);
     for _ in 0..n_blocks {
-        ys1.push((0..pp.m1).map(|_| rng.gaussian_poly(pp.d, widths.0, tau)).collect());
-        ys2.push((0..pp.m2).map(|_| rng.gaussian_poly(pp.d, widths.1, tau)).collect());
+        ys1.push(
+            (0..pp.m1)
+                .map(|_| rng.gaussian_poly(pp.d, widths.0, tau))
+                .collect(),
+        );
+        ys2.push(
+            (0..pp.m2)
+                .map(|_| rng.gaussian_poly(pp.d, widths.1, tau))
+                .collect(),
+        );
     }
     LinearPokMasks { ys1, ys2 }
 }
@@ -607,10 +611,12 @@ pub fn pok_quadratic(
         let mut ys2: Vec<Vec<Poly>> = Vec::with_capacity(blocks.len());
         let mut w = Vec::with_capacity(blocks.len());
         for _ in blocks {
-            let y1: Vec<Poly> =
-                (0..pp.m1).map(|_| rng.gaussian_poly(d, widths.0, tau)).collect();
-            let y2: Vec<Poly> =
-                (0..pp.m2).map(|_| rng.gaussian_poly(d, widths.1, tau)).collect();
+            let y1: Vec<Poly> = (0..pp.m1)
+                .map(|_| rng.gaussian_poly(d, widths.0, tau))
+                .collect();
+            let y2: Vec<Poly> = (0..pp.m2)
+                .map(|_| rng.gaussian_poly(d, widths.1, tau))
+                .collect();
             let wi = pp.t_a(&y1, &y2);
             ys1.push(y1);
             ys2.push(y2);
@@ -747,7 +753,16 @@ pub fn pok_quadratic(
                 op: op.clone(),
             });
         }
-        let inner = pok_linear(pp, &all_blocks, &rel_rows, inner_widths, tau, beta_ch, wmax, rng)?;
+        let inner = pok_linear(
+            pp,
+            &all_blocks,
+            &rel_rows,
+            inner_widths,
+            tau,
+            beta_ch,
+            wmax,
+            rng,
+        )?;
         return Ok(QuadPokTranscript {
             garbage_com: garbage_blocks.iter().map(|(c, _)| c.clone()).collect(),
             w,
@@ -876,7 +891,8 @@ pub fn pok_ct_wrapper(
     let d = pp.d;
     // Step 1: garbage g ← {ct = 0}, committed in a fresh block.
     let g = PolyK::garbage_ct_zero(d, b"garbage", &mut gctr());
-    let (garbage_com, garbage_op) = AbdlopOpening::commit_rk(pp, std::slice::from_ref(&g), &[], rng);
+    let (garbage_com, garbage_op) =
+        AbdlopOpening::commit_rk(pp, std::slice::from_ref(&g), &[], rng);
     // Step 2: challenges γ⃗ — Protocol 4's verifier draw. In this
     // architecture the caller supplies them (drawn from the shared
     // public-coin rng); they are used CONSISTENTLY for h, the inner rows
@@ -887,11 +903,11 @@ pub fn pok_ct_wrapper(
         _ => Vec::new(),
     };
     let _ = rng; // the caller's rng drives the inner PoK below
-    // Step 3: h := Σγⱼfⱼ(messages) + g — in the clear. The fⱼ are the
-    // RELATION VALUES: the weighted slot sum minus the row's target
-    // (full-ring target, or the degree-0 embedding for ct-rows) — they
-    // vanish (resp. their ct vanishes) for the honest prover, so that
-    // ct(h) = 0 (Protocol 4, Step 4's check).
+                 // Step 3: h := Σγⱼfⱼ(messages) + g — in the clear. The fⱼ are the
+                 // RELATION VALUES: the weighted slot sum minus the row's target
+                 // (full-ring target, or the degree-0 embedding for ct-rows) — they
+                 // vanish (resp. their ct vanishes) for the honest prover, so that
+                 // ct(h) = 0 (Protocol 4, Step 4's check).
     let real_arrays: Vec<Vec<Poly>> = blocks.iter().map(|b| b.slots()).collect();
     let real_rk: Vec<Vec<PolyK>> = blocks.iter().map(|b| b.rk_messages()).collect();
     let mut h = g.clone();
@@ -1051,8 +1067,12 @@ pub fn verify_ct_wrapper(
             }
             combined_target = combined_target.add(&row.target().scale_k(gj));
         }
-        agg.entry((gb, 0)).and_modify(|e| e.add_assign(&one)).or_insert(one);
-        agg.entry((gb, 1)).and_modify(|e| e.add_assign(&yw)).or_insert(yw);
+        agg.entry((gb, 0))
+            .and_modify(|e| e.add_assign(&one))
+            .or_insert(one);
+        agg.entry((gb, 1))
+            .and_modify(|e| e.add_assign(&yw))
+            .or_insert(yw);
         let weights: Vec<(usize, usize, PolyK)> =
             agg.into_iter().map(|((b, s), w)| (b, s, w)).collect();
         let nr = RelRows {
@@ -1112,7 +1132,17 @@ pub fn pok_anchor(
     let row = RelRow::const_coeff(weights.to_vec(), target, pp.d);
     let rows = RelRows { rows: vec![row] };
     let gammas = vec![K::from_fp(Fq::ONE)];
-    pok_ct_wrapper(pp, blocks, Some((&rows, gammas)), None, widths, tau, beta_ch, wmax, rng)
+    pok_ct_wrapper(
+        pp,
+        blocks,
+        Some((&rows, gammas)),
+        None,
+        widths,
+        tau,
+        beta_ch,
+        wmax,
+        rng,
+    )
 }
 
 /// Verify the anchoring call.
@@ -1129,7 +1159,6 @@ pub fn verify_anchor(
     let gammas = vec![K::from_fp(Fq::ONE)];
     verify_ct_wrapper(pp, coms, Some((&rows, gammas)), None, tr)
 }
-
 
 /// Commit a list of R_K messages as a TUPLE of ABDLOP blocks, each
 /// carrying up to ⌊ℓ/2⌋ messages (Remark 4.21's splitting: a message too
@@ -1180,8 +1209,12 @@ pub fn simulate_linear_pok(
     // Uniform commitments.
     let mut coms = Vec::with_capacity(n_blocks);
     for _ in 0..n_blocks {
-        let t_a: Vec<Poly> = (0..pp.kappa).map(|_| Poly::uniform(d, b"sim", &mut sim_ctr())).collect();
-        let t_b: Vec<Poly> = (0..pp.ell).map(|_| Poly::uniform(d, b"sim", &mut sim_ctr())).collect();
+        let t_a: Vec<Poly> = (0..pp.kappa)
+            .map(|_| Poly::uniform(d, b"sim", &mut sim_ctr()))
+            .collect();
+        let t_b: Vec<Poly> = (0..pp.ell)
+            .map(|_| Poly::uniform(d, b"sim", &mut sim_ctr()))
+            .collect();
         coms.push(AbdlopCommitment {
             t_a,
             t_b,
@@ -1193,8 +1226,16 @@ pub fn simulate_linear_pok(
     let mut zs1: Vec<Vec<Poly>> = Vec::with_capacity(n_blocks);
     let mut zs2: Vec<Vec<Poly>> = Vec::with_capacity(n_blocks);
     for _ in 0..n_blocks {
-        zs1.push((0..pp.m1).map(|_| rng.gaussian_poly(d, widths.0, tau)).collect());
-        zs2.push((0..pp.m2).map(|_| rng.gaussian_poly(d, widths.1, tau)).collect());
+        zs1.push(
+            (0..pp.m1)
+                .map(|_| rng.gaussian_poly(d, widths.0, tau))
+                .collect(),
+        );
+        zs2.push(
+            (0..pp.m2)
+                .map(|_| rng.gaussian_poly(d, widths.1, tau))
+                .collect(),
+        );
     }
     // w := A₁z₁ + A₂z₂ − c·t_A (Protocol 3, line 6).
     let mut w = Vec::with_capacity(n_blocks);
@@ -1410,87 +1451,110 @@ fn poly_sub_scaled(a: &[Fq], q: &[Fq], b: &[Fq]) -> Vec<Fq> {
 #[cfg(test)]
 mod tests {
     use super::*;
-// temporary debug test
-#[test]
-fn debug_wrapper_ct() {
-    #[allow(unused_imports)]
-    use crate::abdlop::*;
-    use crate::fp::Fq;
-    use crate::fq2::K;
-    use crate::gauss::Rng;
-    use crate::pok::*;
-    use crate::rk::PolyK;
-    let mut rng = Rng::new(b"dbg");
-    let pp = AbdlopPp::setup(3, 6, 4, 6, 4, &mut rng);
-    let mut ctr = 0u64;
-    let msgs: Vec<PolyK> = (0..2).map(|_| PolyK::uniform(4, b"w", &mut ctr)).collect();
-    let target = msgs[0].ct().add(&msgs[1].ct());
-    let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
-    let block = Block { com: com.clone(), op: op.clone() };
-    let yw = y_weight(4);
-    let row = RelRow::const_coeff(
-        vec![
-            (0, 0, PolyK::one(4)),
-            (0, 1, yw.clone()),
-            (0, 2, PolyK::one(4)),
-            (0, 3, yw.clone()),
-        ],
-        target,
-        4,
-    );
-    // Evaluate the row value manually:
-    let arrays: Vec<Vec<Poly>> = vec![vec![
-        msgs[0].a.clone(), msgs[0].b.clone(),
-        msgs[1].a.clone(), msgs[1].b.clone(),
-    ]];
-    let val = row.eval_weighted(&arrays);
-    println!("row value ct = {:?}", val.ct());
-    println!("target       = {:?}", row.target().ct());
-    println!("row value    = {:?}", val);
-    println!("m0+m1        = {:?}", msgs[0].add(&msgs[1]));
-    assert_eq!(val, msgs[0].add(&msgs[1]));
-    assert!(val.ct().sub(&row.target().ct()).is_zero());
-    // Run the actual wrapper end-to-end:
-    let rows = RelRows { rows: vec![row] };
-    let _gammas = [K::from_fp(Fq::ONE)];
-    let gammas2 = vec![K::from_fp(Fq::ONE)];
-    let r = pok_ct_wrapper(&pp, std::slice::from_ref(&block), Some((&rows, gammas2.clone())), None, (40.0, 40.0), 6.0, 1, 128, &mut rng);
-    match r {
-        Ok(tr) => {
-            println!("wrapper OK: h.ct = {:?}", tr.h.ct());
-            // Manual replication of the inner check:
-            let inner = tr.inner_linear.as_ref().unwrap();
-            let mut all_coms = vec![com.clone()];
-            all_coms.push(tr.garbage_com.clone());
-            let yw2 = y_weight(4);
-            let mut weights: Vec<(usize, usize, PolyK)> = vec![];
-            for (blk, slot, w) in &rows.rows[0].weights {
-                weights.push((*blk, *slot, w.scale_k(&gammas2[0])));
+    // temporary debug test
+    #[test]
+    fn debug_wrapper_ct() {
+        #[allow(unused_imports)]
+        use crate::abdlop::*;
+        use crate::fp::Fq;
+        use crate::fq2::K;
+        use crate::gauss::Rng;
+        use crate::pok::*;
+        use crate::rk::PolyK;
+        let mut rng = Rng::new(b"dbg");
+        let pp = AbdlopPp::setup(3, 6, 4, 6, 4, &mut rng);
+        let mut ctr = 0u64;
+        let msgs: Vec<PolyK> = (0..2).map(|_| PolyK::uniform(4, b"w", &mut ctr)).collect();
+        let target = msgs[0].ct().add(&msgs[1].ct());
+        let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
+        let block = Block {
+            com: com.clone(),
+            op: op.clone(),
+        };
+        let yw = y_weight(4);
+        let row = RelRow::const_coeff(
+            vec![
+                (0, 0, PolyK::one(4)),
+                (0, 1, yw.clone()),
+                (0, 2, PolyK::one(4)),
+                (0, 3, yw.clone()),
+            ],
+            target,
+            4,
+        );
+        // Evaluate the row value manually:
+        let arrays: Vec<Vec<Poly>> = vec![vec![
+            msgs[0].a.clone(),
+            msgs[0].b.clone(),
+            msgs[1].a.clone(),
+            msgs[1].b.clone(),
+        ]];
+        let val = row.eval_weighted(&arrays);
+        println!("row value ct = {:?}", val.ct());
+        println!("target       = {:?}", row.target().ct());
+        println!("row value    = {:?}", val);
+        println!("m0+m1        = {:?}", msgs[0].add(&msgs[1]));
+        assert_eq!(val, msgs[0].add(&msgs[1]));
+        assert!(val.ct().sub(&row.target().ct()).is_zero());
+        // Run the actual wrapper end-to-end:
+        let rows = RelRows { rows: vec![row] };
+        let _gammas = [K::from_fp(Fq::ONE)];
+        let gammas2 = vec![K::from_fp(Fq::ONE)];
+        let r = pok_ct_wrapper(
+            &pp,
+            std::slice::from_ref(&block),
+            Some((&rows, gammas2.clone())),
+            None,
+            (40.0, 40.0),
+            6.0,
+            1,
+            128,
+            &mut rng,
+        );
+        match r {
+            Ok(tr) => {
+                println!("wrapper OK: h.ct = {:?}", tr.h.ct());
+                // Manual replication of the inner check:
+                let inner = tr.inner_linear.as_ref().unwrap();
+                let mut all_coms = vec![com.clone()];
+                all_coms.push(tr.garbage_com.clone());
+                let yw2 = y_weight(4);
+                let mut weights: Vec<(usize, usize, PolyK)> = vec![];
+                for (blk, slot, w) in &rows.rows[0].weights {
+                    weights.push((*blk, *slot, w.scale_k(&gammas2[0])));
+                }
+                weights.push((1, 0, PolyK::one(4)));
+                weights.push((1, 1, yw2));
+                let combined =
+                    tr.h.clone()
+                        .add(&rows.rows[0].target().scale_k(&gammas2[0]));
+                let row = RelRow::full_ring(weights, combined.clone());
+                let rr = RelRows { rows: vec![row] };
+                let mtilde: Vec<Vec<Poly>> = all_coms
+                    .iter()
+                    .enumerate()
+                    .map(|(n, com)| masked_slots(&pp, com, &inner.c, &inner.z2[n]))
+                    .collect();
+                let got = rr.eval_all(&mtilde)[0].clone();
+                let cu = PolyK::from_poly(inner.c.clone()).mul(&combined);
+                let expect = inner.v[0].add(&cu);
+                println!("got    = {:?}", got);
+                println!("expect = {:?}", expect);
+                println!("v      = {:?}", inner.v[0]);
+                println!("cu     = {:?}", cu);
+                println!("diff   = {:?}", got.sub(&expect));
+                let vr = verify_ct_wrapper(
+                    &pp,
+                    std::slice::from_ref(&com),
+                    Some((&rows, gammas2)),
+                    None,
+                    &tr,
+                );
+                println!("verify result: {:?}", vr);
             }
-            weights.push((1, 0, PolyK::one(4)));
-            weights.push((1, 1, yw2));
-            let combined = tr.h.clone().add(&rows.rows[0].target().scale_k(&gammas2[0]));
-            let row = RelRow::full_ring(weights, combined.clone());
-            let rr = RelRows { rows: vec![row] };
-            let mtilde: Vec<Vec<Poly>> = all_coms
-                .iter()
-                .enumerate()
-                .map(|(n, com)| masked_slots(&pp, com, &inner.c, &inner.z2[n]))
-                .collect();
-            let got = rr.eval_all(&mtilde)[0].clone();
-            let cu = PolyK::from_poly(inner.c.clone()).mul(&combined);
-            let expect = inner.v[0].add(&cu);
-            println!("got    = {:?}", got);
-            println!("expect = {:?}", expect);
-            println!("v      = {:?}", inner.v[0]);
-            println!("cu     = {:?}", cu);
-            println!("diff   = {:?}", got.sub(&expect));
-            let vr = verify_ct_wrapper(&pp, std::slice::from_ref(&com), Some((&rows, gammas2)), None, &tr);
-            println!("verify result: {:?}", vr);
+            Err(e) => println!("wrapper ERR: {:?}", e),
         }
-        Err(e) => println!("wrapper ERR: {:?}", e),
     }
-}
 
     use crate::abdlop::AbdlopPp;
 
@@ -1513,15 +1577,22 @@ fn debug_wrapper_ct() {
         // equals a public target.
         let target = msgs[0].a.add(&msgs[1].b);
         let row = RelRow::full_ring(
-            vec![
-                (0, 0, PolyK::one(4)),
-                (0, 3, PolyK::one(4)),
-            ],
+            vec![(0, 0, PolyK::one(4)), (0, 3, PolyK::one(4))],
             PolyK::from_poly(target.clone()),
         );
         let rows = RelRows { rows: vec![row] };
         let widths = (300.0, 300.0);
-        let tr = pok_linear(&pp, std::slice::from_ref(&block), &rows, widths, 6.0, 1, 64, &mut rng).unwrap();
+        let tr = pok_linear(
+            &pp,
+            std::slice::from_ref(&block),
+            &rows,
+            widths,
+            6.0,
+            1,
+            64,
+            &mut rng,
+        )
+        .unwrap();
         let u = rows.eval_messages(std::slice::from_ref(&block));
         verify_linear(&pp, std::slice::from_ref(&com), &rows, &u, &tr).unwrap();
         // Tamper the response: verification must fail.
@@ -1540,7 +1611,10 @@ fn debug_wrapper_ct() {
         let mut ctr = 0u64;
         let msgs: Vec<PolyK> = (0..2).map(|_| PolyK::uniform(4, b"m", &mut ctr)).collect();
         let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
-        let block = Block { com: com.clone(), op };
+        let block = Block {
+            com: com.clone(),
+            op,
+        };
         let rows = RelRows { rows: vec![] };
         let widths = (300.0, 300.0);
         // Two transcripts from a REWIND: the same masks (same first
@@ -1578,9 +1652,7 @@ fn debug_wrapper_ct() {
         for i in 0..trs.len() {
             for j in (i + 1)..trs.len() {
                 if trs[i].c != trs[j].c {
-                    if let Ok((s1, s2)) =
-                        extract_two_transcripts(&pp, &com, &trs[i], &trs[j], 0)
-                    {
+                    if let Ok((s1, s2)) = extract_two_transcripts(&pp, &com, &trs[i], &trs[j], 0) {
                         // The extraction must reproduce the salts exactly.
                         assert_eq!(s1, block.op.s1);
                         assert_eq!(s2, block.op.s2);
@@ -1601,21 +1673,47 @@ fn debug_wrapper_ct() {
         let m1 = PolyK::uniform(4, b"q1", &mut ctr);
         let t = m0.mul(&m1);
         let (com, op) = AbdlopOpening::commit_rk(&pp, &[m0.clone(), m1.clone()], &[], &mut rng);
-        let block = Block { com: com.clone(), op };
+        let block = Block {
+            com: com.clone(),
+            op,
+        };
         let rel = QuadRelation {
             products: vec![((0, 0), (0, 1), PolyK::one(4))],
             linear: vec![],
             constant: t.clone().neg(),
         };
         let widths = (300.0, 300.0);
-        let tr =
-            pok_quadratic(&pp, &[block], std::slice::from_ref(&rel), widths, widths, 6.0, 1, 128, &mut rng)
-                .unwrap();
-        verify_quadratic(&pp, std::slice::from_ref(&com), std::slice::from_ref(&rel), &tr, widths).unwrap();
+        let tr = pok_quadratic(
+            &pp,
+            &[block],
+            std::slice::from_ref(&rel),
+            widths,
+            widths,
+            6.0,
+            1,
+            128,
+            &mut rng,
+        )
+        .unwrap();
+        verify_quadratic(
+            &pp,
+            std::slice::from_ref(&com),
+            std::slice::from_ref(&rel),
+            &tr,
+            widths,
+        )
+        .unwrap();
         // Tamper: change z1 — must fail.
         let mut bad = tr.clone();
         bad.z1[0][0] = bad.z1[0][0].add(&Poly::one(4));
-        assert!(verify_quadratic(&pp, std::slice::from_ref(&com), std::slice::from_ref(&rel), &bad, widths).is_err());
+        assert!(verify_quadratic(
+            &pp,
+            std::slice::from_ref(&com),
+            std::slice::from_ref(&rel),
+            &bad,
+            widths
+        )
+        .is_err());
     }
 
     #[test]
@@ -1626,7 +1724,10 @@ fn debug_wrapper_ct() {
         // ct-relation: ct(m0 + m1) = target.
         let target = msgs[0].ct().add(&msgs[1].ct());
         let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
-        let block = Block { com: com.clone(), op };
+        let block = Block {
+            com: com.clone(),
+            op,
+        };
         // Message-weight expansion: w on the a-slot, w·Y on the b-slot
         // (a row reading w·(a + bY) needs both slots).
         let yw = y_weight(4);
@@ -1656,11 +1757,25 @@ fn debug_wrapper_ct() {
             &mut rng,
         )
         .unwrap();
-        verify_ct_wrapper(&pp, std::slice::from_ref(&com), Some((&rows, gammas.clone())), None, &tr).unwrap();
+        verify_ct_wrapper(
+            &pp,
+            std::slice::from_ref(&com),
+            Some((&rows, gammas.clone())),
+            None,
+            &tr,
+        )
+        .unwrap();
         // Tamper h: ct(h) ≠ 0 must fail.
         let mut bad = tr.clone();
         bad.h = bad.h.add(&PolyK::degree0(K::from_fp(Fq::ONE), 4));
-        assert!(verify_ct_wrapper(&pp, std::slice::from_ref(&com), Some((&rows, gammas.clone())), None, &bad).is_err());
+        assert!(verify_ct_wrapper(
+            &pp,
+            std::slice::from_ref(&com),
+            Some((&rows, gammas.clone())),
+            None,
+            &bad
+        )
+        .is_err());
     }
 
     #[test]
@@ -1669,7 +1784,10 @@ fn debug_wrapper_ct() {
         let mut ctr = 0u64;
         let msgs: Vec<PolyK> = (0..2).map(|_| PolyK::uniform(4, b"a", &mut ctr)).collect();
         let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
-        let block = Block { com: com.clone(), op };
+        let block = Block {
+            com: com.clone(),
+            op,
+        };
         // Anchored: ct(3·m0 − target) = 0 — the message weight 3 expands
         // to (3 on the a-slot, 3·Y on the b-slot).
         let target = msgs[0].ct().scale_fp(&Fq::new(3));
@@ -1678,13 +1796,20 @@ fn debug_wrapper_ct() {
             a: Poly::zero(4),
             b: w3.a.clone(),
         };
-        let weights = vec![
-            (0usize, 0usize, w3),
-            (0usize, 1usize, w3y),
-        ];
+        let weights = vec![(0usize, 0usize, w3), (0usize, 1usize, w3y)];
         let widths = (300.0, 300.0);
-        let tr = pok_anchor(&pp, &[block], &weights, target, widths, 6.0, 1, 128, &mut rng)
-            .unwrap();
+        let tr = pok_anchor(
+            &pp,
+            &[block],
+            &weights,
+            target,
+            widths,
+            6.0,
+            1,
+            128,
+            &mut rng,
+        )
+        .unwrap();
         verify_anchor(&pp, std::slice::from_ref(&com), &weights, target, &tr).unwrap();
     }
 
@@ -1692,11 +1817,7 @@ fn debug_wrapper_ct() {
     fn simulator_produces_accepting_transcripts() {
         let (pp, mut rng) = test_pp();
         let rows = RelRows {
-            rows: vec![RelRow::const_coeff(
-                vec![(0, 0, PolyK::one(4))],
-                K::ZERO,
-                4,
-            )],
+            rows: vec![RelRow::const_coeff(vec![(0, 0, PolyK::one(4))], K::ZERO, 4)],
         };
         let u = vec![PolyK::zero(4)];
         let widths = (300.0, 300.0);
@@ -1731,8 +1852,14 @@ mod quadratic_primitives {
         let _rng = Rng::new(b"qexp");
         let d = 4;
         let mut ctr = 0u64;
-        let x0 = vec![PolyK::uniform(d, b"x0", &mut ctr), PolyK::uniform(d, b"x0b", &mut ctr)];
-        let x1 = vec![PolyK::uniform(d, b"x1", &mut ctr), PolyK::uniform(d, b"x1b", &mut ctr)];
+        let x0 = vec![
+            PolyK::uniform(d, b"x0", &mut ctr),
+            PolyK::uniform(d, b"x0b", &mut ctr),
+        ];
+        let x1 = vec![
+            PolyK::uniform(d, b"x1", &mut ctr),
+            PolyK::uniform(d, b"x1b", &mut ctr),
+        ];
         let c = Poly::small_b(d, 2, b"qc", &mut ctr);
         let t = x1[0].mul(&x1[1]);
         let rel = QuadRelation {
@@ -1749,8 +1876,15 @@ mod quadratic_primitives {
         let lhs = rel.eval(&[sum]);
         let rhs = rel
             .eval(std::slice::from_ref(&x0))
-            .add(&rel.cross(std::slice::from_ref(&x0), std::slice::from_ref(&x1)).scale_k(&c_k))
-            .add(&rel.quad_part(std::slice::from_ref(&x1)).scale_k(&c_k).scale_k(&c_k));
+            .add(
+                &rel.cross(std::slice::from_ref(&x0), std::slice::from_ref(&x1))
+                    .scale_k(&c_k),
+            )
+            .add(
+                &rel.quad_part(std::slice::from_ref(&x1))
+                    .scale_k(&c_k)
+                    .scale_k(&c_k),
+            );
         assert_eq!(lhs, rhs, "the quadratic expansion identity must hold");
     }
 
@@ -1763,8 +1897,14 @@ mod quadratic_primitives {
         let msgs: Vec<PolyK> = (0..2).map(|_| PolyK::uniform(4, b"mm", &mut ctr)).collect();
         let (com, op) = AbdlopOpening::commit_rk(&pp, &msgs, &[], &mut rng);
         let c = Poly::small_b(4, 2, b"mc", &mut ctr);
-        let y2: Vec<Poly> = (0..pp.m2).map(|_| Poly::small_b(4, 2, b"my", &mut ctr)).collect();
-        let z2: Vec<Poly> = y2.iter().zip(op.s2.iter()).map(|(y, s)| y.add(&c.mul(s))).collect();
+        let y2: Vec<Poly> = (0..pp.m2)
+            .map(|_| Poly::small_b(4, 2, b"my", &mut ctr))
+            .collect();
+        let z2: Vec<Poly> = y2
+            .iter()
+            .zip(op.s2.iter())
+            .map(|(y, s)| y.add(&c.mul(s)))
+            .collect();
         let mtilde = masked_slots(&pp, &com, &c, &z2);
         // Expected: c·m − B·y2 per slot.
         for slot in 0..pp.ell {

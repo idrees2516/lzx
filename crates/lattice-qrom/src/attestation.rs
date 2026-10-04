@@ -189,7 +189,9 @@ mod tests {
         let stages = sample_stages();
         let labels: Vec<&str> = stages.iter().map(|s| s.label.as_str()).collect();
         let digest = protocol_digest(&labels);
-        let att = QromAttestation::build(stages, 1 << 16, 1 << 20).ok().unwrap();
+        let att = QromAttestation::build(stages, 1 << 16, 1 << 20)
+            .ok()
+            .unwrap();
         // Worst case: 2 + 8 + 1·65 = 75.
         assert_eq!(att.worst_case_total(), 75);
         assert!(att.verify(&digest, 1 << 20).is_ok());
@@ -216,7 +218,10 @@ mod tests {
         // Worst case 75 > budget 10.
         assert!(matches!(
             QromAttestation::build(sample_stages(), 10, 1 << 20),
-            Err(AttestationError::BudgetExceeded { total: 75, budget: 10 })
+            Err(AttestationError::BudgetExceeded {
+                total: 75,
+                budget: 10
+            })
         ));
         // Declared budget above the verifier maximum.
         assert!(matches!(

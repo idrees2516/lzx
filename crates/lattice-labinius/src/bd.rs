@@ -6,7 +6,7 @@
 use crate::challenge::ShortChallenge;
 use crate::key::CommitmentKey;
 use crate::params::{inv_mod, N, QUAD_CLASS_SLOT, QUAD_POW3_CLASS};
-use crate::ring::{PowerOfThreeRing, SLOT_648, N162};
+use crate::ring::{PowerOfThreeRing, N162, SLOT_648};
 
 pub const BD_CAP: f64 = 4.0;
 
@@ -57,9 +57,7 @@ pub fn cap(columns: usize, dropped_bits: u32, weight: usize) -> u64 {
 /// Rebuild the 648-row coefficients of one commitment column from its four `R_162` components
 /// (splitting limb): the inverse of the length-4 DFT with the twist, i.e. the recombination
 /// `E_t = sum_k psi^{v_s k} i^{t k} Y_k(v_s)` at slot `SLOT_648[t][s]`.
-fn columns_split<const Q: u16>(
-    column: &[PowerOfThreeRing; 4],
-) -> [i16; N] {
+fn columns_split<const Q: u16>(column: &[PowerOfThreeRing; 4]) -> [i16; N] {
     let q = Q as u64;
     let half = (Q as i64 - 1) / 2;
     let psi = crate::params::Params::<Q>::PSI as u64;
@@ -69,9 +67,8 @@ fn columns_split<const Q: u16>(
         let v = crate::ring::POW3_SLOT_EXP[s] as u64;
         let y: [i64; 4] = core::array::from_fn(|k| column[k].v[s] as i64);
         // forward length-4 DFT of the components: E_t = sum_k (psi^v)^k i^{t k} Y_k
-        let pv: [i64; 4] = core::array::from_fn(|k| {
-            crate::params::pow_mod(psi, (v * k as u64) % 1944, q) as i64
-        });
+        let pv: [i64; 4] =
+            core::array::from_fn(|k| crate::params::pow_mod(psi, (v * k as u64) % 1944, q) as i64);
         let e: [i64; 4] = core::array::from_fn(|t| {
             let mut acc = 0i64;
             for k in 0..4 {
@@ -82,7 +79,11 @@ fn columns_split<const Q: u16>(
         });
         for t in 0..4 {
             let r = e[t];
-            out[SLOT_648[t][s] as usize] = if r > half { (r - q as i64) as i16 } else { r as i16 };
+            out[SLOT_648[t][s] as usize] = if r > half {
+                (r - q as i64) as i16
+            } else {
+                r as i16
+            };
         }
     }
     out
@@ -104,8 +105,16 @@ fn columns_quad<const Q: u16>(column: &[PowerOfThreeRing; 4]) -> [i16; N] {
             let y2 = (pv[s] * (column[k + 2].v[s] as i64).rem_euclid(q as i64)) % q as i64;
             let plus = (y0 + y2) % q as i64;
             let minus = (y0 + q as i64 - y2) % q as i64;
-            out[2 * jp + k] = if plus > half { (plus - q as i64) as i16 } else { plus as i16 };
-            out[2 * jm + k] = if minus > half { (minus - q as i64) as i16 } else { minus as i16 };
+            out[2 * jp + k] = if plus > half {
+                (plus - q as i64) as i16
+            } else {
+                plus as i16
+            };
+            out[2 * jm + k] = if minus > half {
+                (minus - q as i64) as i16
+            } else {
+                minus as i16
+            };
         }
     }
     out
@@ -205,7 +214,14 @@ pub fn drop_bits(
 /// Reconstruct the limb-`k` residue of coefficient i from the dropped form:
 /// `X ~= (top << dropped_bits) + q0 * (digits[0] + q1 * digits[1] + ...)`, taken mod `q_k`,
 /// centered. The only approximation error is the dropped low bits of the base limb.
-fn combine_limb(primes: &[u16], top: &[u16], digits: &[Vec<u16>], dropped_bits: u32, k: usize, i: usize) -> i64 {
+fn combine_limb(
+    primes: &[u16],
+    top: &[u16],
+    digits: &[Vec<u16>],
+    dropped_bits: u32,
+    k: usize,
+    i: usize,
+) -> i64 {
     let qk = primes[k] as i64;
     let last = digits.len();
     let mut inner: i128 = 0;
@@ -280,7 +296,10 @@ pub fn residual(
     let matched = dropped.primes.len() == limbs
         && (0..limbs).all(|k| dropped.primes[k] == key.prime(k))
         && dropped.top.len() == dropped.columns * N
-        && dropped.digits.iter().all(|d| d.len() == dropped.columns * N);
+        && dropped
+            .digits
+            .iter()
+            .all(|d| d.len() == dropped.columns * N);
     if !matched || dropped.columns != challenges.len() {
         return None;
     }
@@ -296,7 +315,14 @@ pub fn residual(
             // reconstruct column j's coefficients mod q
             let mut col = [0u32; N];
             for i in 0..N {
-                let v = combine_limb(&dropped.primes, &dropped.top, &dropped.digits, dropped.dropped_bits, k, j * N + i);
+                let v = combine_limb(
+                    &dropped.primes,
+                    &dropped.top,
+                    &dropped.digits,
+                    dropped.dropped_bits,
+                    k,
+                    j * N + i,
+                );
                 col[i] = ((v.rem_euclid(q as i64) as u64) % q as u64) as u32;
             }
             let t = crate::ring::ntt_of(q, &col);
@@ -336,7 +362,14 @@ pub fn residual(
 
 /// Debug: reconstruct limb k of coefficient i from a dropped commitment (tests).
 pub fn debug_combine(dropped: &Dropped, k: usize, i: usize) -> i64 {
-    combine_limb(&dropped.primes, &dropped.top, &dropped.digits, dropped.dropped_bits, k, i)
+    combine_limb(
+        &dropped.primes,
+        &dropped.top,
+        &dropped.digits,
+        dropped.dropped_bits,
+        k,
+        i,
+    )
 }
 
 /// Debug: the 648-row coefficient vector of one column (tests).

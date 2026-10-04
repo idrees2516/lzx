@@ -20,20 +20,21 @@ pub const LOW_BITS: u32 = 6;
 
 /// Encode the terminal response (a flat ring vector).
 pub fn encode_terminal(flat: &[Poly]) -> Vec<u8> {
-    let coefs: Vec<i64> = flat
-        .iter()
-        .flat_map(|p| p.0.iter().copied())
-        .collect();
+    let coefs: Vec<i64> = flat.iter().flat_map(|p| p.0.iter().copied()).collect();
     let n = coefs.len();
     // Quotients.
-    let quotients: Vec<u64> = coefs.iter().map(|&c| c.unsigned_abs() >> LOW_BITS).collect();
+    let quotients: Vec<u64> = coefs
+        .iter()
+        .map(|&c| c.unsigned_abs() >> LOW_BITS)
+        .collect();
     let max_q = quotients.iter().copied().max().unwrap_or(0);
     let width = if max_q == 0 {
         0u8
     } else {
         (64 - max_q.leading_zeros()).min(64) as u8
     };
-    let mut out = Vec::with_capacity(8 + 1 + (n * 7).div_ceil(8) + (n * width as usize).div_ceil(8));
+    let mut out =
+        Vec::with_capacity(8 + 1 + (n * 7).div_ceil(8) + (n * width as usize).div_ceil(8));
     out.extend_from_slice(&(n as u32).to_le_bytes());
     out.push(width);
     // The low frame: sign + 6-bit residue per coefficient, MSB-first
@@ -90,7 +91,11 @@ pub fn decode_terminal(bytes: &[u8], n_elems: usize) -> Result<Vec<Poly>, String
         return Err("count mismatch".into());
     }
     let low_bytes = (n * 7).div_ceil(8);
-    let high_bytes = if width > 0 { (n * width).div_ceil(8) } else { 0 };
+    let high_bytes = if width > 0 {
+        (n * width).div_ceil(8)
+    } else {
+        0
+    };
     if bytes.len() != 5 + low_bytes + high_bytes {
         return Err("frame length".into());
     }
@@ -193,8 +198,8 @@ mod tests {
     fn codec_negative_zero_rejected() {
         // Hand-craft a frame with sign=1, residue=0, quotient=0.
         let mut bytes = vec![64u8, 0, 0, 0, 0]; // count=64, width=0
-        // 64 coefficients × 7 bits = 56 bytes; all zero except the sign of
-        // the first.
+                                                // 64 coefficients × 7 bits = 56 bytes; all zero except the sign of
+                                                // the first.
         bytes.push(0x80);
         bytes.extend(std::iter::repeat(0u8).take(55));
         assert!(decode_terminal(&bytes, 1).is_err());

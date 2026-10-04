@@ -11,13 +11,13 @@
 //!   batch-of-32 binary NTT kernels and the `vpmaddwd` raw-accumulation MAC of upstream,
 //!   verified against the scalar path by `tests/simd.rs`.
 
+use crate::binfield::Rng;
 use crate::binfield::{random_elems, F162};
 use crate::params::{quadratic_slots, N};
 use crate::ring::{components_of, Modulus, PowerOfThreeRing};
 use crate::scalar::Coeffs;
-use crate::simd::{commit as mac, Batch32};
 use crate::simd::transpose::{slice_f162_into, BinaryIndex32};
-use crate::binfield::Rng;
+use crate::simd::{commit as mac, Batch32};
 use std::sync::OnceLock;
 
 /// A `4 x r` matrix of `R_162` slot elements, one per modulus: the public commitment.
@@ -88,7 +88,10 @@ impl CommitmentKey {
     /// A uniformly random key for `len_f162` witness elements (a multiple of 4) over `base`
     /// and `additional`, deterministically from `seed` (upstream's xorshift64* `Rng`).
     pub fn random(len_f162: usize, seed: u64, base: Modulus, additional: &[Modulus]) -> Self {
-        assert!(len_f162 > 0 && len_f162.is_multiple_of(4), "len_f162 must be a multiple of 4");
+        assert!(
+            len_f162 > 0 && len_f162.is_multiple_of(4),
+            "len_f162 must be a multiple of 4"
+        );
         let mut seen = vec![base];
         for l in additional {
             assert!(!seen.contains(l), "the limb {l:?} is listed twice");
@@ -178,8 +181,7 @@ impl CommitmentKey {
             let nb = nr / 32;
             (0..self.limbs())
                 .map(|k| {
-                    let mut batches =
-                        vec![Batch32 { v: [[0i16; 32]; N] }; nb.max(1)];
+                    let mut batches = vec![Batch32 { v: [[0i16; 32]; N] }; nb.max(1)];
                     for b in 0..nb {
                         for p in 0..32 {
                             let row = &self.a[k][32 * b + p];
@@ -219,11 +221,12 @@ impl CommitmentKey {
     /// Commit to `witness` in `r` chunks under the same key: AVX-512 backend when the CPU and
     /// the limb list allow it, the exact scalar reference otherwise.
     pub fn commit(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
-        let backend = if crate::simd::available() && self.simd_limbs() && self.len_f162.is_multiple_of(128) {
-            Backend::Simd
-        } else {
-            Backend::Scalar
-        };
+        let backend =
+            if crate::simd::available() && self.simd_limbs() && self.len_f162.is_multiple_of(128) {
+                Backend::Simd
+            } else {
+                Backend::Scalar
+            };
         self.commit_with(witness, r, backend)
     }
 
@@ -244,7 +247,10 @@ impl CommitmentKey {
                     crate::simd::available(),
                     "the AVX-512 PCS feature set is not available on this machine"
                 );
-                assert!(self.simd_limbs(), "the AVX-512 backend does not cover this limb list");
+                assert!(
+                    self.simd_limbs(),
+                    "the AVX-512 backend does not cover this limb list"
+                );
                 if self.len_f162.is_multiple_of(128) {
                     self.commit_simd(witness, r)
                 } else {
@@ -261,7 +267,10 @@ impl CommitmentKey {
     /// limb's transform is kept **vertical** (`aux.vertical`, the layout the kernels wrote —
     /// no `store_transform` scatter, non-temporal stores): the fold consumes it in place.
     fn commit_simd(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
-        assert!(r.is_power_of_two() && r >= 2, "r must be a power of two >= 2");
+        assert!(
+            r.is_power_of_two() && r >= 2,
+            "r must be a power of two >= 2"
+        );
         assert_eq!(witness.len(), r * self.len_f162);
         let nr = self.len_ring();
         let nb = nr / 32;
@@ -297,8 +306,7 @@ impl CommitmentKey {
 
         for c in 0..r {
             for b in 0..nb {
-                let elems: &[F162; 128] = witness[c * self.len_f162 + 128 * b..]
-                    [..128]
+                let elems: &[F162; 128] = witness[c * self.len_f162 + 128 * b..][..128]
                     .try_into()
                     .unwrap();
                 unsafe { slice_f162_into(elems, &mut idx) };
@@ -312,37 +320,51 @@ impl CommitmentKey {
                         match q {
                             3889 => {
                                 const Q: u16 = 3889;
-                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Split(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             9721 => {
                                 const Q: u16 = 9721;
-                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Split(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::split_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             17497 => {
                                 const Q: u16 = 17497;
-                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Split(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::split_large_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             19441 => {
                                 const Q: u16 = 19441;
-                                let LimbAcc::Split(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Split(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::split_large_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             2917 => {
                                 const Q: u16 = 2917;
-                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Quad(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             4861 => {
                                 const Q: u16 = 4861;
-                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Quad(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             12637 => {
                                 const Q: u16 = 12637;
-                                let LimbAcc::Quad(acc) = &mut accs[k] else { unreachable!() };
+                                let LimbAcc::Quad(acc) = &mut accs[k] else {
+                                    unreachable!()
+                                };
                                 mac::quad_batch::<Q>(&idx, av, &mut out, acc, done);
                             }
                             _ => unreachable!("simd_limbs checked the prime list"),
@@ -388,7 +410,10 @@ impl CommitmentKey {
     /// The scalar reference commitment (the original port's path, kept verbatim as the
     /// specification the AVX-512 backend is verified against).
     fn commit_scalar(&self, witness: &[F162], r: usize) -> (CommitmentMatrix, AuxData) {
-        assert!(r.is_power_of_two() && r >= 2, "r must be a power of two >= 2");
+        assert!(
+            r.is_power_of_two() && r >= 2,
+            "r must be a power of two >= 2"
+        );
         assert_eq!(witness.len(), r * self.len_f162);
         let nr = self.len_ring();
         let mut aux = AuxData {

@@ -23,8 +23,8 @@
 //! and benchmarks). `verify_opening` rides the same path, removing the
 //! Θ(N) recompute that dominated verification.
 
-use lattice_core::Goldilocks;
 use lattice_core::transcript::Transcript;
+use lattice_core::Goldilocks;
 use lattice_ring::{RingConfig, RingElement};
 
 /// Structural parameters of an Ajtai commitment instance.
@@ -138,8 +138,7 @@ impl AjtaiPublicKey {
         let mut rows = Vec::with_capacity(self.params.k);
         for i in 0..self.params.k {
             let mut acc = vec![0u32; n];
-            let row_ntt =
-                &self.matrix_ntt[i * self.params.m..(i + 1) * self.params.m];
+            let row_ntt = &self.matrix_ntt[i * self.params.m..(i + 1) * self.params.m];
             for (a_ntt, sj) in row_ntt.iter().zip(s_ntt.iter()) {
                 if let Some(sj_ntt) = sj {
                     for t in 0..n {
@@ -326,8 +325,11 @@ pub fn sample_small_secret(
             input.extend_from_slice(seed);
             input.extend_from_slice(&(i as u64).to_le_bytes());
             input.extend_from_slice(&stream_counter.to_le_bytes());
-            let bytes =
-                lattice_core::transcript::Transcript::xof(b"ajtai-secret", &input, (n * 16).max(64));
+            let bytes = lattice_core::transcript::Transcript::xof(
+                b"ajtai-secret",
+                &input,
+                (n * 16).max(64),
+            );
             for chunk in bytes.chunks_exact(4) {
                 if coeffs.len() == n {
                     break;
@@ -490,9 +492,9 @@ mod tests {
         // per-product path across shapes and densities.
         for (log_n, k, m, bound, density) in [
             (4usize, 2usize, 3usize, 256u32, 255u32),
-            (5, 2, 8, 1 << 23, 8),     // field-packing regime (dense)
-            (6, 3, 12, 64, 3),         // sparse (many zeros skipped)
-            (6, 1, 16, 1024, 1),       // extreme: single nonzero
+            (5, 2, 8, 1 << 23, 8), // field-packing regime (dense)
+            (6, 3, 12, 64, 3),     // sparse (many zeros skipped)
+            (6, 1, 16, 1024, 1),   // extreme: single nonzero
         ] {
             let params = test_params(log_n as u32, k, m, bound);
             let pk = AjtaiPublicKey::from_seed(params, seed(9)).ok().unwrap();
@@ -531,7 +533,9 @@ mod tests {
         );
         // Different key parameters → different challenge (parameter binding).
         let params_other = test_params(4, 2, 4, 64);
-        let pk_other = AjtaiPublicKey::from_seed(params_other, seed(10)).ok().unwrap();
+        let pk_other = AjtaiPublicKey::from_seed(params_other, seed(10))
+            .ok()
+            .unwrap();
         let mut td = Transcript::new_default(b"absorb-test");
         pk_other.absorb_statement(&mut td, b"c", &t).ok().unwrap();
         assert_ne!(

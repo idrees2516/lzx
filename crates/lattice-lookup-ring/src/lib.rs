@@ -29,15 +29,15 @@
 //! * `fp256_port` — the Fp256 (BN254 scalar field) port of the windowed
 //!   engine's binding pass on the CIOS Montgomery grid.
 
-pub mod ring_d;
-pub mod ring_sumcheck;
 pub mod attacks;
-pub mod subprotocols;
-pub mod ring_plookup;
-pub mod ring_logup;
 pub mod carrier;
-pub mod windowed;
 pub mod compile;
 pub mod fp256_port;
 pub mod ram;
+pub mod ring_d;
+pub mod ring_logup;
+pub mod ring_plookup;
+pub mod ring_sumcheck;
+pub mod subprotocols;
+pub mod windowed;
 pub use ring_d::{Elem, RingD, RingDError, Q_SPLIT, SQRT_M1};

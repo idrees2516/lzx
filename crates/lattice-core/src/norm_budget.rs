@@ -63,7 +63,10 @@ impl NormBudget {
     pub fn gate(beta: u128, q_half: u64, beta_star: u64) -> Result<u64, NormBudgetError> {
         let cap = q_half.min(beta_star) as u128;
         if beta >= cap {
-            return Err(NormBudgetError::Wraparound { beta_after: beta, cap: cap as u64 });
+            return Err(NormBudgetError::Wraparound {
+                beta_after: beta,
+                cap: cap as u64,
+            });
         }
         Ok(beta as u64)
     }
@@ -162,7 +165,10 @@ mod tests {
     #[test]
     fn scalar_fold_growth_exact() {
         let b = NormBudget::fresh(64);
-        let f1 = b.fold_scalar(1 << 11, 256, Q32_HALF, u64::MAX).ok().unwrap();
+        let f1 = b
+            .fold_scalar(1 << 11, 256, Q32_HALF, u64::MAX)
+            .ok()
+            .unwrap();
         assert_eq!(f1.beta(), 64 + (1 << 11) * 256);
         assert_eq!(f1.folds(), 1);
         // The exact integer law, no hidden slack.
@@ -186,7 +192,10 @@ mod tests {
         // Cyclo-class violation: β_in = 2^20, |r| = 2^11, q/2 ≈ 2^30.58.
         // One fold from β = 2^20 exceeds q/2 → refuse.
         let b = NormBudget::fresh(1 << 20);
-        let err = b.fold_scalar(1 << 11, 1 << 20, Q32_HALF, u64::MAX).err().unwrap();
+        let err = b
+            .fold_scalar(1 << 11, 1 << 20, Q32_HALF, u64::MAX)
+            .err()
+            .unwrap();
         assert!(err.is_wraparound());
         match err {
             NormBudgetError::Wraparound { beta_after, cap } => {
@@ -212,7 +221,10 @@ mod tests {
 
     #[test]
     fn refresh_resets() {
-        let b = NormBudget::fresh(1 << 20).fold_scalar(7, 3, Q32_HALF, u64::MAX).ok().unwrap();
+        let b = NormBudget::fresh(1 << 20)
+            .fold_scalar(7, 3, Q32_HALF, u64::MAX)
+            .ok()
+            .unwrap();
         let r = b.refresh(128);
         assert_eq!(r.beta(), 128);
         assert_eq!(r.folds(), 0);
@@ -223,7 +235,9 @@ mod tests {
     fn saturating_growth_never_panics() {
         let b = NormBudget::fresh(u64::MAX - 5);
         // Saturating arithmetic then the gate catches it.
-        assert!(b.fold(u64::MAX, ceil_sqrt(1024), u64::MAX, Q32_HALF, u64::MAX).is_err());
+        assert!(b
+            .fold(u64::MAX, ceil_sqrt(1024), u64::MAX, Q32_HALF, u64::MAX)
+            .is_err());
     }
 
     #[test]

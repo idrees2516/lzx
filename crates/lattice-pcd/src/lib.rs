@@ -46,12 +46,12 @@
 
 pub mod accum;
 pub mod ajtai_fr;
-pub mod pq;
 pub mod fp_base;
 pub mod g1;
 pub mod nark;
 pub mod pcd;
 pub mod pedersen;
+pub mod pq;
 pub mod sps;
 pub mod util;
 pub mod zk_sumcheck;

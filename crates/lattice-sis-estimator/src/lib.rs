@@ -144,16 +144,9 @@ mod tests {
         // LaBRADOR-class: ring dim 64, q = 2^48 - 59, rank 1, width ~
         // 2^20-scale amortization collapsed to a module row width 32, ternary
         // challenges (bound 1). This is in the secure band.
-        let params = scalar_sis_from_ring(
-            64,
-            1,
-            32,
-            (1u128 << 48) - 59,
-            1,
-            SisNorm::Infinity,
-        )
-        .ok()
-        .unwrap();
+        let params = scalar_sis_from_ring(64, 1, 32, (1u128 << 48) - 59, 1, SisNorm::Infinity)
+            .ok()
+            .unwrap();
         let (classical, quantum) = sis_security_bits(&params).ok().unwrap();
         assert!(
             classical > 80.0,
@@ -281,4 +274,3 @@ mod tests {
         assert!(a.d > params.n);
     }
 }
-

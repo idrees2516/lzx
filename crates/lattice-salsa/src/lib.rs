@@ -17,10 +17,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod air;
 pub mod ring_norm;
 pub mod ring_sc;
 pub mod salsaa;
-pub mod air;
 
 use lattice_core::transcript::{Transcript, TranscriptError};
 use lattice_core::{DenseMle, Goldilocks};
@@ -31,11 +31,17 @@ use lattice_sumcheck::virtual_poly::VirtualPolynomial;
 pub enum SalsaError {
     Sumcheck(SumcheckError),
     Transcript(TranscriptError),
-    NormMismatch { claimed: Goldilocks, actual: Goldilocks },
+    NormMismatch {
+        claimed: Goldilocks,
+        actual: Goldilocks,
+    },
     LdeTensorFailed,
     StructuredMatrixFailed,
     ZkMaskMismatch,
-    Shape { expected: usize, got: usize },
+    Shape {
+        expected: usize,
+        got: usize,
+    },
 }
 
 /// Prove the squared-ℓ2 norm of an MLE over the boolean hypercube:
@@ -103,8 +109,10 @@ pub fn prove_lde_tensor(
     }
     // Residual MLE: g(y) = ext(y) − Σ_b eq(y[0..k], b)·a(b). Because both
     // terms are MLEs in y, g is an MLE; honest LDEs give g ≡ 0.
-    let base_mle = DenseMle::new(base.to_vec())
-        .map_err(|_| SalsaError::Shape { expected: k, got: base.len() })?;
+    let base_mle = DenseMle::new(base.to_vec()).map_err(|_| SalsaError::Shape {
+        expected: k,
+        got: base.len(),
+    })?;
     let r = transcript
         .challenge_fields(b"salsa-lde-point", ext.num_vars)
         .map_err(SalsaError::Transcript)?;
@@ -138,12 +146,7 @@ pub fn prove_lde_tensor(
 
 /// Eq-tensor reconstruction: ext(r) for the honest LDE equals
 /// Σ_{b} eq(r[0..k], b)·a(b) (independent of the remaining variables).
-fn reconstruct_at(
-    base: DenseMle,
-    r: &[Goldilocks],
-    k: usize,
-    _total_vars: usize,
-) -> Goldilocks {
+fn reconstruct_at(base: DenseMle, r: &[Goldilocks], k: usize, _total_vars: usize) -> Goldilocks {
     // The LDE of a over k variables evaluated at r[0..k] (the extension
     // does not depend on the padding variables for a multilinear LDE).
     let prefix: Vec<Goldilocks> = r.iter().take(k).copied().collect();
@@ -162,8 +165,10 @@ pub fn verify_lde_tensor(
     let r = transcript
         .challenge_fields(b"salsa-lde-point", num_vars)
         .map_err(SalsaError::Transcript)?;
-    let base_mle = DenseMle::new(base.to_vec())
-        .map_err(|_| SalsaError::Shape { expected: k, got: base.len() })?;
+    let base_mle = DenseMle::new(base.to_vec()).map_err(|_| SalsaError::Shape {
+        expected: k,
+        got: base.len(),
+    })?;
     let prefix: Vec<Goldilocks> = r.iter().take(k).copied().collect();
     // The SUM claim binds the statement (verifier-computable eq-tensor
     // reconstruction); the terminal P(r_sc) claim is PCS-authenticated by
@@ -281,7 +286,10 @@ fn interp(evals: &[Goldilocks], r: &Goldilocks) -> Goldilocks {
                 continue;
             }
             let xj = Goldilocks::from_u64(j as u64);
-            w = w.mul(&r.sub(&xj).mul(&xi.sub(&xj).inverse().unwrap_or(Goldilocks::ZERO)));
+            w = w.mul(
+                &r.sub(&xj)
+                    .mul(&xi.sub(&xj).inverse().unwrap_or(Goldilocks::ZERO)),
+            );
         }
         acc = acc.add(&evals[i].mul(&w));
     }

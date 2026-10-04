@@ -283,8 +283,7 @@ impl ShortPcKey {
             let mut c0 = vec![Fp256::ZERO; self.rows];
             let mut c1 = vec![Fp256::ZERO; self.rows];
             let mut c2 = vec![Fp256::ZERO; self.rows];
-            let (mut s0, mut s1, mut s2) =
-                (Fp256::ZERO, Fp256::ZERO, Fp256::ZERO);
+            let (mut s0, mut s1, mut s2) = (Fp256::ZERO, Fp256::ZERO, Fp256::ZERO);
             for idx in 0..half {
                 let wl = w[idx];
                 let wh = w[idx + half];
@@ -345,7 +344,10 @@ pub fn eq_index(i: usize, u: &[Fp256], k: usize) -> Fp256 {
     for (bit, &uu) in u.iter().enumerate() {
         let b = (i >> (k - 1 - bit)) & 1;
         let bf = Fp256::from_canonical_u64(b as u64);
-        val = val.mul(&bf.mul(&uu).add(&Fp256::one_mont().sub(&bf).mul(&Fp256::one_mont().sub(&uu))));
+        val = val.mul(
+            &bf.mul(&uu)
+                .add(&Fp256::one_mont().sub(&bf).mul(&Fp256::one_mont().sub(&uu))),
+        );
     }
     val
 }
@@ -430,10 +432,15 @@ pub fn verify_short(
     for (round, msg) in proof.msgs.iter().enumerate() {
         let r = challenges[round];
         let sum: Vec<Fp256> = (0..key.rows)
-            .map(|row| msg[0][row].add(&msg[0][row]).add(&msg[1][row]).add(&msg[2][row]))
+            .map(|row| {
+                msg[0][row]
+                    .add(&msg[0][row])
+                    .add(&msg[1][row])
+                    .add(&msg[2][row])
+            })
             .collect();
-                if sum != current {
-                        return Err(ShortPcError::Sumcheck("round recurrence"));
+        if sum != current {
+            return Err(ShortPcError::Sumcheck("round recurrence"));
         }
         let r2 = r.mul(&r);
         current = (0..key.rows)
@@ -471,7 +478,10 @@ fn eval_t(key: &ShortPcKey, r: &[Fp256], u: &[Fp256]) -> Fp256 {
     let (r_d, r_l) = r.split_at(k);
     let mut eqv = Fp256::one_mont();
     for (a, b) in r_d.iter().zip(u.iter()) {
-        eqv = eqv.mul(&a.mul(b).add(&Fp256::one_mont().sub(a).mul(&Fp256::one_mont().sub(b))));
+        eqv = eqv.mul(
+            &a.mul(b)
+                .add(&Fp256::one_mont().sub(a).mul(&Fp256::one_mont().sub(b))),
+        );
     }
     let mut e = Fp256::ZERO;
     for j in 0..FR_DIGIT_LAYERS {
@@ -479,7 +489,10 @@ fn eval_t(key: &ShortPcKey, r: &[Fp256], u: &[Fp256]) -> Fp256 {
         for (bit, &rl) in r_l.iter().enumerate() {
             let jb = ((j >> (3 - bit)) & 1) as u64;
             let jf = Fp256::from_canonical_u64(jb);
-            eqj = eqj.mul(&rl.mul(&jf).add(&Fp256::one_mont().sub(&rl).mul(&Fp256::one_mont().sub(&jf))));
+            eqj = eqj.mul(
+                &rl.mul(&jf)
+                    .add(&Fp256::one_mont().sub(&rl).mul(&Fp256::one_mont().sub(&jf))),
+            );
         }
         let weight = layer_weight(j);
         e = e.add(&eqj.mul(&weight));
@@ -543,7 +556,10 @@ pub fn accumulate_short(
     for ((r_i, _), w) in instances.iter().zip(gammas.iter()) {
         let mut eqv = Fp256::one_mont();
         for (a, b) in challenges.iter().zip(r_i.iter()) {
-            eqv = eqv.mul(&a.mul(b).add(&Fp256::one_mont().sub(a).mul(&Fp256::one_mont().sub(b))));
+            eqv = eqv.mul(
+                &a.mul(b)
+                    .add(&Fp256::one_mont().sub(a).mul(&Fp256::one_mont().sub(b))),
+            );
         }
         e_r = e_r.add(&eqv.mul(w));
     }
@@ -553,9 +569,7 @@ pub fn accumulate_short(
     // e-fold: the division path is exercised explicitly).
     let g_r = eval_generator_mle(key, &challenges);
     let v: Vec<Fp256> = (0..key.rows).map(|row| g_r[row].mul(&e_r)).collect();
-    let folded: Vec<Fp256> = (0..key.rows)
-        .map(|row| v[row].mul(&e_inv))
-        .collect();
+    let folded: Vec<Fp256> = (0..key.rows).map(|row| v[row].mul(&e_inv)).collect();
     Ok((challenges, folded))
 }
 
@@ -583,24 +597,24 @@ mod tests {
     use super::*;
 
     fn domain(n: usize) -> Domain {
-        Domain::Multivariate { num_vars: n.next_power_of_two().trailing_zeros() as usize }
+        Domain::Multivariate {
+            num_vars: n.next_power_of_two().trailing_zeros() as usize,
+        }
     }
 
     fn values(n: usize, seed: u64) -> Vec<Fp256> {
         let mut x = seed;
         (0..n)
             .map(|_| {
-                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                x = x
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
                 Fp256::from_canonical_u64(x >> 32)
             })
             .collect()
     }
 
-    fn eval_claim(
-        key: &ShortPcKey,
-        layers: &[Vec<Fp256>],
-        u: &[Fp256],
-    ) -> Fp256 {
+    fn eval_claim(key: &ShortPcKey, layers: &[Vec<Fp256>], u: &[Fp256]) -> Fp256 {
         let k = key.k();
         let mut acc = Fp256::ZERO;
         for i in 0..key.n {
@@ -695,4 +709,3 @@ mod tests {
         assert!(decide_short(&key, &r, &c), "folded instance decides");
     }
 }
-

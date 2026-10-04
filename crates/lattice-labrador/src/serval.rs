@@ -30,11 +30,15 @@ use lattice_core::transcript::{Transcript, TranscriptError};
 pub enum ServalError {
     Transcript(TranscriptError),
     /// The norm-chain update failed (tampered quartet).
-    NormChainFailed { round: usize },
+    NormChainFailed {
+        round: usize,
+    },
     /// The terminal norm equality failed.
     TerminalFailed,
     /// The vector length is not a power of two.
-    Shape { len: usize },
+    Shape {
+        len: usize,
+    },
 }
 
 impl From<TranscriptError> for ServalError {
@@ -177,13 +181,12 @@ pub fn verify_ipa(
         // (b) the fold update
         let c_conj = c.flip();
         let cp_conj = cp.flip();
-        let expect = q
-            .l
-            .mul(&c_conj)
-            .mul(&c)
-            .add(&q.m1.mul(&c_conj).mul(&cp))
-            .add(&q.m2.mul(&cp_conj).mul(&c))
-            .add(&q.r.mul(&cp_conj).mul(&cp));
+        let expect =
+            q.l.mul(&c_conj)
+                .mul(&c)
+                .add(&q.m1.mul(&c_conj).mul(&cp))
+                .add(&q.m2.mul(&cp_conj).mul(&c))
+                .add(&q.r.mul(&cp_conj).mul(&cp));
         if expect != q.t_next {
             return Err(ServalError::NormChainFailed { round });
         }
@@ -266,7 +269,10 @@ mod tests {
     fn shape_requires_power_of_two() {
         let v = small_vec(6, b"sv", 4);
         let mut t = Transcript::new_default(b"lzx-serval");
-        assert!(matches!(run_ipa(&v, &mut t), Err(ServalError::Shape { .. })));
+        assert!(matches!(
+            run_ipa(&v, &mut t),
+            Err(ServalError::Shape { .. })
+        ));
     }
 
     #[test]
@@ -281,6 +287,5 @@ mod tests {
             }
         }
         assert_eq!(norm_readout(&t), expect);
-
     }
 }

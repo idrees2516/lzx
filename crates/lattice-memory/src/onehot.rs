@@ -49,15 +49,15 @@ impl OneHotLayout {
             return Err(PiopError::BadLayout { log_k, d });
         }
         let log_n = log_k / d;
-        let n = 1usize.checked_shl(log_n as u32).ok_or(PiopError::BadLayout { log_k, d })?;
-        let per_cycle = d
-            .checked_mul(n)
+        let n = 1usize
+            .checked_shl(log_n as u32)
             .ok_or(PiopError::BadLayout { log_k, d })?;
+        let per_cycle = d.checked_mul(n).ok_or(PiopError::BadLayout { log_k, d })?;
         // Largest chunk with d*N*2^c <= max_chunk_entries (>= 0).
         let mut chunk_log_t = 0usize;
         while chunk_log_t < log_t {
-            let next = (1usize.checked_shl(chunk_log_t as u32 + 1))
-                .and_then(|c| per_cycle.checked_mul(c));
+            let next =
+                (1usize.checked_shl(chunk_log_t as u32 + 1)).and_then(|c| per_cycle.checked_mul(c));
             match next {
                 Some(entries) if entries <= max_chunk_entries => chunk_log_t += 1,
                 _ => break,
@@ -185,7 +185,10 @@ pub fn one_hot_dim_matrix(hot: &[u32], log_n: usize, log_t: usize) -> Result<Den
     let n = 1usize << log_n;
     let t = 1usize << log_t;
     if hot.len() != t {
-        return Err(PiopError::Shape { expected: t, got: hot.len() });
+        return Err(PiopError::Shape {
+            expected: t,
+            got: hot.len(),
+        });
     }
     let mut evals = vec![Goldilocks::ZERO; n * t];
     for (j, &h) in hot.iter().enumerate() {
@@ -209,7 +212,11 @@ pub fn one_hot_dim_matrix(hot: &[u32], log_n: usize, log_t: usize) -> Result<Den
 /// Kernel-scale dense materialization (`K·T` entries) for the generic
 /// sumcheck engine; the production route is the sparse prover, which
 /// never forms this array. For `d == 1` this is a copy.
-pub fn embed_dim(matrix: &DenseMle, layout: &OneHotLayout, dim: usize) -> Result<DenseMle, PiopError> {
+pub fn embed_dim(
+    matrix: &DenseMle,
+    layout: &OneHotLayout,
+    dim: usize,
+) -> Result<DenseMle, PiopError> {
     if matrix.num_vars != layout.log_n() + layout.log_t {
         return Err(PiopError::Shape {
             expected: layout.log_n() + layout.log_t,
@@ -276,10 +283,18 @@ mod tests {
     fn size_accounting_shrinks_with_d() {
         let log_k = 16;
         let log_t = 10;
-        let d1 = OneHotLayout::new(log_k, log_t, 1, u64::MAX as usize).ok().unwrap();
-        let d2 = OneHotLayout::new(log_k, log_t, 2, u64::MAX as usize).ok().unwrap();
-        let d4 = OneHotLayout::new(log_k, log_t, 4, u64::MAX as usize).ok().unwrap();
-        let d8 = OneHotLayout::new(log_k, log_t, 8, u64::MAX as usize).ok().unwrap();
+        let d1 = OneHotLayout::new(log_k, log_t, 1, u64::MAX as usize)
+            .ok()
+            .unwrap();
+        let d2 = OneHotLayout::new(log_k, log_t, 2, u64::MAX as usize)
+            .ok()
+            .unwrap();
+        let d4 = OneHotLayout::new(log_k, log_t, 4, u64::MAX as usize)
+            .ok()
+            .unwrap();
+        let d8 = OneHotLayout::new(log_k, log_t, 8, u64::MAX as usize)
+            .ok()
+            .unwrap();
         // Committed entries per cycle side (K = 2^16, T = 2^10):
         // d=1: 65536·T; d=2: 2·256·T = 512·T; d=4: 4·16·T = 64·T; d=8: 8·2·T = 16·T.
         assert_eq!(d1.committed_entries(), (1 << 16) * (1 << log_t));

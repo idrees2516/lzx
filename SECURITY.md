@@ -1,5 +1,48 @@
 # LZX Security Policy
 
+## Sound posture update (2026-10-04, evening): the extraction ledger + the D4 closure + the split
+
+The three honest residuals recorded this morning are now CLOSED
+(details: `docs/analysis/MULTISTAGE_EXTRACTION.md`,
+`docs/analysis/D4_BINDING_CLOSURE.md`, BENCHMARKS §2l):
+
+1. **The multi-stage LaBRADOR extraction — the degree-law unwind**
+   (`lattice-widthfold::extraction`): the open analysis is now an
+   executable, fail-closed ledger of five machine-checked laws (E1
+   per-stage floor+grinding, E2 the affine degree law / composed
+   degree 2L, E3 the unwind norm law `2·β_{L+1} < q/2`, E4 the
+   grinding ledger, E5 the extractor-feasibility cap `2^L ≤ 2^16`) —
+   ENFORCED inside `assert_sound_chain` at prove AND verify time, so
+   no chain can ship without its extraction posture. The ledger
+   separates the knowledge gap (the rewind abort — 2^0.6–2^3.2 bits
+   on shipped schedules) from the binding security (the MSIS floor —
+   161–841 bits): the former is a rewinding-completeness quantity,
+   NOT the forgery security; conflating them is the analysis error
+   the document exists to prevent. The three-layer honesty (arithmetic
+   / modeled / assumed) is stated explicitly per field.
+2. **The D4 binding closure** (`lattice-akita::salsa_binding`): the
+   byte-witness-to-commitment authenticated opening is CLOSED via the
+   compact-fold composition — the width-collapse chain PROVES the
+   level-1 `F̄·v = t` equation ((W0) — never assumed, so the level-1
+   key's own MSIS comfort zone is irrelevant), carries the functional
+   claim ((W0')/(W3)), and rests the binding on the per-stage
+   estimator-gated `[A₂ | −T]` instances. Pinned by the
+   wrong-commitment tamper test; composed into the v2 pipeline as
+   `Stage5Mode::Bound` (the swapped-commitment rejection at Stage 5).
+   The D1 norm proof remains the β₁ = 255 gate's shortness
+   certificate. The r-column split scales past the Lemma-4 cap
+   (exactly 2,048 values/commitment at ring dim 16/Q_32) with
+   per-column keys/D1/chains and the μ-weighted ψ-decomposition —
+   the per-column keys derive from a PUBLIC domain (the reference
+   posture; production requires a setup ceremony — recorded in the
+   analysis doc's §4).
+3. **The known-open items after this landing** (unchanged in kind,
+   now measured): the Q_32 norm ceiling (the unwind slack 2^6.6 at
+   the β₁ = 2^15+ rows — the Modulus-50 class is the route);
+   zero-knowledge for the fold/response layers (Wave 8.6); the
+   estimator remains a model, not a theorem; FS rewinding soundness
+   and transcript collision resistance remain standard assumptions.
+
 ## Sound posture update (2026-10-04): the recursive staging + the compact terminal
 
 Three posture changes this session:

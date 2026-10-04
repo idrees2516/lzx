@@ -176,7 +176,8 @@ pub fn gbf1_prove(
                     if pp == usize::MAX || pp >= d_vecs[ki].len() {
                         continue;
                     }
-                    prod = prod.mul(&vec_poly_eval(domain, &d_vecs[ki][pp], pt).unwrap_or(Fp256::ZERO));
+                    prod = prod
+                        .mul(&vec_poly_eval(domain, &d_vecs[ki][pp], pt).unwrap_or(Fp256::ZERO));
                 }
                 right_d = right_d.add(&prod);
             }
@@ -353,7 +354,6 @@ pub fn gbf1_verify(
     let (dl, dr) = dl_dr(instances);
     let degree = (dl + dr).max(dr + 1).max(2);
 
-    
     let beta: Vec<Fp256> = match (&proof.sc, domain) {
         (crate::gbf2::ScRepr2::Mv(p), Domain::Multivariate { num_vars }) => {
             let out = mv_verify(*num_vars, degree, &[s], p, transcript)?;

@@ -137,9 +137,14 @@ impl RingD {
 
     pub fn from_coeffs(&self, c: Vec<u64>) -> Result<Elem, RingDError> {
         if c.len() != self.d {
-            return Err(RingDError::LengthMismatch { expected: self.d, got: c.len() });
+            return Err(RingDError::LengthMismatch {
+                expected: self.d,
+                got: c.len(),
+            });
         }
-        Ok(Elem { c: c.into_iter().map(|v| v % self.q).collect() })
+        Ok(Elem {
+            c: c.into_iter().map(|v| v % self.q).collect(),
+        })
     }
 
     /// Balanced (signed) coefficients → canonical representative.
@@ -228,7 +233,11 @@ impl Elem {
     /// ℓ∞ norm over the balanced representative.
     pub fn inf_norm(&self, q: u64) -> u64 {
         let half = q / 2;
-        self.c.iter().map(|&v| if v <= half { v } else { q - v }).max().unwrap_or(0)
+        self.c
+            .iter()
+            .map(|&v| if v <= half { v } else { q - v })
+            .max()
+            .unwrap_or(0)
     }
 }
 
@@ -351,7 +360,10 @@ impl RingD {
     pub fn from_slots(&self, plus: &Slot, minus: &Slot) -> Result<Elem, RingDError> {
         let h = self.hd();
         if plus.c.len() != h || minus.c.len() != h {
-            return Err(RingDError::LengthMismatch { expected: h, got: plus.c.len() });
+            return Err(RingDError::LengthMismatch {
+                expected: h,
+                got: plus.c.len(),
+            });
         }
         let inv2 = mod_pow(2, self.q - 2, self.q);
         let inv2r = mod_pow((2 * self.r) % self.q, self.q - 2, self.q);
@@ -411,7 +423,7 @@ impl RingD {
         self.slot_mul_mod(a, b, self.q - self.r % self.q)
     }
 
-/// Invert a slot in `Z_q[X]/(X^h − root)` via polynomial extended
+    /// Invert a slot in `Z_q[X]/(X^h − root)` via polynomial extended
     /// Euclid (`q` prime ⇒ coefficient field). Returns `None` for the
     /// zero slot (a zero-divisor of the full ring). The Bezout
     /// coefficient is maintained reduced modulo the slot modulus, so
@@ -558,7 +570,10 @@ impl RingD {
         if den_deg == 0 {
             // constant divisor: scale everything, zero remainder
             let c_inv = mod_pow(den[0], self.q - 2, self.q);
-            let q: Vec<u64> = num.iter().map(|&v| self.red64(v * c_inv % self.q)).collect();
+            let q: Vec<u64> = num
+                .iter()
+                .map(|&v| self.red64(v * c_inv % self.q))
+                .collect();
             return (q, vec![0]);
         }
         let lc_inv = mod_pow(den[den_deg], self.q - 2, self.q);
@@ -596,7 +611,6 @@ impl RingD {
         (q, rem)
     }
 
-    
     pub fn inv(&self, a: &Elem) -> Option<Elem> {
         let sp = self.slot_plus(a);
         let sm = self.slot_minus(a);
@@ -704,7 +718,10 @@ impl RingD {
     pub fn mle_eval(&self, evals: &[Elem], point: &[Elem]) -> Result<Elem, RingDError> {
         let mu = point.len();
         if evals.len() != (1usize << mu) {
-            return Err(RingDError::LengthMismatch { expected: 1 << mu, got: evals.len() });
+            return Err(RingDError::LengthMismatch {
+                expected: 1 << mu,
+                got: evals.len(),
+            });
         }
         let mut cur = evals.to_vec();
         for xi in point.iter().rev() {
@@ -799,7 +816,9 @@ mod tests {
         // an element that is zero only in the + slot: construct via slots
         let h = r.hd();
         let zero_plus = Slot { c: vec![0; h] };
-        let nonzero_minus = Slot { c: (0..h).map(|j| (j as u64 * 37 + 5) % r.q).collect() };
+        let nonzero_minus = Slot {
+            c: (0..h).map(|j| (j as u64 * 37 + 5) % r.q).collect(),
+        };
         let zd_elem = r.from_slots(&zero_plus, &nonzero_minus).ok().unwrap();
         assert!(!zd_elem.is_zero());
         assert!(r.inv(&zd_elem).is_none(), "zero-divisor must not invert");
@@ -808,7 +827,9 @@ mod tests {
     #[test]
     fn batch_inversion_consistency() {
         let r = ring(8);
-        let vals: Vec<Elem> = (0..7).map(|i| r.random(format!("bv-{i}").as_bytes())).collect();
+        let vals: Vec<Elem> = (0..7)
+            .map(|i| r.random(format!("bv-{i}").as_bytes()))
+            .collect();
         let invs = r.batch_inv(&vals).unwrap();
         for (v, inv) in vals.iter().zip(invs.iter()) {
             assert_eq!(r.mul(v, inv), r.one());
@@ -843,8 +864,17 @@ mod tests {
     fn mle_eval_matches_eq_expansion() {
         let r = ring(4);
         let mu = 3;
-        let evals: Vec<Elem> = (0..(1 << mu)).map(|i| r.random(format!("m{i}").as_bytes())).collect();
-        let point: Vec<Elem> = (0..mu).map(|i| r.sample_challenge(&mut Transcript::new_default(b"p"), format!("x{i}").as_bytes())).collect();
+        let evals: Vec<Elem> = (0..(1 << mu))
+            .map(|i| r.random(format!("m{i}").as_bytes()))
+            .collect();
+        let point: Vec<Elem> = (0..mu)
+            .map(|i| {
+                r.sample_challenge(
+                    &mut Transcript::new_default(b"p"),
+                    format!("x{i}").as_bytes(),
+                )
+            })
+            .collect();
         // evaluation via fold
         let v1 = r.mle_eval(&evals, &point).ok().unwrap();
         // evaluation via explicit EQ row

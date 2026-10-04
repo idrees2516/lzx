@@ -90,7 +90,8 @@
 //! * `interpolate_at` — at most `(d+1)² ≤ 16` small inverses per round
 //!   versus `2^num_vars · terms` products: not field-bound.
 
-#![allow(unsafe_code)] // core::arch intrinsics, gated on runtime detection (see module docs)
+#![allow(unsafe_code)]
+// core::arch intrinsics, gated on runtime detection (see module docs)
 // The AVX-512F intrinsics (`_mm512_*`) stabilized after the workspace MSRV
 // (1.75); they compile only under `cfg(target_arch = "x86_64")` and execute
 // only behind the runtime `avx512_field()` gate, so the portable build
@@ -210,14 +211,21 @@ pub fn reduce128(hi: &[u64], lo: &[u64], out: &mut [Goldilocks]) {
 
 /// Batched fused multiply-add: `out[i] = a[i]·b[i] + c[i]` — bit-exact with
 /// the scalar `a.mul(&b).add(&c)` chain.
-pub fn mul_add_slices(a: &[Goldilocks], b: &[Goldilocks], c: &[Goldilocks], out: &mut [Goldilocks]) {
+pub fn mul_add_slices(
+    a: &[Goldilocks],
+    b: &[Goldilocks],
+    c: &[Goldilocks],
+    out: &mut [Goldilocks],
+) {
     let n = a.len().min(b.len()).min(c.len()).min(out.len());
     let mut done = 0;
     #[cfg(target_arch = "x86_64")]
     if n >= 8 && avx512_field() {
         let chunks = n / 8;
         // SAFETY: gate checked; chunks*8 <= n elements are in bounds on all four slices.
-        unsafe { imp::mul_add_slice_simd(a.as_ptr(), b.as_ptr(), c.as_ptr(), out.as_mut_ptr(), chunks) };
+        unsafe {
+            imp::mul_add_slice_simd(a.as_ptr(), b.as_ptr(), c.as_ptr(), out.as_mut_ptr(), chunks)
+        };
         done = chunks * 8;
     }
     for i in done..n {
@@ -262,7 +270,12 @@ pub fn mul_scalar_slice_inplace(a: &mut [Goldilocks], s: Goldilocks) {
 
 /// The sumcheck half-binding: `out[i] = lo[i] + (hi[i] − lo[i])·r` —
 /// bit-exact with the scalar `a.add(&b.sub(&a).mul(&r))` binding step.
-pub fn bind_half_slices(lo: &[Goldilocks], hi: &[Goldilocks], r: Goldilocks, out: &mut [Goldilocks]) {
+pub fn bind_half_slices(
+    lo: &[Goldilocks],
+    hi: &[Goldilocks],
+    r: Goldilocks,
+    out: &mut [Goldilocks],
+) {
     let n = lo.len().min(hi.len()).min(out.len());
     let mut done = 0;
     #[cfg(target_arch = "x86_64")]
@@ -660,9 +673,17 @@ mod imp {
     /// Caller must have checked `avx512_field()`, and all pointers must be
     /// valid for `chunks*8` elements.
     #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn mul_slice_simd(a: *const Goldilocks, b: *const Goldilocks, out: *mut Goldilocks, chunks: usize) {
+    pub(super) unsafe fn mul_slice_simd(
+        a: *const Goldilocks,
+        b: *const Goldilocks,
+        out: *mut Goldilocks,
+        chunks: usize,
+    ) {
         for i in 0..chunks {
-            store(out.add(i * 8), mul_v(load(a.add(i * 8)), load(b.add(i * 8))));
+            store(
+                out.add(i * 8),
+                mul_v(load(a.add(i * 8)), load(b.add(i * 8))),
+            );
         }
     }
 
@@ -670,9 +691,17 @@ mod imp {
     /// Caller must have checked `avx512_field()`, and all pointers must be
     /// valid for `chunks*8` elements.
     #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn add_slice_simd(a: *const Goldilocks, b: *const Goldilocks, out: *mut Goldilocks, chunks: usize) {
+    pub(super) unsafe fn add_slice_simd(
+        a: *const Goldilocks,
+        b: *const Goldilocks,
+        out: *mut Goldilocks,
+        chunks: usize,
+    ) {
         for i in 0..chunks {
-            store(out.add(i * 8), add_v(load(a.add(i * 8)), load(b.add(i * 8))));
+            store(
+                out.add(i * 8),
+                add_v(load(a.add(i * 8)), load(b.add(i * 8))),
+            );
         }
     }
 
@@ -680,9 +709,17 @@ mod imp {
     /// Caller must have checked `avx512_field()`, and all pointers must be
     /// valid for `chunks*8` elements.
     #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn sub_slice_simd(a: *const Goldilocks, b: *const Goldilocks, out: *mut Goldilocks, chunks: usize) {
+    pub(super) unsafe fn sub_slice_simd(
+        a: *const Goldilocks,
+        b: *const Goldilocks,
+        out: *mut Goldilocks,
+        chunks: usize,
+    ) {
         for i in 0..chunks {
-            store(out.add(i * 8), sub_v(load(a.add(i * 8)), load(b.add(i * 8))));
+            store(
+                out.add(i * 8),
+                sub_v(load(a.add(i * 8)), load(b.add(i * 8))),
+            );
         }
     }
 
@@ -733,7 +770,12 @@ mod imp {
     /// valid for `chunks*8` elements (source and destination may alias
     /// elementwise).
     #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn mul_scalar_slice_simd(a: *const Goldilocks, s: u64, out: *mut Goldilocks, chunks: usize) {
+    pub(super) unsafe fn mul_scalar_slice_simd(
+        a: *const Goldilocks,
+        s: u64,
+        out: *mut Goldilocks,
+        chunks: usize,
+    ) {
         let vs = _mm512_set1_epi64(s as i64);
         for i in 0..chunks {
             store(out.add(i * 8), mul_v(load(a.add(i * 8)), vs));
@@ -763,7 +805,12 @@ mod imp {
     /// Caller must have checked `avx512_field()`; `evals` valid for
     /// `2*half` elements with `chunks*8 <= half`.
     #[target_feature(enable = "avx512f")]
-    pub(super) unsafe fn bind_first_half_simd(evals: *mut Goldilocks, half: usize, r: u64, chunks: usize) {
+    pub(super) unsafe fn bind_first_half_simd(
+        evals: *mut Goldilocks,
+        half: usize,
+        r: u64,
+        chunks: usize,
+    ) {
         let vr = _mm512_set1_epi64(r as i64);
         for i in 0..chunks {
             let a = load(evals.add(i * 8));
@@ -1020,7 +1067,11 @@ mod tests {
         // Swapped operands: commutativity + every pair lands in a rotated lane.
         mul_slices(&b, &a, &mut out);
         for k in 0..total {
-            assert_eq!(out[k].0, scalar_mul(a[k].0, b[k].0), "mul edge swapped #{k}");
+            assert_eq!(
+                out[k].0,
+                scalar_mul(a[k].0, b[k].0),
+                "mul edge swapped #{k}"
+            );
         }
     }
 
@@ -1043,7 +1094,9 @@ mod tests {
     #[test]
     fn mul_slice_lengths_and_tails() {
         let mut st = 0x0BAD_C0DE_DEAD_10CCu64;
-        for len in [0usize, 1, 2, 7, 8, 9, 15, 16, 17, 23, 24, 31, 63, 64, 65, 100, 257, 1000] {
+        for len in [
+            0usize, 1, 2, 7, 8, 9, 15, 16, 17, 23, 24, 31, 63, 64, 65, 100, 257, 1000,
+        ] {
             let a = random_slice(&mut st, len, true);
             let b = random_slice(&mut st, len, true);
             let mut out = vec![Goldilocks::ZERO; len];
@@ -1120,7 +1173,11 @@ mod tests {
         reduce128(&his, &los, &mut out);
         for i in 0..total {
             let want = Goldilocks::from_u128(((his[i] as u128) << 64) | los[i] as u128);
-            assert_eq!(out[i], want, "reduce128 #{i} hi {:#x} lo {:#x}", his[i], los[i]);
+            assert_eq!(
+                out[i], want,
+                "reduce128 #{i} hi {:#x} lo {:#x}",
+                his[i], los[i]
+            );
         }
         // The multiplier bridge: reduce128 of a product == mul of the halves' sources.
         let base = total - prod_pairs.len();
@@ -1167,7 +1224,10 @@ mod tests {
             }
         }
         // ALL n² canonical edge pairs for add/sub, exhaustively packed.
-        let edges: Vec<u64> = edge_values().into_iter().map(|x| x % GOLDILOCKS_MODULUS).collect();
+        let edges: Vec<u64> = edge_values()
+            .into_iter()
+            .map(|x| x % GOLDILOCKS_MODULUS)
+            .collect();
         let n = edges.len();
         let total = n * n;
         let padded = total.div_ceil(8) * 8;
@@ -1180,11 +1240,23 @@ mod tests {
         let mut out = vec![Goldilocks::ZERO; padded];
         add_slices(&a, &b, &mut out);
         for k in 0..total {
-            assert_eq!(out[k], a[k].add(&b[k]), "add edge {:#x}+{:#x}", a[k].0, b[k].0);
+            assert_eq!(
+                out[k],
+                a[k].add(&b[k]),
+                "add edge {:#x}+{:#x}",
+                a[k].0,
+                b[k].0
+            );
         }
         sub_slices(&a, &b, &mut out);
         for k in 0..total {
-            assert_eq!(out[k], a[k].sub(&b[k]), "sub edge {:#x}-{:#x}", a[k].0, b[k].0);
+            assert_eq!(
+                out[k],
+                a[k].sub(&b[k]),
+                "sub edge {:#x}-{:#x}",
+                a[k].0,
+                b[k].0
+            );
         }
     }
 
@@ -1206,7 +1278,10 @@ mod tests {
     #[test]
     fn mul_scalar_slice_matches() {
         let mut st = 0xFEED_FACE_CAFE_1234u64;
-        let scalars: Vec<Goldilocks> = edge_values().iter().map(|&x| fe(x % GOLDILOCKS_MODULUS)).collect();
+        let scalars: Vec<Goldilocks> = edge_values()
+            .iter()
+            .map(|&x| fe(x % GOLDILOCKS_MODULUS))
+            .collect();
         for len in [1usize, 7, 8, 9, 16, 17, 100, 4096] {
             let a = random_slice(&mut st, len, true);
             for s in &scalars {
@@ -1315,7 +1390,10 @@ mod tests {
             // Boolean points must produce the pure indicator.
             if m > 0 {
                 let bool_point: Vec<Goldilocks> = (0..m).map(|i| fe((i % 2) as u64)).collect();
-                assert_eq!(eq_table(&bool_point), DenseMle::eq_extension(&bool_point).evaluations);
+                assert_eq!(
+                    eq_table(&bool_point),
+                    DenseMle::eq_extension(&bool_point).evaluations
+                );
             }
         }
     }
@@ -1342,14 +1420,17 @@ mod tests {
             // Pure boolean points: eq is the point indicator on the hypercube.
             if m > 0 {
                 for mask in [0u64, 1, (1u64 << m) - 1, 0b1010_1101 & ((1 << m) - 1)] {
-                    let bools: Vec<Goldilocks> = (0..m)
-                        .map(|i| fe((mask >> (m - 1 - i)) & 1))
-                        .collect();
+                    let bools: Vec<Goldilocks> =
+                        (0..m).map(|i| fe((mask >> (m - 1 - i)) & 1)).collect();
                     let table = eq_table(&bools);
                     for (idx, &v) in table.iter().enumerate() {
                         assert_eq!(
                             v,
-                            if idx as u64 == mask { Goldilocks::ONE } else { Goldilocks::ZERO },
+                            if idx as u64 == mask {
+                                Goldilocks::ONE
+                            } else {
+                                Goldilocks::ZERO
+                            },
                             "indicator m {m} mask {mask:#x} idx {idx}"
                         );
                     }
@@ -1377,8 +1458,9 @@ mod tests {
         let mut st = 0xFACE_B00C_C0DE_5171u64;
         for len in [1usize, 7, 8, 9, 23, 24, 100, 1000] {
             for nfactors in [1usize, 2, 3, 5] {
-                let factors: Vec<Vec<Goldilocks>> =
-                    (0..nfactors).map(|_| random_slice(&mut st, len, true)).collect();
+                let factors: Vec<Vec<Goldilocks>> = (0..nfactors)
+                    .map(|_| random_slice(&mut st, len, true))
+                    .collect();
                 let coeff = fe(splitmix64(&mut st));
                 let fslices: Vec<&[Goldilocks]> = factors.iter().map(|f| f.as_slice()).collect();
                 // Multiple terms to exercise lane reuse across terms.
@@ -1435,8 +1517,9 @@ mod tests {
         let mut st = 0x1234_ABCD_9876_5432u64;
         for len in [1usize, 7, 8, 9, 24, 100, 512] {
             for nfactors in [1usize, 2, 4] {
-                let factors: Vec<Vec<Goldilocks>> =
-                    (0..nfactors).map(|_| random_slice(&mut st, len, true)).collect();
+                let factors: Vec<Vec<Goldilocks>> = (0..nfactors)
+                    .map(|_| random_slice(&mut st, len, true))
+                    .collect();
                 let coeff = fe(splitmix64(&mut st));
                 let fslices: Vec<&[Goldilocks]> = factors.iter().map(|f| f.as_slice()).collect();
                 let mut acc = vec![Goldilocks::ZERO; len];

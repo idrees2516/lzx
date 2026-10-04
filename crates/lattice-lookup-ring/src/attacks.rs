@@ -25,7 +25,6 @@
 //! The ring-safe protocols in `ring_plookup` / `ring_logup` reject the
 //! analogous forgeries (their own test suites pin that).
 
-
 // (Kernel loops use explicit indices by convention.)
 #![allow(clippy::needless_range_loop)]
 /// Original Plookup grand products (Eqs. 1–2 of [GW20], as restated
@@ -201,12 +200,19 @@ mod tests {
         let a_bad: Vec<u64> = vec![7, 11];
         // the malicious merge vector w = {1,1,2,2,3}
         let w: Vec<u64> = vec![1, 1, 2, 2, 3];
-        assert!(!is_subset(&a_bad, &b), "7 and 11 are not members of the table over Z15");
+        assert!(
+            !is_subset(&a_bad, &b),
+            "7 and 11 are not members of the table over Z15"
+        );
         // per-component the lookup IS valid — with swapped indices:
         let (a1p, a1m) = crt15(a_bad[0]);
         let (a2p, a2m) = crt15(a_bad[1]);
         assert_eq!((a1p, a2p), (1, 2), "Z3 components: 7→1, 11→2 (b has 1,2)");
-        assert_eq!((a1m, a2m), (2, 1), "Z5 components: 7→2, 11→1 — SWAPPED order");
+        assert_eq!(
+            (a1m, a2m),
+            (2, 1),
+            "Z5 components: 7→2, 11→1 — SWAPPED order"
+        );
         // The Plookup relation F(β,γ) = G(β,γ) holds at random points.
         for trial in 0..40 {
             let beta = (7 * trial + 3) % n;
@@ -252,7 +258,10 @@ mod tests {
                 }
             }
         }
-        assert!(all_hold, "the CRT-swap attack is a polynomial identity over Z15");
+        assert!(
+            all_hold,
+            "the CRT-swap attack is a polynomial identity over Z15"
+        );
         // Over a prime field (Z17) the same invalid lookup is NOT a
         // polynomial identity: it holds only at isolated points (the
         // difference polynomial's roots), a small fraction of the grid.
@@ -303,7 +312,10 @@ mod tests {
                 nonzero = true;
             }
         }
-        assert!(nonzero, "over the field Z7 the zero-test exposes the forgery");
+        assert!(
+            nonzero,
+            "over the field Z7 the zero-test exposes the forgery"
+        );
     }
 
     /// The zero-divisor attack on the LogUp *relation itself* (Eq. 8)
@@ -318,7 +330,10 @@ mod tests {
             assert!(!is_subset(&a_bad, &b));
             for x in 0..n {
                 let p = logup_relation_poly(n, &a_bad, &b, &m, x);
-                assert_eq!(p, 0, "P(x)=0 over Z12 for invalid lookup value {bad} at x={x}");
+                assert_eq!(
+                    p, 0,
+                    "P(x)=0 over Z12 for invalid lookup value {bad} at x={x}"
+                );
             }
         }
     }

@@ -99,7 +99,9 @@ fn fe(x: u64) -> Goldilocks {
 
 /// Bits of `v`, MSB-first, length `nbits`.
 fn bits_of(v: u64, nbits: usize) -> Vec<u8> {
-    (0..nbits).map(|i| ((v >> (nbits - 1 - i)) & 1) as u8).collect()
+    (0..nbits)
+        .map(|i| ((v >> (nbits - 1 - i)) & 1) as u8)
+        .collect()
 }
 
 /// Build a bit tensor: MLE over `(log2(nbits) + log_t)` variables; the
@@ -170,8 +172,16 @@ fn instruction_writes(instr: &Instr) -> bool {
     use Instr::*;
     !matches!(
         instr,
-        Sw { .. } | Sd { .. } | Beq { .. } | Bne { .. } | Blt { .. } | Bge { .. } | Bltu { .. }
-            | Bgeu { .. } | Ecall | Ebreak
+        Sw { .. }
+            | Sd { .. }
+            | Beq { .. }
+            | Bne { .. }
+            | Blt { .. }
+            | Bge { .. }
+            | Bltu { .. }
+            | Bgeu { .. }
+            | Ecall
+            | Ebreak
     )
 }
 
@@ -196,8 +206,9 @@ pub fn build_cycle_witness(
     let mut next_pc = vec![Goldilocks::ZERO; t];
     let mut instr = vec![Goldilocks::ZERO; t];
     let mut instr_bits_per = vec![vec![0u8; 32]; t];
-    let mut val_bits: Vec<[Vec<u8>; VALUE_TENSORS]> =
-        (0..t).map(|_| std::array::from_fn(|_| vec![0u8; 64])).collect();
+    let mut val_bits: Vec<[Vec<u8>; VALUE_TENSORS]> = (0..t)
+        .map(|_| std::array::from_fn(|_| vec![0u8; 64]))
+        .collect();
     let mut rs1_idx = vec![0u8; t];
     let mut rs2_idx = vec![0u8; t];
     let mut rd_idx = vec![0u8; t];

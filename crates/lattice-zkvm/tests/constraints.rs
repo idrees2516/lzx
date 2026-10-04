@@ -10,14 +10,14 @@
 //! value columns); the verifier ledger receives the recorded base
 //! claims — the same prover/verifier pairing `memproof.rs` uses.
 
-use lattice_zkvm::columns::{build_cycle_witness, CycleWitness, RamWindow, FetchWindow};
+use lattice_core::transcript::Transcript;
+use lattice_core::{DenseMle, Goldilocks};
+use lattice_vm::{decode::Instr, run as vm_run, MachineState};
+use lattice_zkvm::columns::{build_cycle_witness, CycleWitness, FetchWindow, RamWindow};
 use lattice_zkvm::constraints::{
     build_aux, prove_constraints, verify_constraints, AuxCols, ConstraintError, ConstraintLeg,
 };
 use lattice_zkvm::ledger::{Factor, Ledger};
-use lattice_core::transcript::Transcript;
-use lattice_core::{DenseMle, Goldilocks};
-use lattice_vm::{decode::Instr, run as vm_run, MachineState};
 
 fn enc_addi(rd: u8, rs1: u8, imm: i64) -> u32 {
     ((imm as u32 & 0xFFF) << 20) | ((rs1 as u32) << 15) | ((rd as u32) << 7) | 0x13
@@ -45,7 +45,10 @@ fn run_trace(prog: &[u8]) -> Vec<lattice_vm::exec::TraceRow> {
 fn col_mle(col: &[u8], log_t: usize) -> DenseMle {
     DenseMle {
         num_vars: log_t,
-        evaluations: col.iter().map(|v| Goldilocks::from_u64(*v as u64)).collect(),
+        evaluations: col
+            .iter()
+            .map(|v| Goldilocks::from_u64(*v as u64))
+            .collect(),
     }
 }
 
@@ -256,7 +259,12 @@ fn coverage_gate_rejects_uncovered_instruction() {
     .ok()
     .unwrap();
     let mut instrs: Vec<Instr> = rows.iter().map(|r| r.instr).collect();
-    instrs.push(Instr::LrW { rd: 3, rs1: 1, aq: false, rl: false });
+    instrs.push(Instr::LrW {
+        rd: 3,
+        rs1: 1,
+        aq: false,
+        rl: false,
+    });
     let aux = build_aux(&w, &instrs).ok().unwrap();
     let owner = TableOwner::new(&w, &aux);
     let table = owner.table(&w);
@@ -291,17 +299,13 @@ fn branches_and_jumps_prove_and_verify() {
     //   ecall
     let mut p = Vec::new();
     p.extend_from_slice(&enc_addi(1, 0, 1).to_le_bytes()); // 0
-    // J-type: imm[20|10:1|11|19:12] rd opcode; offset 12.
+                                                           // J-type: imm[20|10:1|11|19:12] rd opcode; offset 12.
     let imm = 12u32;
     let j20 = (imm >> 20) & 1;
     let j10_1 = (imm >> 1) & 0x3ff;
     let j11 = (imm >> 11) & 1;
     let j19_12 = (imm >> 12) & 0xff;
-    let jal: u32 = (j20 << 31)
-        | (j10_1 << 21)
-        | (j11 << 20)
-        | (j19_12 << 12)
-        | 0x6f;
+    let jal: u32 = (j20 << 31) | (j10_1 << 21) | (j11 << 20) | (j19_12 << 12) | 0x6f;
     p.extend_from_slice(&jal.to_le_bytes()); // 4 -> jumps to 16
     p.extend_from_slice(&enc_addi(2, 0, 99).to_le_bytes()); // 8 (skipped)
     p.extend_from_slice(&enc_addi(3, 0, 99).to_le_bytes()); // 12 (skipped)
@@ -356,7 +360,12 @@ fn enc_r(f7: u32, rs2: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
 }
 
 fn enc_shift_imm(f6: u32, shamt: u8, rs1: u8, f3: u32, rd: u8, op: u32) -> u32 {
-    (f6 << 26) | ((shamt as u32) << 20) | ((rs1 as u32) << 15) | (f3 << 12) | ((rd as u32) << 7) | op
+    (f6 << 26)
+        | ((shamt as u32) << 20)
+        | ((rs1 as u32) << 15)
+        | (f3 << 12)
+        | ((rd as u32) << 7)
+        | op
 }
 
 /// The shared prove/verify roundtrip on a program (the table-backed
