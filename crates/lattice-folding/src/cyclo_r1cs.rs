@@ -63,9 +63,17 @@
 //!   `R_{q^e}` tensor elements (the componentwise discipline — the
 //!   same rank-doubling the LatticeBlindFold wave uses for R_K
 //!   relations; the algebra is exact, the wire shape differs).
-//! * The (4) linear claims and the prefix claim are recorded, not
-//!   decided, by the bridge — exactly the paper's architecture (the
-//!   principal linear relation's decider owns them).
+//! * The `d'_i` are the ACTUAL tensor scalar-weighted sums
+//!   `Σ MLE[M_i](u,b')·z'_{b'}`, NOT the digit lifts of the `d_i`: the
+//!   embedding `θ_k^{-1}` is not additive (base-k carries) — only the
+//!   PROJECTION `θ_k` is F_q-linear, so the verifier's consistency
+//!   `θ_k(d'_i) = d_i` (the projection of the sum = the sum of the
+//!   projections) is the exact check. The prefix claim rides in the
+//!   PROJECTED form for the same reason.
+//! * The (4) linear claims are decided by
+//!   [`decide_principal_linear`] (the decider model — the opened
+//!   lift), closing the bridge end-to-end; the compact-PCS terminal
+//!   (the witness not opened) is the documented outer-layer gap.
 
 #[cfg(test)]
 use crate::cyclo::chunk_element;
@@ -766,19 +774,53 @@ pub fn prove_r1cs_bridge(
         out.factor_claims[f1],
         out.factor_claims[f2],
     ];
-    // 7. The ring lifts d'_i (the componentwise discipline).
-    let d_lift: [[Vec<u32>; 2]; 3] = d
-        .iter()
-        .map(|di| {
-            let pair = theta.embed_pair(ring, di);
-            [
-                pair[0].coeffs().to_vec(),
-                pair[1].coeffs().to_vec(),
-            ]
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .map_err(|_| "lift shape")?;
+    // 7. The ring lifts d'_i — the ACTUAL tensor scalar-weighted sums
+    //    `Σ_{b'} MLE[M_i](u, b')·z'_{b'}` (per component) — the paper's
+    //    (4) LHS. NOTE: the digit lift of `d_i` would be WRONG — the
+    //    embedding `θ_k^{-1}` is not additive (carries); only the
+    //    PROJECTION `θ_k` is F_q-linear, which is why the verifier's
+    //    consistency check `θ_k(d'_i) = d_i` (the projection of the
+    //    sum = the sum of the projections) holds for the honest
+    //    prover.
+    // MLE[M_i](u, b') = Σ_r eq(u, r)·M_i[r][b'] (the row at u, the
+    // column at the boolean b').
+    let eq_u = eq_table_q2(&out.challenges);
+    let mut d_lift: [[Vec<u32>; 2]; 3] = Default::default();
+    for (i, mat) in shape.mats.iter().enumerate() {
+        let m_row: Vec<Fq2Q32> = (0..shape.m)
+            .map(|bp| {
+                let mut m_bp = Fq2Q32::ZERO;
+                for (r, eu) in eq_u.iter().enumerate() {
+                    m_bp = m_bp
+                        .add(&eu.mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
+                }
+                m_bp
+            })
+            .collect();
+        let comp0 = {
+            let mut acc = ring.zero();
+            for (bp, m_bp) in m_row.iter().enumerate() {
+                if m_bp.c0 == 0 {
+                    continue;
+                }
+                let term = z_lift[bp].scale_i64(m_bp.c0 as i64);
+                acc = acc.add(&term).map_err(|e| format!("{e:?}"))?;
+            }
+            acc.coeffs().to_vec()
+        };
+        let comp1 = {
+            let mut acc = ring.zero();
+            for (bp, m_bp) in m_row.iter().enumerate() {
+                if m_bp.c1 == 0 {
+                    continue;
+                }
+                let term = z_lift[bp].scale_i64(m_bp.c1 as i64);
+                acc = acc.add(&term).map_err(|e| format!("{e:?}"))?;
+            }
+            acc.coeffs().to_vec()
+        };
+        d_lift[i] = [comp0, comp1];
+    }
     // 8. The prefix elimination: v ∈ F_{q²}^{log(ℓ+1)}, e = MLE[(x,1)](v).
     let log_prefix = (shape.ell + 1).trailing_zeros() as usize;
     let v: Vec<Fq2Q32> = (0..log_prefix)
@@ -886,6 +928,150 @@ pub fn verify_r1cs_bridge(
     // claims (4) pair MLE[M_i](u, b') with the hidden w' — the folding
     // layer's decider owns their terminal checks.
     Ok(claim.clone())
+}
+
+// ---------------------------------------------------------------------------
+// The terminal decider — the (4)-claims and the prefix claim decided
+// ---------------------------------------------------------------------------
+
+/// Decide the ride-the-fold claims on an OPENED witness (the decider
+/// model — the repo's existing Π^range posture: `opening_v` in the
+/// clear; the compact-PCS terminal is the documented outer-layer gap).
+///
+/// The checks, in the componentwise realization of `R_q ⊗ F_{q²}` (the
+/// pair discipline — the F_{q²}-action `u·(f₀, f₁) = (5f₁, f₀)`, under
+/// which `θ^ext(f₀, f₁) = θ_k(f₀) + θ_k(f₁)·u` is F_{q²}-LINEAR, so the
+/// paper's tensor identities split exactly into per-component R_q
+/// identities):
+///
+/// * **(D1) the commitment binding**: `A·z' = y` (the Ajtai
+///   `verify_opening`, including the norm gate β*);
+/// * **(D2) the (4) linear claims**: for each `i ∈ [3]` and component
+///   `b`, `Σ_{b'} MLE[M_i](u, b')^{(b)}·z'_{b'} = d'_i^{(b)}` over
+///   `R_q` — for the honest lift the LHS is `θ_k^{-1}` of the
+///   b-component of `Q_i(u)` by the F_q-linearity of the digit
+///   embedding, i.e. EXACTLY the published lift;
+/// * **(D3) the prefix claim**: for each component `b`,
+///   `Σ_{j < 2^{log(ℓ+1)}} eq(v, j)^{(b)}·z'_j = θ_k^{-1}(e^{(b)})` —
+///   binding `w'`'s prefix to `(x, 1)` except with probability
+///   `≤ log(ℓ+1)/q²` (the paper's extraction argument, in the
+///   projected form).
+///
+/// Returns `Ok(())` when the opened witness decides every claim —
+/// closing the §7 bridge end-to-end: `Ξ^{R1CS}` ⟶ the bridge protocol
+/// ⟶ the principal linear relation, decided.
+pub fn decide_principal_linear(
+    ring: &RingConfig,
+    pk: &AjtaiPublicKey,
+    shape: &R1csQ32,
+    x: &[u64],
+    claim: &PrincipalLinearClaim,
+    z_opened: &[RingElement],
+    transcript: &mut Transcript,
+) -> Result<(), String> {
+    if z_opened.len() != shape.m {
+        return Err(format!(
+            "opened witness length {} vs m {}",
+            z_opened.len(),
+            shape.m
+        ));
+    }
+    let theta = ThetaK::new(claim.theta_k)?;
+    // (D1) The commitment binding (the norm gate included).
+    let commitment = AjtaiCommitment::from_bytes(ring, claim.commit_k, &claim.commitment)
+        .map_err(|e| format!("{e:?}"))?;
+    pk.verify_opening(&commitment, z_opened).map_err(|e| format!("{e:?}"))?;
+    // The opened witness must BE the lift of a z with the right
+    // structure: its θ_k-projection reconstitutes (x, 1, w) — checked
+    // implicitly by (D2)/(D3); here we also gate the lift's norm (the
+    // paper's ∥z'∥ < k precondition, doubled by verify_opening's β*).
+    for e in z_opened {
+        if e.infinity_norm() as u64 >= theta.k {
+            return Err("the opened witness is not a θ_k lift (norm ≥ k)".into());
+        }
+    }
+    // (D2) The (4) linear claims per component.
+    // MLE[M_i](u, b')^{(b)}: the matrix's multilinear extension at
+    // (u, b') — computed as Σ_r eq(u, r)·colMLE_{b'}(row r), with
+    // colMLE_{b'}(row r) = Σ_c eq(b', c)·M_i[r][c].
+    let log_m = shape.m.trailing_zeros() as usize;
+    if claim.u.len() != log_m {
+        return Err("claim point arity".into());
+    }
+    // eq(u, r) over the cube for the row index r (big-endian).
+    let eq_u = eq_table_q2(&claim.u);
+    for (i, mat) in shape.mats.iter().enumerate() {
+        for b in 0..2usize {
+            // The per-b' column-MLE of each row, then the u-weighted
+            // combination — O(m³) at kernel scale (the honest
+            // asymptotic note; the paper's matrix-MLE amortization is
+            // the scale-up follow-up).
+            let mut lhs = ring.zero();
+            for bp in 0..shape.m {
+                // m_{bp} = MLE[M_i](u, bp)^{(b)} = Σ_r eq(u, r)·M_i[r][bp]
+                // (eq(bp, ·) at the BOOLEAN bp collapses to the single
+                // column bp).
+                let mut m_bp = Fq2Q32::ZERO;
+                for r in 0..shape.m {
+                    m_bp = m_bp
+                        .add(&eq_u[r].mul(&Fq2Q32::from_u64(mat[r * shape.m + bp])));
+                }
+                let scalar = if b == 0 { m_bp.c0 } else { m_bp.c1 };
+                if scalar == 0 {
+                    continue;
+                }
+                let term = z_opened[bp].scale_i64(scalar as i64);
+                lhs = lhs.add(&term).map_err(|e| format!("{e:?}"))?;
+            }
+            // The published lift d'_i^{(b)}.
+            let d_lift = RingElement::from_coeffs(ring, claim.d_lift[i][b].clone());
+            if lhs.coeffs() != d_lift.coeffs() {
+                return Err(format!(
+                    "(D2): the linear claim (i={i}, component {b}) failed"
+                ));
+            }
+        }
+    }
+    // (D3) The prefix claim per component — the PROJECTED form
+    // (θ_k is F_q-linear, so the projection of the eq-weighted ring sum
+    // = the eq-weighted sum of the projected entries = MLE[(x,1)](v)
+    // for the honest lift — the carries the embedding introduces do
+    // not survive the projection; the extraction binds the prefix
+    // through exactly this projected identity).
+    let log_prefix = (shape.ell + 1).trailing_zeros() as usize;
+    if claim.v.len() != log_prefix {
+        return Err("prefix point arity".into());
+    }
+    // eq(v, j) over the prefix cube.
+    let eq_v = eq_table_q2(&claim.v);
+    for b in 0..2usize {
+        let mut lhs = ring.zero();
+        for (j, &evj) in eq_v.iter().enumerate() {
+            let scalar = if b == 0 { evj.c0 } else { evj.c1 };
+            if scalar == 0 {
+                continue;
+            }
+            let term = z_opened[j].scale_i64(scalar as i64);
+            lhs = lhs.add(&term).map_err(|e| format!("{e:?}"))?;
+        }
+        // The projected check: θ_k(Σ_j eq(v,j)^{(b)}·z'_j) = e^{(b)}.
+        let projected = theta.project(ring, &lhs);
+        let want = if b == 0 { claim.e.c0 } else { claim.e.c1 };
+        if projected != want {
+            return Err(format!("(D3): the prefix claim (component {b}) failed"));
+        }
+    }
+    // Bind the decision to the transcript (the decider's own domain —
+    // the statement digest + the claim bytes).
+    let digest = shape.digest();
+    transcript
+        .append_bytes(b"cyclo-decide-shape", &digest)
+        .map_err(|e| format!("{e:?}"))?;
+    transcript
+        .append_bytes(b"cyclo-decide-claim", &claim.commitment)
+        .map_err(|e| format!("{e:?}"))?;
+    let _ = x;
+    Ok(())
 }
 
 fn absorb_bridge_statement(
@@ -1187,6 +1373,72 @@ mod tests {
         w_bad[0] = (w_bad[0] + 1) % Q;
         let mut tr = Transcript::new_default(b"cyclo-r1cs-bridge");
         assert!(prove_r1cs_bridge(&ring, &pk, &shape, &x, &w_bad, &theta, &mut tr).is_err());
+    }
+
+    /// The bridge END-TO-END: prove ⟶ verify ⟶ DECIDE — the (4) linear
+    /// claims and the prefix claim decided on the opened lift (the
+    /// decider model), with the tamper suite (a wrong lift, a corrupted
+    /// claim, a swapped commitment all rejected).
+    #[test]
+    fn bridge_end_to_end_decider() {
+        let ring = ring();
+        let (shape, x, w) = shape_with_witness(8, 3, 5);
+        let theta = ThetaK::new(4).unwrap();
+        let params = AjtaiParams {
+            ring: ring.clone(),
+            k: 2,
+            m: shape.m,
+            norm_bound: 1 << 20,
+        };
+        let pk = AjtaiPublicKey::from_seed(params, [55u8; 32]).unwrap();
+        // Prove + verify.
+        let mut tr = Transcript::new_default(b"cyclo-r1cs-bridge");
+        let proof = prove_r1cs_bridge(&ring, &pk, &shape, &x, &w, &theta, &mut tr).unwrap();
+        let mut vt = Transcript::new_default(b"cyclo-r1cs-bridge");
+        let claim = verify_r1cs_bridge(&ring, &shape, &x, &proof, &mut vt).unwrap();
+        // The opened lift (the decider model — the witness in the clear).
+        let mut z = x.clone();
+        z.push(1);
+        z.extend_from_slice(&w);
+        let z_lift: Vec<RingElement> = z.iter().map(|&c| theta.embed(&ring, c)).collect();
+        // Decide (honest).
+        let mut dt = Transcript::new_default(b"cyclo-r1cs-decide");
+        decide_principal_linear(&ring, &pk, &shape, &x, &claim, &z_lift, &mut dt)
+            .expect("the honest lift decides every claim");
+
+        // ---- The decider's tamper suite ----
+        // (a) A WRONG lift (the digits of a different witness): (D2)
+        //     fails (the linear claims mismatch).
+        let mut z_wrong = z.clone();
+        z_wrong[shape.ell + 1 + 0] = (z_wrong[shape.ell + 1 + 0] + 1) % Q; // w[0]+1
+        let z_lift_wrong: Vec<RingElement> =
+            z_wrong.iter().map(|&c| theta.embed(&ring, c)).collect();
+        let mut dt2 = Transcript::new_default(b"cyclo-r1cs-decide");
+        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim, &z_lift_wrong, &mut dt2)
+            .is_err());
+
+        // (b) A corrupted claim (the d_lift bytes): (D2) fails.
+        let mut claim_bad = claim.clone();
+        claim_bad.d_lift[0][0][3] ^= 0x40;
+        let mut dt3 = Transcript::new_default(b"cyclo-r1cs-decide");
+        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad, &z_lift, &mut dt3)
+            .is_err());
+
+        // (c) A corrupted prefix evaluation: (D3) fails.
+        let mut claim_bad2 = claim.clone();
+        claim_bad2.e = claim_bad2.e.add(&Fq2Q32::ONE);
+        let mut dt4 = Transcript::new_default(b"cyclo-r1cs-decide");
+        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad2, &z_lift, &mut dt4)
+            .is_err());
+
+        // (d) A swapped commitment: (D1) fails (the binding).
+        let mut claim_bad3 = claim.clone();
+        if claim_bad3.commitment.len() > 4 {
+            claim_bad3.commitment[4] ^= 0x80;
+        }
+        let mut dt5 = Transcript::new_default(b"cyclo-r1cs-decide");
+        assert!(decide_principal_linear(&ring, &pk, &shape, &x, &claim_bad3, &z_lift, &mut dt5)
+            .is_err());
     }
 
     /// The skip-Π^ext wiring: the bridge's lifted witness has norm < k

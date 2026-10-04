@@ -47,22 +47,33 @@ terminal `(d₀·d₁ − d₂)·eq(u;r) = c` check with the eq value VERIFIER-r
 the ring lifts d'_i (the componentwise rank-doubling discipline) with the
 θ-consistency checks, the prefix elimination `(v, e)`, and the skip-Π^ext
 wiring (k ≤ b ⇒ the output feeds `CycloAccumulator::new` directly — test-
-pinned); (6) **Cyclo P3 fixed** (`cyclo.rs::partial_range_check` — the 2×
-soundness slack in the partial branch eliminated via the exact signed
-high-part computation `|high(v)| ≤ β − low_worst`; the previously-untested
-regime now covered by an adversarial boundary test). Workspace state at the
-wave's close: the full suite green (see the worklog).
+pinned); (6) **the terminal decider** (`cyclo_r1cs.rs::
+decide_principal_linear` + the end-to-end test: prove ⟶ verify ⟶ DECIDE):
+the (4) linear claims checked exactly on the opened lift (`(D1)` the
+commitment binding, `(D2)` the per-component ring equalities
+`Σ MLE[M_i](u,b')^{(b)}·z'_{b'} = d'_i^{(b)}`, `(D3)` the projected
+prefix check) — with the **carry finding** pinned: the digit embedding
+`θ_k^{-1}` is NOT additive (base-k carries), so the published `d'_i`
+are the ACTUAL tensor sums, not the digit lifts (only the PROJECTION
+`θ_k` is F_q-linear — the load-bearing direction; the decider's
+end-to-end test caught this); (7) **Cyclo P3 fixed** (`cyclo.rs::
+partial_range_check` — the 2× soundness slack in the partial branch
+eliminated via the exact signed high-part computation `|high(v)| ≤ β −
+low_worst`; the previously-untested regime now covered by an adversarial
+boundary test). Workspace state at the wave's close: the full suite
+green (see the worklog).
 
 **The next highest-value items** (this session's honest ledger):
 * the recursive width-fold staging (log-stages of the cheap (8, 2, 8, 2^2)
   row) — takes the Sound profile's coverage from n̄ ≤ 16 to the benchmark
-  streams (the single-stage β₁ ceiling is the honest boundary);
+  streams (the single-stage β₁ ceiling is the honest boundary; the
+  intermediate stages' chain soundness is the open analysis);
 * SALSA D4 — the Akita/zkVM response-layer swap to the SALSAA chain (D1–D3,
   D6 all landed; the Θ(N)→polylog + disclosure-removal item — the single
   highest-leverage entry in §3.9);
-* the Cyclo (4)-claims' terminal decider — the ride-the-fold linear claims
-  need the folding-layer check (the principal linear relation's decider) to
-  close the bridge end-to-end.
+* the bridge's compact-PCS terminal (the decider currently opens the
+  witness — the short-opening route through the width fold's machinery
+  is the natural composition).
 
 ## Session update (2026-10-04)
 

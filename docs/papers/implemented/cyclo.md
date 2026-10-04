@@ -53,32 +53,38 @@ linear relation over `R_q`:
 * **The terminal**: the prover publishes `d_i = Q_i(u)`; the verifier
   checks `(d₀·d₁ − d₂)·eq(u; r) = c` with the eq value RECOMPUTED from
   its own `(u, r)` — never trusted from the proof.
-* **The ring lifts** `d'_i ∈ R_q²` (the componentwise rank-doubling
-  discipline — the paper's single `R_{q^e}` element realized as the
-  pair of ring elements carrying the two F_q-components' digits) with
-  the verifier-checked `θ_k(d'_i^{(b)}) = d_i^{(b)}` consistency; the
-  linear claims (4) ride the fold (the paper's architecture — the
-  principal linear relation's decider owns them).
+* **The ring lifts** `d'_i ∈ R_q²` — the ACTUAL tensor scalar-weighted
+  sums `Σ_{b'} MLE[M_i](u, b')·z'_{b'}` per component (NOT the digit
+  lifts of the `d_i`: the embedding is not additive — base-k carries;
+  only the projection is F_q-linear) — with the verifier-checked
+  `θ_k(d'_i^{(b)}) = d_i^{(b)}` consistency; the linear claims (4) are
+  DECIDED by `decide_principal_linear` (the decider model — the
+  opened lift; `(D1)` the commitment binding, `(D2)` the exact ring
+  equalities, `(D3)` the projected prefix check).
 * **The prefix elimination**: `v ∈ F_{q²}^{log(ℓ+1)}`, `e =
-  MLE[(x,1)](v)` — binds `w'`'s prefix to the public input (error
-  `≤ log(ℓ+1)/q²`).
+  MLE[(x,1)](v)` — binds `w'`'s prefix to the public input in the
+  PROJECTED form (error `≤ log(ℓ+1)/q²`).
 * **The skip-Π^ext remark wired**: at `k ≤ b` the lifted witness has
   norm `< k ≤ b` — it feeds `CycloAccumulator::new` directly (the
   extension-commitment step skipped) — test-pinned.
 
 ## The honest-deviation ledger
 
+0. **The carry finding** (2026-10-04, the decider wave): the digit
+   embedding `θ_k^{-1}` is NOT additive (base-k carries) — the `d'_i`
+   must be the actual tensor sums, not the digit lifts; the prefix
+   claim rides in the projected form. The PROJECTION `θ_k` is F_q-linear
+   — the load-bearing direction — and the verifier's consistency
+   checks use exactly it. (The decider's end-to-end test caught this.)
 1. `e = 2` (the paper's larger-e regime): the quadratic extension over
    the 31.6-bit q gives the 2^{-121}–2^{-122} Schwartz–Zippel floor —
    the ~7-bit gap from λ = 128 documented.
 2. The `d'_i` ride as `R_q` PAIRS (the componentwise discipline), not
    the paper's single `R_{q^e}` tensor elements — the algebra exact,
    the wire shape differs.
-3. The (4) linear claims and the prefix claim are recorded, not
-   decided, by the bridge — the folding layer's decider owns their
-   terminal checks (the paper's architecture verbatim; the LZX
-   decider-side check is the documented follow-up).
-4. `ℓ_k(q) = ⌈log_k q⌉` (the ceiling) — the paper's floor under-covers
+3. `ℓ_k(q) = ⌈log_k q⌉` (the ceiling) — the paper's floor under-covers
    the field at non-power-of-k moduli.
-5. Π^range/Π^ext run on the decider model (`opening_v` in the clear) —
+4. Π^range/Π^ext run on the decider model (`opening_v` in the clear) —
    the compact-PCS terminal is the documented outer-layer gap.
+5. The decider's matrix-MLE is O(m³) at kernel scale — the paper's
+   amortization is the scale-up follow-up.

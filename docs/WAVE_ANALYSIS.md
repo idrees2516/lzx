@@ -60,12 +60,16 @@ commitment remains the documented outer-layer gap.
 7.5 labinius Recursive mode (`scheme.rs`/`recursion.rs`) — LANDED.
 7.6 Cyclo Π^range + Π^ext RoK (`cyclo_protocols.rs`) — LANDED (decider
 model: `opening_v` in the clear). **§7 — the R1CS-over-F_q bridge —
-LANDED (2026-10-04)** (`cyclo_r1cs.rs`, 7 tests): the θ_k digit map, the
+LANDED (2026-10-04)** (`cyclo_r1cs.rs`, 8 tests): the θ_k digit map, the
 bridge-local F_{q²} over the commitment ring's modulus + the
 field-swapped sumcheck, the linearized R1CS sumcheck, the d_i/d'_i
 terminal with the verifier-recomputed eq, the prefix elimination, and
-the skip-Π^ext wiring into `CycloAccumulator` (k ≤ b). The P3
-partial-range 2× slack fixed the same session.
+the skip-Π^ext wiring into `CycloAccumulator` (k ≤ b). The terminal
+DECIDER landed the same session (`decide_principal_linear` — the (4)
+linear claims + the projected prefix claim decided on the opened lift,
+with the carry finding: the digit embedding is not additive, the d'_i
+are the actual tensor sums). The P3 partial-range 2× slack fixed the
+same session.
 7.7 LF+ monomial/ψ (`lfplus_mon.rs`, 9 tests) — LANDED.
 7.8 PikkuFold layered LRP (`pikkufold_lrp.rs`, 14 tests) — LANDED.
 7.9 Symphony Π_had + O(μ) fold (`symphony_protocols.rs`, 7 tests) — LANDED.
