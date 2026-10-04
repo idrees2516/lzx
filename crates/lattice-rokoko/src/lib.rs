@@ -38,7 +38,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod com;
+pub mod pcs_front;
+pub mod proj_f;
 pub mod protocol;
+pub mod schedule;
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::{Transcript, TranscriptError};

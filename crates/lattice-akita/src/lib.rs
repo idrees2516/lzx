@@ -23,6 +23,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod a3_range;
+pub mod a4_tensor;
+pub mod a5_terminal;
 pub mod fold;
 pub mod pcs;
 pub mod ring_check;

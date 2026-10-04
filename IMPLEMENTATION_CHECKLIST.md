@@ -135,3 +135,27 @@ Legend: [x] landed + test-pinned · [~] partial (the gap stated) ·
 - [ ] the CLOB guest port (Guests A/B/C of
       `docs/CLOB_WORKLOAD_RESEARCH.md`) + the ethrex/zoda adapter code
       (`docs/ETHREX_ZODA_INTEGRATION.md`'s design)
+
+## Wave 7 completion (2026-10-05)
+
+- [x] Akita A3 — the digit-range sumcheck (degree halving Eq 114, the
+      product-tree shapes, the leaf collapse, the fused binariness) +
+      the response-norm certification (direct Eq 118-120 + digit-expanded
+      Eq 121-123, both routes fail-closed) — `a3_range.rs`
+- [x] Akita A4 — the Diamond-Posen tensor reduction (the tensor step,
+      the E-valued sumcheck, the transparent factor via the conjugate
+      formula, the Theorem-3.11 batch) + the evaluation-trace row over
+      F_{Q32²} (ψ, σ⁻¹, the pinned packing identity) — `a4_tensor.rs`
+- [x] Akita A5 — the recursion driver + the §8.2 terminal (the grind
+      discipline, Eq 163-165, the signed Rice budget) — `a5_terminal.rs`
+- [x] HyperWolf H6 — the projection-compaction layer (commitment
+      linearity + the terminal reveal; the re-parameterized-LaBRADOR
+      route recorded as the follow-up) — `hyperwolf_compact.rs`
+- [x] HyperWolf H7 — the three Appendix-B batching modes —
+      `hyperwolf_batch.rs`
+- [x] RoKoko 6 — Π^proj-f (the coefficient-level projection, the
+      trace-dual identity, the batched traces) — `proj_f.rs`
+- [x] RoKoko 7 — the norm schedule + the SIS parameter algebra
+      (dcmp, parbreak, the κ composition, fail-closed) — `schedule.rs`
+- [x] RoKoko 8 — the PCS front end through the Ξ^lin stack —
+      `pcs_front.rs`

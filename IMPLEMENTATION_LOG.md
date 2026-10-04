@@ -11,6 +11,18 @@ chronological order (newest first). Companion artifacts:
 
 Test counts are the workspace totals at each wave's landing commit.
 
+## 2026-10-05 — Wave 7 completion: Akita A3/A4/A5, HyperWolf H6/H7, RoKoko 6/7/8
+
+**Modules:** `lattice-akita/{a3_range,a4_tensor,a5_terminal}.rs` (NEW,
+~2,900 lines), `lattice-pcs/{hyperwolf_compact,hyperwolf_batch}.rs`
+(NEW, ~900 lines), `lattice-rokoko/{proj_f,schedule,pcs_front}.rs`
+(NEW, ~1,100 lines). The six Wave-7 residuals after the audit (items
+7.11 A3-A5, 7.12 H6/H7, 7.13 6-8; all other Wave-7 items verified
+already landed across the 09-29..10-04 waves). 88 suites / 1,300
+tests green; clippy clean; fmt applied. See NEXT_STEPS's session
+update for the per-item protocol mapping and the honest residual
+ledger.
+
 ---
 
 ## 2026-10-04 (21:30 PKT) — the extraction ledger + the D4 closure + the r-column split

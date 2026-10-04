@@ -31,6 +31,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod hyperwolf;
+pub mod hyperwolf_batch;
+pub mod hyperwolf_compact;
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_commitment::norm_proof::{NormProof, NormProofError};

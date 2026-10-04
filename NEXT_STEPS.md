@@ -1,5 +1,105 @@
 # LZX Next-Implementation Research
 
+## Session update (2026-10-05, Wave 7 completion — Akita A3/A4/A5 + HyperWolf H6/H7 + RoKoko 6/7/8)
+
+The Wave 7 protocol-completion residuals are CLOSED (the audit found
+7.1-7.11's other items already landed across the 09-29..10-04 waves;
+this session implemented the six that remained):
+
+(1) **Akita A3** (`lattice-akita/a3_range.rs`, ~12 tests): the §6.1
+digit-range sumcheck — the degree-halving identity (Eq 114:
+`Q_{b*}(w) = Q_sq(w(w+1))`, the involution pairing `(w−k)(w+k+1) =
+w(w+1)−k(k+1)`), the anchored identity (Eq 115) proven through the
+paper's exact 2-or-4-ary product-tree shapes with the claim-and-prove
+level chain, the leaf collapse to `s_claim = s̃(r_virt)`, the
+s-binding sumcheck, and the Remark-6.2 fused binariness with the
+RESTRICTED equality weight (the MLE of `eq·1_{I_bin}` — explicitly not
+the product of the MLEs, test-pinned); §6.2's response-norm
+certification — the direct route (Eq 118-120, the `U_dir < q` gate,
+canonical fixed-width encoding, Lemma 6.3's integer pinning) and the
+digit-expanded route (Eq 121-123, the segment-bound fail-closed,
+centered lifts, the exact i128 reconstruction, Lemma 6.4).
+
+(2) **Akita A4** (`a4_tensor.rs`, ~15 tests): the §3.7 Diamond-Posen
+tensor reduction — the packed polynomial, the column partials with the
+multilinear recombination check, THE TENSOR STEP (the verifier-side
+row partials — the paper's point: it prevents the insecure
+`Σβ_y·S_y` shortcut), the η-batched degree-2 E-valued sumcheck (a
+bespoke Fq2 engine; documented deviation: subfield challenges), the
+transparent factor via the conjugate formula
+(`e₀ = (eq+eq_σ)/2`, `e₁ = (eq−eq_σ)/(2β)` — the multilinear identity
+pinned), the zero-rejection (no resampling), the Theorem-3.11 batched
+reduction (cylindrical extensions, ζ combiners, per-group θ factors);
+§7.1's trace layer over the SAME-modulus field `F_{Q32²} = F[β], β²=5`
+(the smallest nonsquare — the Goldilocks/Q32 mixing was the trap):
+ψ, σ⁻¹ (the involution), the trace functional pinned by the packing
+identity `T(ψ(y)) = Σ eq·y`, the load-bearing coefficient identity
+`(Z·σ⁻¹(χ))₀ = ⟨Z, χ⟩` (the un-reversing step), the Eq-134/135
+evaluation-trace row.
+
+(3) **Akita A5** (`a5_terminal.rs`, ~10 tests): the §8 recursion
+driver + terminal — the Eq-162 opening-method policy, the driver
+chaining folds into the terminal, the §8.2 terminal (the canonical
+inner state `t_i = A_term·s_i`, the tensor prefix, the clear partials,
+the RESPONSE GRIND with the nonce-before-challenges ordering and the
+certified fixed-filter sampler with `N_try,term` enforced on both
+sides, the three direct checks Eq 163-165, the direct norm gate), and
+the signed Rice encoding (ZigZag + unary/binary Golomb-Rice) with the
+byte budget from `Σ|z_i| ≤ √(N_z·S)`.
+
+(4) **HyperWolf H6** (`lattice-pcs/hyperwolf_compact.rs`, 5 tests):
+the projection-compaction layer — the per-round JL projection vectors
+(256 ring elements per slice per round, the proof's dominant payload)
+replaced by per-round Ajtai commitments bound BEFORE the challenges
+(the §4 ordering), the check-4 consistency carried by the Ajtai
+LINEARITY on commitments (`Σ c_p,i^(r) = Σ C_j·c_p,j^(r−1)`), and the
+terminal reveal (the last round's projections travel once, directly
+checked + the σ⁻¹(Π)s tie + the commitment opening). Honest residual
+(documented in-module): the intermediate rounds' per-coefficient norm
+certificates amortize away with the clear vectors; the full-fidelity
+route is the LaBRADOR engine re-parameterized to the HyperWolf ring
+(the Q=2^48−59 vs q≈2^61 embedding gap) — the recorded follow-up.
+
+(5) **HyperWolf H7** (`hyperwolf_batch.rs`, 4 tests): Appendix B's
+three batching modes — Mode 1 (multi-poly single point: the α-RLC +
+one evaluation proof), Mode 2 (one poly multi-point: the degree-2
+Z_q sumcheck `Σ f̃·E = Σ α v` with the verifier-computed `E(r)`,
+reducing to one claim at r), with the module's LSB-first point
+convention pinned against `evaluate_direct`. Mode 3 (multi-poly
+multi-point) is realized through the same sumcheck + Mode-1
+composition (the paper's own reduction).
+
+(6) **RoKoko 6/7/8** (`lattice-rokoko/{proj_f,schedule,pcs_front}.rs`,
+16 tests): Π^proj-f — the fine projection over the coefficient
+embedding (J·cf(W), the trace-dual embedding cf^∨, the per-column
+trace identity `⟨cf^∨(J), W⟩ = J·cf(W)` pinned, the re-embedding, the
+JL norm law fail-closed, the Z^(0..2)-style batched traces, the
+compression premise `n_rp < φ·m_w` enforced); the norm schedule —
+Table 3's parameter algebra (ParCom coherence, the `dcmp_ℓ` gadget
+norm map, Lemma 4's `parbreak` derivation, the collective βx, the
+round schedule with the MSIS admission + κ composition gates
+fail-closed); the PCS front end — commit/prove/verify through the
+Ξ^lin stack (the eq-weight linear form on the coefficient matrix, the
+Y-row COM commitments, the full rokoko round driver).
+
+Workspace: 88 suites, 1300 tests green (was 1,237); clippy clean on
+the touched crates; fmt applied. The Wave 7 table in §4 is now fully
+landed or explicitly deviated-with-ledger-entry.
+
+**The next highest-value items** (the honest ledger):
+* the H6 full-fidelity route: the LaBRADOR engine re-parameterized to
+  the HyperWolf ring (the amortized Dachshund over the projection
+  vectors with per-round ℓ2 statements);
+* the A3/A4 commitment-scale wiring: the range/tree rows and the
+  evaluation-trace rows feeding the A2 fused sum-check against the
+  COMMITTED successor witness (currently revealed at kernel scale);
+* the RoKoko statement-growth driver (klin+2 blocks of Lemma 8's
+  self-reduction) and the estimator wiring for the schedule's parbreak
+  instances.
+
+---
+
+
 **Per-paper gap analysis: what must be implemented next in each of the 11 papers
 (+ the labinius port and the zkVM stack) to make the system maximally efficient,
 performant, and security-optimized.**
