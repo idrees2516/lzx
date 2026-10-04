@@ -17,6 +17,70 @@ Companion documents: `PERFORMANCE.md` (the labinius-parity performance audit),
 
 ---
 
+## Session update (2026-10-04, the recursive staging + D4 + the compact terminal)
+
+Landed this session (BENCHMARKS §2k + SECURITY.md's posture update):
+(1) **the recursive width-collapse staging** (`lattice-widthfold`
+(NEW, the extracted shared core): `chain.rs` — the log-stages of the
+sound rows that take the Sound profile's coverage from `n̄ ≤ 16` (the
+single-stage boundary) to the benchmark streams: each stage folds the
+previous stage's output under its own estimator-gated `[A₂ | −T]`
+instance, the per-stage OUTPUT gate grows geometrically, and the
+public claims thread identically on both sides (the derived image
+target `t_{ℓ+1} = Σγ_iT_i`, the folded functional `Ψ_{ℓ+1} =
+Σγ_iΨ_ℓ^{(i)}`, the inner-key blocks); the fail-closed posture =
+every stage ≥ 128 + the 32-bit replay-grinding allowance; the measured
+boundary (`--example chain_coverage`): n̄ ≤ 4096 at the byte gate /
+n̄ ≤ 2048 at β₁ = 2^15 / n̄ ≤ 128 at the r₁=128 packing cap (the
+honest Q_32 ceiling — the Modulus-50 class is the follow-up); the
+Sound opening + the Sound memory argument now ride the chain
+(129.7 KB → **55.2 KB** at the test scale — the cheaper sound rows the
+extended amplitude search finds); (2) **SALSA D4 — the Akita/zkVM
+response-layer swap** (`lattice-akita/salsa_response.rs`:
+`SalsaGroupedResponse` + `prove/verify_grouped_salsa` +
+`commit_bytes`): the zkVM v2 pipeline's Stage-5 openings swap the
+opened witness + the digit-revealing NormProof for the **byte-packed
+SALSAA chain** — the grouped RLC carrier, the ψ-functional carrier
+(`Σ_c eq(r_sc,x(c))·2^{8b(c)}·z(c) = f(r_sc)` with VERIFIER-computed
+weights — the byte-recomposition bridge that replaces D2's
+transmitted base), and D1's norm sumcheck with the Lemma-4 gate: the
+response is three O(log N) sumchecks + O(1) claims — measured
+**640–928 B at 2^6–2^10 values (61–671× vs the Clear mode's 39–623
+KB), zero witness disclosure**; the Ajtai-to-commitment binding of the
+byte-witness remains the documented outer-layer gap (the
+binding-complete polylog route is the compact-mode fold); (3) **the
+Cyclo §7 bridge's compact-PCS terminal** (`lattice-folding/
+cyclo_terminal.rs` + `lattice-widthfold/ring_fold.rs` — the
+ring-functional width fold): `decide_principal_linear_compact`
+decides the ride-the-fold claims WITHOUT the opened witness — (D1)
+rides the fold's (W0) (the part images sum to the commitment — the
+exact verify_opening replacement), (D2) the six linear claims ride the
+EXACT ring-functional layer ((W0R) against the published lifts +
+(W3R) superpositions), (D3) the two prefix claims ride PROJECTED
+functionals (θ_k of the fold's public functional sums) — with the
+estimator-gated single-stage binding at the digit gate β₁ = k−1; the
+e2e: prove ⟶ verify ⟶ DECIDE with the 6-way tamper suite; (4) the
+**widthfold extraction** — `lattice-zkvm::width_fold` moved to its own
+crate (the codec + the fold kernels + the estimator gate shared by
+the zkvm Sound profile, the chain, and the folding terminal — zero
+security-critical duplication), `sound_fold_params_for`'s re-packing
+route now hands off to the chain at the packing cap instead of
+failing closed. Workspace 1,227 tests green; clippy clean on every
+touched crate.
+
+**The next highest-value items** (this session's honest ledger):
+* the chain's multi-stage LaBRADOR extraction — the per-stage
+  AND-composition ships (every stage estimator-gated), but the full
+  degree-law unwind across stages is the open analysis (the honest
+  residual documented in `widthfold::chain`);
+* the D4 binding closure — the ψ-functional binds everything
+  intra-response; the byte-witness-to-commitment authenticated opening
+  (the compact-fold composition at the pipeline2 layer) is the
+  follow-up;
+* the byte-packed D1 regime's per-commitment capacity cap (~1,200
+  values at B=255 under the Lemma-4 gate) — the r-column split (the
+  compact mode's discipline) is the scaling route beyond it.
+
 ## Session update (2026-10-04, the LaBRADOR decider + Cyclo §7 wave)
 
 Landed this session (BENCHMARKS §2j + SECURITY.md's sound-posture update):

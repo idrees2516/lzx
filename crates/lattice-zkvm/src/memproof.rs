@@ -2002,16 +2002,17 @@ mod compact_tests {
         }
         for op in [&proof.bits_opening, &proof.values_opening] {
             bytes += op.u_tilde.len() * 8;
-            let wf = &op.width_proof;
-            bytes += wf.p_images.len()
-                + wf.garbage.len()
-                + wf.t_inner.len()
-                + wf.u_parts.len()
-                + wf.g_func.len();
-            bytes += wf.response.hist.len()
-                + wf.response.payload.len()
-                + wf.response.raw.len();
-            bytes += 64;
+            for st in &op.width_proof.stages {
+                bytes += st.p_images.len()
+                    + st.garbage.len()
+                    + st.t_inner.len()
+                    + st.u_parts.len()
+                    + st.g_func.len();
+                bytes += st.response.hist.len()
+                    + st.response.payload.len()
+                    + st.response.raw.len();
+                bytes += 64;
+            }
         }
         println!(
             "SOUND PROOF SIZE: {} B = {:.1} KB",
@@ -2052,29 +2053,29 @@ mod compact_tests {
         }
         assert!(verify_memory_argument_sound(&bad5, &program, &input).is_err());
 
-        // Tampered width-fold response (z): W1/W2 reject.
+        // Tampered width-chain response (z): W1/W2 reject.
         let mut bad6 = proof.clone();
         {
             use crate::compact::{decode_response, encode_response};
-            let mut coeffs =
-                decode_response(&bad6.values_opening.width_proof.response).unwrap();
+            let stages = &mut bad6.values_opening.width_proof.stages;
+            let last = stages.len() - 1;
+            let mut coeffs = decode_response(&stages[last].response).unwrap();
             assert!(!coeffs.is_empty());
             coeffs[0] = coeffs[0].wrapping_add(1);
-            bad6.values_opening.width_proof.response =
-                encode_response(&coeffs).unwrap();
+            stages[last].response = encode_response(&coeffs).unwrap();
         }
         assert!(verify_memory_argument_sound(&bad6, &program, &input).is_err());
 
         // Tampered quadratic garbage: the exact fold identity rejects.
         let mut bad_g = proof.clone();
-        assert!(!bad_g.bits_opening.width_proof.garbage.is_empty());
-        bad_g.bits_opening.width_proof.garbage[3] ^= 0x20;
+        assert!(!bad_g.bits_opening.width_proof.stages[0].garbage.is_empty());
+        bad_g.bits_opening.width_proof.stages[0].garbage[3] ^= 0x20;
         assert!(verify_memory_argument_sound(&bad_g, &program, &input).is_err());
 
         // Tampered inner commitments: the MSIS binding rejects.
         let mut bad_t = proof.clone();
-        assert!(!bad_t.values_opening.width_proof.t_inner.is_empty());
-        bad_t.values_opening.width_proof.t_inner[7] ^= 0x08;
+        assert!(!bad_t.values_opening.width_proof.stages[0].t_inner.is_empty());
+        bad_t.values_opening.width_proof.stages[0].t_inner[7] ^= 0x08;
         assert!(verify_memory_argument_sound(&bad_t, &program, &input).is_err());
 
         // Tampered commitment: the W0 target chain rejects.

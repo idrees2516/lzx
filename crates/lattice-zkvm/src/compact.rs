@@ -50,7 +50,6 @@
 use lattice_commitment::ajtai::{AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
-use lattice_labinius::wire::{BitReader, BitWriter, RansCoder};
 use lattice_ring::ring::{RingConfig, RingElement};
 use lattice_ring::Modulus32;
 
@@ -174,7 +173,8 @@ pub fn evaluate_mle(evals: &[Fq], point: &[Fq]) -> Fq {
 
 /// The bundle ring: R_{Q_32} with n = 64 (X^64+1 negacyclic).
 pub fn column_ring() -> Result<RingConfig, LedgerError> {
-    RingConfig::new(Modulus32::Q_32, 6).map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
+    lattice_widthfold::codec::q32_ring()
+        .map_err(|e| LedgerError::Layout(format!("ring: {e:?}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -381,137 +381,12 @@ pub fn flat_mle(entries: &[(u32, &DenseMle)]) -> DenseMle {
 // The response codec: magnitude-class rANS + raw low bits
 // ---------------------------------------------------------------------------
 
-/// The magnitude class of a signed coefficient: 0 for zero, else
-/// ⌊log₂|c|⌋ + 1 (so 2^(class−1) ≤ |c| < 2^class).
-#[inline]
-fn magnitude_class(c: i32) -> u8 {
-    if c == 0 {
-        0
-    } else {
-        (32 - c.unsigned_abs().leading_zeros()) as u8
-    }
-}
-
-/// The encoded response artifact.
-#[derive(Clone, Debug)]
-pub struct ResponseWire {
-    /// rANS-coded class symbols: histogram bytes.
-    pub hist: Vec<u8>,
-    /// rANS payload.
-    pub payload: Vec<u8>,
-    /// Raw bits: (class−1) low magnitude bits + 1 sign bit per nonzero.
-    pub raw: Vec<u8>,
-    /// Number of coefficients.
-    pub count: usize,
-}
-
-/// Encode the fold response coefficients (balanced i32).
-pub fn encode_response(coeffs: &[i32]) -> Result<ResponseWire, String> {
-    let mut counts = vec![0u64; 33];
-    for &c in coeffs {
-        counts[magnitude_class(c) as usize] += 1;
-    }
-    let coder = RansCoder::from_counts(&counts).map_err(|e| format!("rans: {e:?}"))?;
-    let symbols: Vec<u32> = coeffs.iter().map(|&c| magnitude_class(c) as u32).collect();
-    let (hist, payload) = coder
-        .encode(&symbols)
-        .map_err(|e| format!("rans encode: {e:?}"))?;
-    let mut bw = BitWriter::new();
-    for &c in coeffs {
-        let cls = magnitude_class(c);
-        if cls == 0 {
-            continue;
-        }
-        bw.write(c.unsigned_abs() as u64, (cls - 1) as u32);
-        bw.write(if c < 0 { 1 } else { 0 }, 1);
-    }
-    Ok(ResponseWire {
-        hist,
-        payload,
-        raw: bw.bytes,
-        count: coeffs.len(),
-    })
-}
-
-/// Decode the fold response; strict on lengths and class ranges.
-pub fn decode_response(wire: &ResponseWire) -> Result<Vec<i32>, String> {
-    let coder =
-        RansCoder::from_histogram_bytes(&wire.hist, 33).map_err(|e| format!("rans: {e:?}"))?;
-    let symbols = coder
-        .decode(&wire.payload, wire.count)
-        .map_err(|e| format!("rans decode: {e:?}"))?;
-    let mut br = BitReader::new(&wire.raw);
-    let mut out = Vec::with_capacity(wire.count);
-    for &s in &symbols {
-        if s > 32 {
-            return Err("class out of range".into());
-        }
-        if s == 0 {
-            out.push(0);
-        } else {
-            let low = br
-                .read(s - 1)
-                .ok_or_else(|| "raw bits underflow".to_string())?;
-            let mag = low | (1u64 << (s - 1));
-            let sign = br
-                .read(1)
-                .ok_or_else(|| "raw bits underflow".to_string())?;
-            let v = mag as i64;
-            out.push(if sign == 1 { -v as i32 } else { v as i32 });
-        }
-    }
-    // The writer zero-pads the final partial byte; require only that the
-    // consumed bits fit the transmitted raw blob.
-    if wire.raw.len() * 8 < out.len() * 8 {
-        // (structural guard; the reads above already failed if short)
-    }
-    Ok(out)
-}
-
-
-// ---------------------------------------------------------------------------
-// Ring element serialization
-// ---------------------------------------------------------------------------
-
-/// Serialize ring elements: count || (u32 LE per coefficient).
-pub fn serialize_elements(ring: &RingConfig, elems: &[RingElement]) -> Vec<u8> {
-    let n = ring.n();
-    let mut out = Vec::with_capacity(4 + elems.len() * n * 4);
-    out.extend_from_slice(&(elems.len() as u32).to_le_bytes());
-    for e in elems {
-        for &c in e.coeffs() {
-            out.extend_from_slice(&c.to_le_bytes());
-        }
-    }
-    out
-}
-
-/// Deserialize ring elements (strict on length and count).
-pub fn deserialize_elements(ring: &RingConfig, bytes: &[u8]) -> Result<Vec<RingElement>, String> {
-    let n = ring.n();
-    if bytes.len() < 4 {
-        return Err("short".into());
-    }
-    let count = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
-    if bytes.len() != 4 + count * n * 4 {
-        return Err(format!("length {} != {}", bytes.len(), 4 + count * n * 4));
-    }
-    let mut out = Vec::with_capacity(count);
-    for e in 0..count {
-        let mut coeffs = vec![0u32; n];
-        for c in 0..n {
-            let base = 4 + (e * n + c) * 4;
-            coeffs[c] = u32::from_le_bytes([
-                bytes[base],
-                bytes[base + 1],
-                bytes[base + 2],
-                bytes[base + 3],
-            ]);
-        }
-        out.push(RingElement::from_coeffs(ring, coeffs));
-    }
-    Ok(out)
-}
+// The response codec + ring serialization moved to `lattice-widthfold`
+// (the shared fold core); re-exported here for the zkvm-internal call
+// sites and the public API.
+pub use lattice_widthfold::codec::{
+    decode_response, deserialize_elements, encode_response, serialize_elements, ResponseWire,
+};
 
 // ---------------------------------------------------------------------------
 // The compact bundle: commit + prove + verify
@@ -707,21 +582,9 @@ fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldi
 }
 
 
-/// The Goldilocks functional term for one coefficient: weight·(balanced c).
-pub fn phi_term(weight: &Goldilocks, c: u32, q: u32) -> Goldilocks {
-    let c_int = if c > q / 2 {
-        c as i64 - q as i64
-    } else {
-        c as i64
-    };
-    let mag = weight.mul(&Goldilocks::from_u64(c_int.unsigned_abs()));
-    if c_int < 0 {
-        mag.neg()
-    } else {
-        mag
-    }
-}
-
+/// The balanced-representative Goldilocks term (moved to
+/// `lattice-widthfold::helpers`; re-exported).
+pub use lattice_widthfold::helpers::phi_term;
 impl CompactBundleProver {
     /// The serialized commitments (r × k ring elements) — the bundle's
     /// public commitment.
@@ -1097,10 +960,17 @@ impl FoldParams {
 /// fold's cheap sound row (`n̄ ≤ 16`, i.e. `r₁ ≈ stream/1024`), with
 /// the amplitude the ceiling allows.
 ///
-/// Fail-closed when the stream is too large for the single-stage sound
-/// regime at any admissible `r₁` (the honest ceiling: the follow-ups
-/// are the recursive width-fold staging and the Modulus-50 class —
-/// `docs/BENCHMARKS.md` §2j records the measured boundary).
+/// **The recursive staging takeover**: when re-packing cannot land
+/// `n̄ ≤ 16` (the packing cap `r₁ ≤ min(128, factor length)` binds, or
+/// `r₁` saturates at 128), the column count parks at the cap and the
+/// RECURSIVE width-collapse chain stages the (now wider) response —
+/// the coverage extension from the single-stage `n̄ ≤ 16` to the
+/// benchmark streams (`lattice-widthfold::chain` publishes the
+/// measured boundary table).
+///
+/// Fail-closed when the stream exceeds the staged coverage at the
+/// resulting `β₁` (the honest Q_32 ceiling: the Modulus-50 class is
+/// the documented follow-up).
 pub fn sound_fold_params_for(
     total_values: usize,
     max_value_bytes: usize,
@@ -1112,21 +982,21 @@ pub fn sound_fold_params_for(
     while r < 128 && stream.div_ceil(r * 64) > 16 {
         r *= 2;
     }
-    // The packing constraint (r ≤ every factor length).
-    let cap = min_factor_len.next_power_of_two().min(128);
+    // The packing constraint (r ≤ every factor length). When the
+    // re-packing route cannot land n̄ ≤ 16, park at the cap: the
+    // recursive width-collapse chain takes over from there.
+    let cap = min_factor_len.next_power_of_two().min(128).max(1);
     if r > cap {
-        return Err(format!(
-            "sound profile: the column count {r} exceeds the packing bound {cap} \
-             (the stream {stream} B needs the recursive width-fold staging — \
-             the documented follow-up)"
-        ));
+        r = cap;
     }
     let n_bar = stream.div_ceil(r * 64).max(1);
-    // β₁ must sit under the width fold's sound ceiling.
+    // β₁ must sit under the staged sound ceiling (the chain's budget
+    // runs from β₁ to the final row's gate — the estimator's verdict
+    // at prove time fails closed beyond the coverage).
     let beta1 = (r as u64) * 16 * 255;
     if beta1 > (1 << 20) {
         return Err(format!(
-            "sound profile: beta1 {beta1} exceeds the width-fold ceiling 2^20 at r={r}"
+            "sound profile: beta1 {beta1} exceeds the staged ceiling 2^20 at r={r}"
         ));
     }
     let _ = n_bar;
@@ -1135,7 +1005,8 @@ pub fn sound_fold_params_for(
 
 /// The Sound-profile opening artifact: the level-1 fold's PUBLIC layer
 /// (the ũ values the carrier's interpolation consumes) plus the
-/// LaBRADOR width fold that replaces the transmitted response.
+/// RECURSIVE width-collapse chain that replaces the transmitted
+/// response (the log-staged sound rows — benchmark-stream coverage).
 #[derive(Clone, Debug)]
 pub struct SoundOpening {
     /// The level-1 fold parameters (public shape).
@@ -1145,8 +1016,9 @@ pub struct SoundOpening {
     /// Per-column Goldilocks values ũ_j (r₁ field elements — the
     /// carrier's public layer, absorbed before the challenges).
     pub u_tilde: Vec<Goldilocks>,
-    /// The LaBRADOR width fold over the (never-transmitted) response.
-    pub width_proof: crate::width_fold::WidthFoldProof,
+    /// The recursive width-fold chain over the (never-transmitted)
+    /// response (the staged sound rows).
+    pub width_proof: crate::width_fold::WidthChainProof,
 }
 
 impl CompactBundleProver {
@@ -1317,17 +1189,20 @@ impl CompactBundleProver {
             }
         }
 
-        // 5. The LaBRADOR width fold over v (the estimator-gated sound
-        //    profile search; fail-closed below the security floor).
+        // 5. The RECURSIVE width-collapse chain over v (the staged
+        //    estimator-sound rows; fail-closed below the floor + the
+        //    grinding allowance). The single-stage cheap row covers
+        //    n̄ ≤ 16; the staging takes the coverage to the benchmark
+        //    streams.
         let beta1 = self.params.gate as u64;
-        let wf_params = crate::width_fold::WidthFoldParams::sound_profile_for(
+        let chain_params = crate::width_fold::WidthChainParams::sound_chain_for(
             n_bar,
             beta1,
             q,
             n as u64,
         )
-        .map_err(|e| LedgerError::Layout(format!("width-fold profile: {e}")))?;
-        let width_proof = crate::width_fold::prove_width_fold(
+        .map_err(|e| LedgerError::Layout(format!("width-chain schedule: {e}")))?;
+        let width_proof = crate::width_fold::prove_width_fold_chain(
             &self.ring,
             &v,
             &t_target,
@@ -1335,12 +1210,12 @@ impl CompactBundleProver {
             &blocks,
             self.params.k,
             &psi,
-            wf_params,
+            chain_params,
             beta1,
             self.seed,
             transcript,
         )
-        .map_err(|e| LedgerError::Layout(format!("width fold: {e}")))?;
+        .map_err(|e| LedgerError::Layout(format!("width chain: {e}")))?;
 
         Ok(SoundOpening {
             params: self.params.clone(),
@@ -1481,9 +1356,11 @@ pub fn verify_sound_opening(
         .collect();
     let _ = apply_key;
 
-    // 5. The width fold's verifier: (W0)–(W4) + the posture gate.
+    // 5. The recursive width-collapse chain's verifier: the staged
+    //    (W0)–(W4) checks + the per-stage posture gates + the derived
+    //    public-claim threading.
     let beta1 = params.gate as u64;
-    crate::width_fold::verify_width_fold(
+    crate::width_fold::verify_width_fold_chain(
         &ring,
         &t_target,
         &u_target,
@@ -1495,7 +1372,7 @@ pub fn verify_sound_opening(
         &opening.width_proof,
         transcript,
     )
-    .map_err(|e| LedgerError::Layout(format!("width fold: {e}")))
+    .map_err(|e| LedgerError::Layout(format!("width chain: {e}")))
 }
 
 // ---------------------------------------------------------------------------
@@ -1671,9 +1548,9 @@ mod tests {
 
     /// The Sound-profile opening end-to-end: the same bundle through
     /// `FoldParams::sound` (the amplitude the width fold's estimator
-    /// ceiling allows) + the LaBRADOR width fold, with the tamper
-    /// suite. The binding is the width fold's `[A₂ | −T]` instance —
-    /// the level-1 response is never transmitted.
+    /// ceiling allows) + the RECURSIVE width-collapse chain, with the
+    /// tamper suite. The binding is the chain's per-stage `[A₂ | −T]`
+    /// instances — the level-1 response is never transmitted.
     #[test]
     fn test_sound_opening_e2e() {
         let entries = synthetic_entries();
@@ -1720,25 +1597,31 @@ mod tests {
         )
         .unwrap();
 
-        // Size accounting: the commitment + ũ's + the width-fold
-        // artifact (garbage + images + inner + z + functional terms).
-        let wf = &opening.width_proof;
-        let bytes = commitment.len()
-            + opening.u_tilde.len() * 8
-            + wf.p_images.len()
-            + wf.garbage.len()
-            + wf.t_inner.len()
-            + wf.u_parts.len()
-            + wf.g_func.len()
-            + wf.response.hist.len()
-            + wf.response.payload.len()
-            + wf.response.raw.len()
-            + 64;
-        println!("sound opening size (synthetic, r={r}): {bytes} B");
+        // Size accounting: the commitment + ũ's + the staged chain's
+        // artifacts (per stage: garbage + images + inner + z + the
+        // functional terms).
+        let wc = &opening.width_proof;
+        let mut wf_bytes = 0usize;
+        for st in &wc.stages {
+            wf_bytes += st.p_images.len()
+                + st.garbage.len()
+                + st.t_inner.len()
+                + st.u_parts.len()
+                + st.g_func.len()
+                + st.response.hist.len()
+                + st.response.payload.len()
+                + st.response.raw.len()
+                + 16;
+        }
+        let bytes = commitment.len() + opening.u_tilde.len() * 8 + wf_bytes + 64;
+        println!(
+            "sound opening size (synthetic, r={r}, stages={}): {bytes} B",
+            wc.stages.len()
+        );
         // The honest multiple vs the Clear opening (~20 KB ceiling at
         // this scale): the quadratic garbage's price. The BENCHMARKS
         // §2j table records the measured ratio at the real bundles.
-        assert!(bytes < 120_000);
+        assert!(bytes < 150_000);
 
         // ---- Tamper suite ----
         let verify_with = |commitment: &[u8],
@@ -1775,28 +1658,30 @@ mod tests {
         bad_u.u_tilde[0] = bad_u.u_tilde[0].add(&fe(1));
         assert!(verify_with(&commitment, &r_sc, &w, &bad_u).is_err());
 
-        // Tampered width-fold response (z): W2 (the MSIS binding) or
+        // Tampered final-stage response (z): W2 (the MSIS binding) or
         // W1 rejects.
         let mut bad_z = opening.clone();
         {
-            let mut coeffs = decode_response(&bad_z.width_proof.response).unwrap();
+            let last = bad_z.width_proof.stages.len() - 1;
+            let mut coeffs =
+                decode_response(&bad_z.width_proof.stages[last].response).unwrap();
             assert!(!coeffs.is_empty());
             coeffs[0] = coeffs[0].wrapping_add(1);
-            bad_z.width_proof.response = encode_response(&coeffs).unwrap();
+            bad_z.width_proof.stages[last].response = encode_response(&coeffs).unwrap();
         }
         assert!(verify_with(&commitment, &r_sc, &w, &bad_z).is_err());
 
         // Tampered quadratic garbage: W1 (the exact fold identity)
         // rejects.
         let mut bad_g = opening.clone();
-        assert!(!bad_g.width_proof.garbage.is_empty());
-        bad_g.width_proof.garbage[5] ^= 0x10;
+        assert!(!bad_g.width_proof.stages[0].garbage.is_empty());
+        bad_g.width_proof.stages[0].garbage[5] ^= 0x10;
         assert!(verify_with(&commitment, &r_sc, &w, &bad_g).is_err());
 
         // Tampered part images: W0/W1 rejects.
         let mut bad_p = opening.clone();
-        assert!(!bad_p.width_proof.p_images.is_empty());
-        bad_p.width_proof.p_images[9] ^= 0x20;
+        assert!(!bad_p.width_proof.stages[0].p_images.is_empty());
+        bad_p.width_proof.stages[0].p_images[9] ^= 0x20;
         assert!(verify_with(&commitment, &r_sc, &w, &bad_p).is_err());
 
         // Tampered commitment: the W0 target chain rejects.
@@ -1820,43 +1705,41 @@ mod tests {
         .is_err());
     }
 
-    /// The Sound fold-parameter chooser: the honest ceilings (the
-    /// packing bound and the β₁ ceiling) fail closed.
+    /// The Sound fold-parameter chooser: the re-packing route while it
+    /// fits, the recursive-staging takeover beyond it, and the honest
+    /// staged-coverage ceiling (the Q_32 boundary).
     #[test]
     fn test_sound_fold_params_chooser() {
-        // Small stream: the cheap sound row (n̄ ≤ 16).
+        // Small stream: the cheap sound row (n̄ ≤ 16) — re-packing.
         let (r, k) = sound_fold_params_for(4096, 1, 256).unwrap();
         assert_eq!(k, 4);
         assert!(r >= 4);
         // The β₁ ceiling: at r = 128 the gate 128·16·255 = 522,240 ≤ 2^20.
         assert!((r as u64) * 16 * 255 <= (1 << 20));
-        // The packing bound fail-closes when the stream needs more
-        // columns than the factors allow.
-        assert!(sound_fold_params_for(1 << 20, 1, 64).is_err());
-    }
-
-    /// Response codec roundtrip + tamper rejection.
-    #[test]
-    fn test_response_codec() {
-        let coeffs: Vec<i32> = (0..5000)
-            .map(|i| {
-                let x = (i as i64 * 2654435761) % 20000 - 10000;
-                x as i32
-            })
-            .chain([0, 1, -1, i32::MAX / 4, i32::MIN / 4])
-            .collect();
-        let wire = encode_response(&coeffs).unwrap();
-        let decoded = decode_response(&wire).unwrap();
-        assert_eq!(decoded, coeffs);
-        let mut bad = wire.clone();
-        if let Some(x) = bad.raw.first_mut() {
-            *x ^= 1;
-        }
-        let decoded_bad = decode_response(&bad).unwrap();
-        assert_ne!(decoded_bad, coeffs);
-        let mut short = wire.clone();
-        short.payload.truncate(short.payload.len() / 2);
-        assert!(decode_response(&short).is_err());
+        // The recursive-staging takeover: a 1 MB stream at the packing
+        // cap 64 parks at r = 64 (n̄ = 256) — the chain stages it (the
+        // coverage extension this wave lands; previously fail-closed).
+        let (r2, _) = sound_fold_params_for(1 << 20, 1, 64).unwrap();
+        assert_eq!(r2, 64);
+        // The staged coverage ceiling: a 64 MB stream parks at r = 64
+        // (n̄ = 16,384 at β₁ ≈ 2^18) — the CHOOSER returns the legal
+        // shape, and the CHAIN's schedule search fails closed beyond the
+        // staged budget (the honest Q_32 boundary; the Modulus-50 class
+        // is the documented follow-up).
+        let (r3, _) = sound_fold_params_for(1 << 26, 1, 64).unwrap();
+        assert_eq!(r3, 64);
+        let n_bar3 = (1u64 << 26).div_ceil((r3 * 64) as u64) as usize;
+        let ring = column_ring().unwrap();
+        assert!(
+            crate::width_fold::WidthChainParams::sound_chain_for(
+                n_bar3,
+                (r3 as u64) * 16 * 255,
+                u64::from(ring.modulus.q),
+                ring.n() as u64,
+            )
+            .is_err(),
+            "the staged coverage must fail closed beyond the Q_32 budget"
+        );
     }
 
     /// The pack layout roundtrip: unpacking the columns recovers the flat

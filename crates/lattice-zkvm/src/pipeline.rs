@@ -53,6 +53,12 @@ impl From<lattice_akita::pcs::AkitaPcsError> for PipelineError {
         PipelineError::Pcs(e)
     }
 }
+
+impl From<lattice_akita::salsa_response::SalsaResponseError> for PipelineError {
+    fn from(e: lattice_akita::salsa_response::SalsaResponseError) -> Self {
+        PipelineError::BadShape(format!("salsa response: {e:?}"))
+    }
+}
 impl From<lattice_sumcheck::SumcheckError> for PipelineError {
     fn from(e: lattice_sumcheck::SumcheckError) -> Self {
         PipelineError::Sumcheck(e)

@@ -20,6 +20,7 @@ lattice-labinius = { workspace = true }
 lattice-streaming = { workspace = true }
 lattice-lookup-ring = { workspace = true }
 lattice-sis-estimator = { workspace = true }
+lattice-widthfold = { workspace = true }
 
 [dev-dependencies]
 lattice-guest = { workspace = true }

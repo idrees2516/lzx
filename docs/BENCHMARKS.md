@@ -491,6 +491,84 @@ feeds the next) or the Modulus-50 class (the 50-bit modulus doubles the
 β headroom). Both are the documented Stage-5 follow-ups; the profile
 gate fail-closes in between rather than shipping a broken binding.
 
+
+## 2k. The recursive staging + SALSA D4 + the compact terminal (2026-10-04, this session)
+
+Three landings on the soundness/size frontier:
+
+**(1) The recursive width-collapse staging** (`lattice-widthfold::chain`
+— the extracted shared fold core, NEW crate): the Sound opening and the
+Sound memory argument now fold through log-stages of estimator-sound
+rows instead of the single stage (the `n̄ ≤ 16` boundary). The
+fail-closed posture: every stage's `[A₂ | −T]` instance ≥ 128 classical
+bits + the 32-bit replay-grinding allowance; the per-stage gates grow
+geometrically (β_{ℓ+1} = r₂·A₂·β_ℓ) under the q/2 completeness cap.
+
+The measured coverage boundary (`cargo run -p lattice-widthfold
+--example chain_coverage`):
+
+| β₁ (the level-1 gate) | max staged n̄ | stream ceiling (r₁=128) |
+|---|---|---|
+| 2^8 (the byte gate) | 4,096 | ~33.6 MB |
+| 2^15 (r₁=8) | 2,048 | ~16.8 MB |
+| 2^17 (r₁=32) | 512 | ~4.2 MB |
+| 2^19 (r₁=128, the packing cap) | 128 | ~1.0 MB |
+
+vs the single-stage boundary: n̄ ≤ 16 → ~131 KB of stream. The
+schedule at n̄=512/β₁=2^15: 6 stages of `(r₂=2, κ=16, A₂=1)` halvings
+landing `(8, 2, 8)` — 1,184 transmitted ring elements, 19.0 grinding
+bits (under the 32-bit allowance). Beyond the boundary the search
+fails closed (the honest Q_32 ceiling: the Modulus-50 class is the
+documented follow-up — the norm headroom, not the machinery, binds).
+
+The Sound memory argument at the test scale with the chain (and the
+cheaper sound rows the extended amplitude search finds):
+
+| Mode | total proof | binding |
+|---|---|---|
+| Compact (single-level fold) | ~60 KB | `[F̄ \| −y]` — the broken regime |
+| **Sound (the recursive chain)** | **55.2 KB** | per-stage `[A₂ \| −T]` ≥ 128+32 bits |
+
+(the §2j single-stage Sound row was 129.7 KB — the chain + the
+amplitude-extended sound-row search land BELOW the compact mode's size
+at the test scale while carrying the estimator-gated binding.)
+
+**(2) SALSA D4 — the Akita/zkVM response-layer swap**
+(`lattice-akita::salsa_response::SalsaGroupedResponse`): the v2
+pipeline's Stage-5 grouped openings replace the opened witness + the
+digit-revealing NormProof with the byte-packed SALSAA chain — the
+grouped RLC carrier + the ψ-functional carrier (the verifier-weighted
+byte-recomposition bridge `Σ_c eq(r_sc, x(c))·2^{8b(c)}·z(c) =
+f(r_sc)`, replacing D2's transmitted base) + D1's norm sumcheck with
+the Lemma-4 gate. Measured (`cargo run -p lattice-akita --example
+salsa_swap_size`, ring dim 16, the pipeline's pk shape):
+
+| column values | Clear response | SALSAA response | reduction |
+|---|---|---|---|
+| 2^6 | 39,056 B | **640 B** | 61× |
+| 2^8 | 155,840 B | **784 B** | 199× |
+| 2^10 | 622,832 B | **928 B** | 671× |
+
+The response grows only with log N (three sumchecks' rounds) — the
+Θ(N) → polylog + disclosure-removal claim is measured, not asserted.
+The honest regime note: the byte-packed D1 chain's Lemma-4 gate caps
+the per-commitment capacity at ~1,200 values (the r-column split is
+the scaling route); the byte-witness-to-commitment Ajtai binding
+remains the documented outer-layer gap (the compact-mode fold is the
+binding-complete route).
+
+**(3) The Cyclo §7 bridge's compact-PCS terminal**
+(`lattice-folding::cyclo_terminal` over `lattice-widthfold::ring_fold`):
+the decider stops opening the witness — `(D1)` rides the fold's (W0)
+(part images ≟ the commitment), `(D2)` the six linear claims ride the
+EXACT ring-functional layer, `(D3)` the two prefix claims ride
+projected functionals (θ_k of the fold's public sums). The terminal's
+communication at the bridge's test scale (m=8): the fold's ~40 ring
+elements (~10 KB) replacing the opened lift (8 elements, 2 KB) + the
+binding — the honest price of the decider's witness-freedom at small
+m; the win is the disclosure removal and the binding posture (the
+[A₂ | −T] instance at the digit gate β₁ = k−1, estimator-gated).
+
 ## 3. Comparison with SOTA zkVMs (published numbers)
 
 Context, not competition: LZX is a lattice-SIS research zkVM at kernel

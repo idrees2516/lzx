@@ -69,6 +69,25 @@ linear relation over `R_q`:
   extension-commitment step skipped) — test-pinned.
 
 ## The honest-deviation ledger
+0. **The compact-PCS terminal (2026-10-04, the staging wave)** — the
+   §7 bridge's decider no longer opens the witness:
+   `cyclo_terminal.rs::decide_principal_linear_compact` decides the
+   ride-the-fold claims through the ring-functional width fold
+   (`lattice-widthfold::ring_fold`) — (D1) rides the fold's (W0) (the
+   part images sum to the commitment), (D2) the six linear claims ride
+   the EXACT ring-functional layer, (D3) the two prefix claims ride
+   PROJECTED functionals (θ_k of the fold's public per-part sums — the
+   projected form the carry finding mandates). Deviations vs the clear
+   decider: the lift's norm precondition `∥z'∥∞ < k` enters as the
+   fold's β₁ (the estimator's bound accounting) instead of the
+   per-element gate; the binding is the fold's estimator-gated
+   `[A₂|−T]` instance at the digit gate (fail-closed at prove AND
+   verify); the multi-fork extraction across the fold is the same open
+   analysis the zkvm Sound profile documents. The terminal's
+   communication at the bridge's scale is ~5× the opened lift (the
+   fold's commitments + garbage) — the honest price of the
+   witness-freedom.
+
 
 0. **The carry finding** (2026-10-04, the decider wave): the digit
    embedding `θ_k^{-1}` is NOT additive (base-k carries) — the `d'_i`

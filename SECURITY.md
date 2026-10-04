@@ -1,5 +1,43 @@
 # LZX Security Policy
 
+## Sound posture update (2026-10-04): the recursive staging + the compact terminal
+
+Three posture changes this session:
+
+1. **The recursive width-collapse staging** (`lattice-widthfold::chain`):
+   the Sound profile's binding is now a CHAIN of per-stage `[A₂ | −T]`
+   instances, every one estimator-gated at ≥ 128 classical bits PLUS
+   the 32-bit replay-grinding allowance (`CHAIN_GRINDING_BITS` — the
+   per-stage challenge spaces `|C_ℓ| = (2A₂+1)^{r₂}` admit replay
+   grinding; the chain charges the total against every stage's floor,
+   fail-closed). The honest residual — the full multi-stage LaBRADOR
+   extraction (the degree-law unwind across stages to the level-1
+   response) — remains the open analysis, documented in the module;
+   the conservative shipping posture is the per-stage floor + the
+   (W0) target threading (each stage's public target is the previous
+   stage's committed T combination). The measured boundary table
+   (`--example chain_coverage`) replaces the single-stage `n̄ ≤ 16`
+   ceiling with the staged coverage (n̄ ≤ 4096 at the byte gate; the
+   Q_32 norm headroom is the binding constraint beyond — the
+   Modulus-50 class is the honest fix, not more stages).
+2. **SALSA D4** (the Akita/zkVM response-layer swap): the byte-packed
+   D1 chain certifies the byte-witness's norm (the Ajtai commitment's
+   security precondition) with the Lemma-4 no-wraparound gate; the
+   ψ-functional carrier binds the response INTRA-layer (the claims →
+   the carrier → f(r_sc) → the byte-witness's MLE → D1's terminal).
+   The byte-witness-to-commitment Ajtai binding (the authenticated
+   opening at the challenge) remains the documented gap at the
+   pipeline2 layer — the binding-complete polylog route is the
+   compact-mode fold (the Sound profile), which now extends to the
+   benchmark streams via (1).
+3. **The Cyclo §7 bridge's compact terminal**: the decider's (D1)
+   `verify_opening` is replaced by the fold's (W0) commitment check;
+   the lift's norm precondition `∥z'∥∞ < k` enters as the fold's β₁
+   (the estimator's bound accounting) rather than the clear decider's
+   explicit per-element gate — the honest deviation recorded in
+   `cyclo.md`'s ledger (the folded response's (W4) gate is direct; the
+   parts' norm story rides the (W2) extraction discipline).
+
 ## Scope
 
 The LZX workspace is a lattice-based post-quantum zkVM kernel

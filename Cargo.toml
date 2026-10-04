@@ -21,6 +21,7 @@ members = [
     "crates/lattice-bench",
     "crates/lattice-labrador",
     "crates/lattice-labinius",
+    "crates/lattice-widthfold",
     "crates/lattice-sis-estimator",
     "crates/lattice-guest",
     "crates/lattice-projsumcheck",
@@ -63,6 +64,7 @@ lattice-bench = { path = "crates/lattice-bench" }
 lattice-sis-estimator = { path = "crates/lattice-sis-estimator" }
 lattice-guest = { path = "crates/lattice-guest" }
 lattice-labinius = { path = "crates/lattice-labinius" }
+lattice-widthfold = { path = "crates/lattice-widthfold" }
 lattice-labrador = { path = "crates/lattice-labrador" }
 lattice-projsumcheck = { path = "crates/lattice-projsumcheck" }
 lattice-streaming = { path = "crates/lattice-streaming" }

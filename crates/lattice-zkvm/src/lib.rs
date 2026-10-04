@@ -40,7 +40,17 @@ pub mod lookup_memory;
 pub mod pipeline3;
 pub mod semantics;
 pub mod second_fold;
-pub mod width_fold;
+pub mod width_fold {
+    //! The extracted width-fold core (see the `lattice-widthfold` crate).
+    pub use lattice_widthfold::fold::{
+        prove_width_fold, prove_width_fold_ex, verify_width_fold, verify_width_fold_ex,
+        WidthFoldParams, WidthFoldProof,
+    };
+    pub use lattice_widthfold::chain::{
+        prove_width_fold_chain, verify_width_fold_chain, WidthChainParams, WidthChainProof,
+        CHAIN_GRINDING_BITS,
+    };
+}
 
 #[cfg(test)]
 mod fuzz;

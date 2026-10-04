@@ -22,6 +22,7 @@
 
 pub mod cyclo;
 pub mod cyclo_r1cs;
+pub mod cyclo_terminal;
 pub mod neo;
 pub mod cyclo_protocols;
 pub mod fq2_sumcheck;

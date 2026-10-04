@@ -89,6 +89,7 @@ dependencies = [
  "lattice-relations",
  "lattice-ring",
  "lattice-sumcheck",
+ "lattice-widthfold",
 ]
 
 [[package]]
@@ -265,6 +266,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lattice-widthfold"
+version = "0.2.0"
+dependencies = [
+ "lattice-commitment",
+ "lattice-core",
+ "lattice-labinius",
+ "lattice-ring",
+ "lattice-sis-estimator",
+]
+
+[[package]]
 name = "lattice-zk"
 version = "0.2.0"
 dependencies = [
@@ -291,4 +303,5 @@ dependencies = [
  "lattice-sumcheck",
  "lattice-ttrp",
  "lattice-vm",
+ "lattice-widthfold",
 ]

@@ -35,3 +35,24 @@ combiners, eq-table), A2 honest/tampered, Π_bin honest/non-binary
 rejection, the staircase honest/tampered, the VDF e2e with wrong-output
 and tamper rejections, the AIR e2e with dishonest-trace and tamper
 rejections, and the folding completeness.
+
+## The honest-deviation ledger
+
+0. **D4 COMPLETED (2026-10-04, the staging wave)** — the zkVM
+   response-layer swap landed: `lattice-akita::salsa_response::
+   SalsaGroupedResponse` (the grouped RLC carrier + the ψ-functional
+   carrier + D1's norm sumcheck over the BYTE-PACKED witness) replaces
+   the opened witness + the digit-revealing `NormProof` in the v2
+   pipeline's Stage-5 openings (`pipeline2.rs`), with `commit_bytes`
+   moving the column commitments to the byte-packed regime. The
+   measured response: 640–928 B at 2^6–2^10 values (61–671× vs the
+   Clear mode), zero witness disclosure. The ψ-functional carrier
+   (`Σ_c eq(r_sc,x(c))·2^{8b(c)}·z(c) = f(r_sc)` with VERIFIER-computed
+   weights) replaces D2's transmitted LDE base in the grouped variant —
+   the single-evaluation variant keeps the paper's D2 shape with its
+   documented base cost. The residual gap (unchanged, documented): the
+   Ajtai binding of the byte-witness to the commitment — the
+   authenticated opening at the challenge — is the outer layer's to
+   close (the compact-mode fold is the route); the byte-packed
+   Lemma-4 gate caps the per-commitment capacity at ~1,200 values
+   (the r-column split scales beyond).

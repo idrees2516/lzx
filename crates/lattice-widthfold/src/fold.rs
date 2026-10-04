@@ -95,8 +95,9 @@
 //! lands in BENCHMARKS.md §2j) — the price of the binding claim the
 //! Stage 5.1 verdict demands.
 
-use crate::compact::{decode_response, encode_response, serialize_elements, ResponseWire};
-use crate::second_fold::{apply_key, functional_of, profile_bits, SECURITY_FLOOR_BITS};
+use crate::codec::{decode_response, encode_response, serialize_elements, ResponseWire};
+use crate::helpers::{apply_key, functional_of, msis_bits};
+use crate::SECURITY_FLOOR_BITS;
 use lattice_commitment::ajtai::{AjtaiParams, AjtaiPublicKey};
 use lattice_core::transcript::Transcript;
 use lattice_core::Goldilocks;
@@ -128,22 +129,20 @@ impl WidthFoldParams {
     /// The estimator verdict for this profile at the given level-1
     /// gate: `(classical_bits, quantum_bits)` of the MSIS instance
     /// `[A₂ | −T]` at width `w + r₂`, bound `2·β₂` (the extraction's
-    /// relaxed 2× factor — `second_fold::profile_bits`'s convention).
+    /// relaxed 2× factor).
     pub fn profile_bits(
         &self,
         beta1: u64,
         q: u64,
         ring_dim: u64,
     ) -> Result<(f64, f64), String> {
-        let view = crate::second_fold::SecondFoldParams {
-            r: self.r2,
-            kappa: self.kappa,
-            k: 0, // unused by profile_bits (the level-1 k is not part of
-            // the width fold's MSIS instance)
-            amplitude: self.amplitude,
-            n_bar: self.w,
-        };
-        profile_bits(&view, beta1, q, ring_dim)
+        msis_bits(
+            self.kappa as u64,
+            (self.w + self.r2) as u64,
+            q,
+            ring_dim,
+            2 * self.beta2(beta1),
+        )
     }
 
     /// The fail-closed posture gate: refuse any profile whose final
@@ -154,10 +153,22 @@ impl WidthFoldParams {
         q: u64,
         ring_dim: u64,
     ) -> Result<(f64, f64), String> {
+        self.assert_sound_at(beta1, q, ring_dim, SECURITY_FLOOR_BITS)
+    }
+
+    /// The floor-parameterized posture gate (the recursive staging's
+    /// elevated floor — the chain's grinding allowance rides on top).
+    pub fn assert_sound_at(
+        &self,
+        beta1: u64,
+        q: u64,
+        ring_dim: u64,
+        floor: f64,
+    ) -> Result<(f64, f64), String> {
         let (cl, qm) = self.profile_bits(beta1, q, ring_dim)?;
-        if cl < SECURITY_FLOOR_BITS {
+        if cl < floor {
             return Err(format!(
-                "width-fold profile below the security floor: {cl:.1} classical bits \
+                "width-fold profile below the floor {floor:.1}: {cl:.1} classical bits \
                  (params r2={}, kappa={}, w={}, A=2^{}, beta1={beta1})",
                 self.r2,
                 self.kappa,
@@ -183,6 +194,18 @@ impl WidthFoldParams {
         q: u64,
         ring_dim: u64,
     ) -> Result<WidthFoldParams, String> {
+        Self::sound_profile_for_floor(n_bar, beta1, q, ring_dim, SECURITY_FLOOR_BITS)
+    }
+
+    /// The floor-parameterized sound search (the recursive staging's
+    /// terminal: the chain's grinding allowance elevates the floor).
+    pub fn sound_profile_for_floor(
+        n_bar: usize,
+        beta1: u64,
+        q: u64,
+        ring_dim: u64,
+        floor: f64,
+    ) -> Result<WidthFoldParams, String> {
         // Ordered by the honest cost ledger: the garbage r2(r2-1)·k
         // dominates, so small r2 first; then small w (the MSIS width
         // w + r2 is the soundness driver); then the (kappa, A) knobs.
@@ -196,7 +219,10 @@ impl WidthFoldParams {
                     continue;
                 }
                 for kappa in [4usize, 8, 16, 32, 64, 128] {
-                    for amplitude in [1u32 << 4, 1 << 6, 1 << 8] {
+                    // Ascending amplitudes: the smallest sound growth
+                    // first (the staged budget's discipline — the
+                    // grinding ledger prices the small end).
+                    for amplitude in [1u32, 2, 4, 1 << 4, 1 << 6, 1 << 8] {
                         let cand = WidthFoldParams {
                             r2,
                             kappa,
@@ -206,7 +232,7 @@ impl WidthFoldParams {
                         if cand.beta2(beta1) >= q / 2 {
                             continue;
                         }
-                        if cand.assert_sound(beta1, q, ring_dim).is_ok() {
+                        if cand.assert_sound_at(beta1, q, ring_dim, floor).is_ok() {
                             return Ok(cand);
                         }
                     }
@@ -375,6 +401,38 @@ pub fn prove_width_fold(
     seed: [u8; 32],
     transcript: &mut Transcript,
 ) -> Result<WidthFoldProof, String> {
+    prove_width_fold_ex(
+        ring,
+        v,
+        t_target,
+        u_target,
+        f_bar_blocks,
+        k,
+        psi_weights,
+        params,
+        beta1,
+        seed,
+        transcript,
+    )
+    .map(|(proof, _)| proof)
+}
+
+/// The core prover, also returning the transcript-derived challenges
+/// `γ` (the recursive staging's derived-claim inputs).
+#[allow(clippy::too_many_arguments)]
+pub fn prove_width_fold_ex(
+    ring: &RingConfig,
+    v: &[RingElement],
+    t_target: &[RingElement],
+    u_target: &Goldilocks,
+    f_bar_blocks: &[Vec<RingElement>],
+    k: usize,
+    psi_weights: &[Goldilocks],
+    params: WidthFoldParams,
+    beta1: u64,
+    seed: [u8; 32],
+    transcript: &mut Transcript,
+) -> Result<(WidthFoldProof, Vec<i64>), String> {
     let q = u64::from(ring.modulus.q);
     let n = ring.n();
     let n_bar = v.len();
@@ -638,17 +696,20 @@ pub fn prove_width_fold(
         .append_bytes(b"wf-z", &serialize_elements(ring, &z))
         .map_err(|e| format!("{e:?}"))?;
     let response = encode_response(&z_coeffs)?;
-    Ok(WidthFoldProof {
-        params,
-        n_bar,
-        p_images: p_bytes,
-        garbage: garbage_bytes,
-        t_inner: t_bytes,
-        u_parts: u_bytes,
-        g_func: g_bytes,
-        response,
-        classical_bits: cl,
-    })
+    Ok((
+        WidthFoldProof {
+            params,
+            n_bar,
+            p_images: p_bytes,
+            garbage: garbage_bytes,
+            t_inner: t_bytes,
+            u_parts: u_bytes,
+            g_func: g_bytes,
+            response,
+            classical_bits: cl,
+        },
+        gammas,
+    ))
 }
 
 /// Verify a width-fold proof given the PUBLIC level-1 target
@@ -670,6 +731,38 @@ pub fn verify_width_fold(
     proof: &WidthFoldProof,
     transcript: &mut Transcript,
 ) -> Result<(), String> {
+    verify_width_fold_ex(
+        ring,
+        t_target,
+        u_target,
+        f_bar_blocks,
+        k,
+        psi_weights,
+        beta1,
+        seed,
+        proof,
+        transcript,
+    )
+    .map(|(_, gammas)| {
+        let _ = gammas;
+    })
+}
+
+/// The core verifier, also returning the transcript-derived challenges
+/// `γ` (the recursive staging's derived-claim inputs).
+#[allow(clippy::too_many_arguments)]
+pub fn verify_width_fold_ex(
+    ring: &RingConfig,
+    t_target: &[RingElement],
+    u_target: &Goldilocks,
+    f_bar_blocks: &[Vec<RingElement>],
+    k: usize,
+    psi_weights: &[Goldilocks],
+    beta1: u64,
+    seed: [u8; 32],
+    proof: &WidthFoldProof,
+    transcript: &mut Transcript,
+) -> Result<((), Vec<i64>), String> {
     let q = u64::from(ring.modulus.q);
     let n = ring.n();
     let params = &proof.params;
@@ -691,12 +784,12 @@ pub fn verify_width_fold(
     }
     // Deserialize the pre-challenge material.
     let p_flat =
-        crate::compact::deserialize_elements(ring, &proof.p_images)?;
+        crate::codec::deserialize_elements(ring, &proof.p_images)?;
     if p_flat.len() != r2 * k {
         return Err(format!("p count {} != {}", p_flat.len(), r2 * k));
     }
     let garbage =
-        crate::compact::deserialize_elements(ring, &proof.garbage)?;
+        crate::codec::deserialize_elements(ring, &proof.garbage)?;
     if garbage.len() != r2 * (r2 - 1) * k {
         return Err(format!(
             "garbage count {} != {}",
@@ -705,7 +798,7 @@ pub fn verify_width_fold(
         ));
     }
     let t_inner =
-        crate::compact::deserialize_elements(ring, &proof.t_inner)?;
+        crate::codec::deserialize_elements(ring, &proof.t_inner)?;
     if t_inner.len() != r2 * params.kappa {
         return Err(format!(
             "inner count {} != {}",
@@ -883,17 +976,26 @@ pub fn verify_width_fold(
             }
         }
     }
-    Ok(())
+    Ok(((), gammas))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compact::column_ring;
+    use crate::codec::q32_ring;
     use lattice_ring::RingElement;
 
+    /// The test fixture tuple (the type_complexity lint's shape alias).
+    type Fixture = (
+        RingConfig,
+        Vec<RingElement>,
+        Vec<Vec<RingElement>>,
+        Vec<Goldilocks>,
+        [u8; 32],
+    );
+
     fn ring() -> RingConfig {
-        column_ring().unwrap()
+        q32_ring().unwrap()
     }
 
     /// A deterministic pseudo-random short vector: coefficients in
@@ -958,7 +1060,7 @@ mod tests {
             .collect()
     }
 
-    fn test_setup(n_bar: usize) -> (RingConfig, Vec<RingElement>, Vec<Vec<RingElement>>, Vec<Goldilocks>, [u8; 32]) {
+    fn test_setup(n_bar: usize) -> Fixture {
         let ring = ring();
         let v = synth_response(&ring, n_bar, 255, 0xABCD);
         let (_, blocks) = key_blocks(&ring, 4, n_bar, [7u8; 32]);

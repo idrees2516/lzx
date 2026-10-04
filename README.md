@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~66k lines of pure-`std` Rust. 31 crates. 1136 tests. Zero external dependencies.**
+**~68k lines of pure-`std` Rust. 33 crates. 1,227 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **thirteen research papers** end-to-end (prover +
@@ -58,13 +58,13 @@ prove_program(RV64IMAC bytecode)  ->  Proof envelope  ->  verify_program(envelop
 | 1 |-------|-------|---------------------|
 | 2 | **ProtogaLattice** (constant-round folding) | `lattice-folding` | Cross-term extraction via finite-difference Newton inversion (diagonal snapshots); exact fold identity for degree-2 and degree-3 relations |
 | 3 | **Akita** (lattice PCS) | `lattice-akita` | Packed commitments, sumcheck evaluation proofs with norm-checked openings, grouped openings, schedule catalog + security profiles |
-| 4 | **Cyclo** (lattice PCS) | `lattice-folding` | Extension commitment (iterative-borrow chunking, exact recomposition), partial range checks, accumulator with additive norm growth + refresh |
+| 4 | **Cyclo** (lattice PCS) | `lattice-folding` | Extension commitment (iterative-borrow chunking, exact recomposition), partial range checks, accumulator with additive norm growth + refresh; the §7 R1CS bridge + the compact-PCS terminal (the witness-free decider) |
 | 5 | **HyperWolf** (lattice PCS) | `lattice-pcs` | Standard-soundness PCS backend + the `PcsBackend` trait boundary |
 | 6 | **LatticeFold+** (folding + Ajtai commitments) | `lattice-folding` | Algebraic range proof (eq-multiplied booleanity sumcheck + point reconstruction), double-commitment folding, tensor rings |
 | 7 | **PikkuFold** (folding) | `lattice-folding` | Layered biased-ternary random projections with certified JL norm bounds, no in-fold commitments, linear-relation binding |
 | 8 | **Quasar** (lookup arguments) | `lattice-lookup` | **Committed** grand-product lookup (Q1: Ajtai commitments to T/R/Q, τ from commitments, counting-map difference, forged-triple rejection) + partial-evaluation multi-instance accumulation |
 | 9 | **RoKoko** (lattice PCS) | `lattice-rokoko` | Coarse/fine two-stage committed refinement with ternary projections; incomplete-NTT completion |
-| 10 | **SALSA** (zk sumcheck) | `lattice-salsa` | Norm sumcheck, LDE tensor relation, structured (negacyclic) matrix checks, zk sumcheck with statement-derived masks |
+| 10 | **SALSA** (zk sumcheck) | `lattice-salsa` | Norm sumcheck, LDE tensor relation, structured (negacyclic) matrix checks, zk sumcheck with statement-derived masks; **D4** — the Akita/zkVM response-layer swap (the byte-packed SALSAA chain in the v2 pipeline: polylog, zero disclosure) |
 | 11 | **Symphony** (folding + SNARK) | `lattice-folding` | High-arity (mu-ary) one-shot folding with full subset cross-term bookkeeping; exact mu-ary identity verified |
 | 12 | **Twist & Shout** (small-space zkVM) | `lattice-memory`, `lattice-vm`, `lattice-zkvm` | Twist (read/write timeline) and Shout (read-only table) checks with grand-product fingerprint identities; canonical RV64IMAC decoder + deterministic executor + subword-correct sparse memory + LR/SC & AMO atomics; end-to-end prove/verify |
 | 13 | **ZK-PCD from Accumulation Schemes** (ePrint 2026/289) | `lattice-pcd` | The special-sound framework (R1CS/CCS/permutation instances, homogeneous algebraic maps), the CFS17/XZZ+19 zero-knowledge sum-check with the KS24 point-update, the zk-Protogalaxy accumulation scheme (masking vector + eq-interpolated F(X) + the error commitment E + decider), the FS NARK, and the two-circuit ZK-PCD construction over vector-Pedersen BN254 commitments |
@@ -104,6 +104,7 @@ lattice-folding       ProtogaLattice, LatticeFold+, Cyclo, PikkuFold, Symphony, 
                       (all with hard norm gates + public-coin FS hygiene)
 lattice-lookup        Quasar lookups (committed Q1 protocol + accumulation)
 lattice-salsa         SALSA norm/LDE/structured-matrix/zk sumchecks
+lattice-widthfold     the shared width-fold core (the recursive staging, the ring-functional fold)
 lattice-rokoko        RoKoko two-stage refinement
 lattice-akita         Akita PCS (full)
 lattice-pcs           PcsBackend trait + HyperWolf backend
@@ -203,6 +204,25 @@ in `SECURITY.md`.
 ## License
 
 MIT.
+
+## The staging wave (2026-10-04)
+
+The soundness/size frontier's three landings: (1) **the recursive
+width-collapse staging** (`lattice-widthfold` — the extracted shared
+fold core + `chain.rs`): the Sound profile's coverage extends from
+`n̄ ≤ 16` to the benchmark streams through log-stages of
+estimator-gated rows (every stage ≥ 128 bits + the grinding
+allowance; the measured boundary ships as `--example
+chain_coverage`); the Sound memory argument lands at **55.2 KB** at
+the test scale. (2) **SALSA D4** — the Akita/zkVM response-layer
+swap: the v2 pipeline's grouped openings run the byte-packed SALSAA
+chain (the ψ-functional carrier with verifier-computed weights
+replaces the transmitted LDE base) — **640–928 B responses, zero
+witness disclosure, 61–671× vs the Clear mode**. (3) **the Cyclo §7
+bridge's compact-PCS terminal** (`cyclo_terminal.rs`): the decider
+decides the ride-the-fold claims without the opened witness (the
+ring-functional width fold carrying (D1)/(D2)/(D3)). Workspace
+1,227 tests green.
 
 ## Wave 7 state (2026-09-29)
 

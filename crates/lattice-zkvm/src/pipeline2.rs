@@ -17,7 +17,8 @@
 
 use crate::pipeline::*;
 use crate::semantics::{prove_instruction_semantics, SemanticsProof};
-use lattice_akita::pcs::{AkitaPcs, EvaluationProof, GroupedOpening};
+use lattice_akita::pcs::{AkitaPcs, GroupedOpening};
+use lattice_akita::salsa_response::SalsaGroupedResponse;
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_memory::sparse_engine::{
@@ -134,7 +135,10 @@ pub struct ProofV2 {
     /// bundles.
     pub semantics: SemanticsProof,
     pub claims: Vec<ColumnClaim>,
-    pub openings: Vec<EvaluationProof>,
+    /// The Stage-5 grouped openings in the SALSAA response mode (D4:
+    /// the byte-packed D1∘D2 chain replaces the opened witness + the
+    /// digit-revealing NormProof — Θ(N) → polylog, no disclosure).
+    pub openings: Vec<SalsaGroupedResponse>,
 }
 
 /// Column slots in the commitment list.
@@ -287,7 +291,9 @@ pub fn prove_v2(
     for (ci, col) in t_cols.iter().enumerate() {
         let lv = col_log_vars(ci, log_t, log_t_in);
         let mle = DenseMle { num_vars: lv, evaluations: pad_to(col, lv) };
-        commitments.push(pcs.commit(&mle)?.commitment.to_bytes());
+        // The D4 regime: the columns commit their BYTE-PACKED witnesses
+        // (one byte per coefficient — the SALSAA chain's Lemma-4 gate).
+        commitments.push(pcs.commit_bytes(&mle)?.commitment.to_bytes());
     }
     // ---- 4. Public tables. ----
     let mut fetch_table: Vec<Goldilocks> = (0..program.len() / 4)
@@ -502,10 +508,11 @@ pub fn prove_v2(
             .collect();
         let lv = col_log_vars(ci, log_t, log_t_in);
         if col_claims.is_empty() {
-            openings.push(placebo_opening(pcs, col, lv)?);
+            openings.push(placebo_opening_salsa(pcs, col, lv)?);
         } else {
             let mle = DenseMle { num_vars: lv, evaluations: pad_to(col, lv) };
-            openings.push(pcs.prove_grouped(&mle, &col_claims, &mut transcript)?);
+            let (resp, _packed) = pcs.prove_grouped_salsa(&mle, &col_claims, &mut transcript)?;
+            openings.push(resp);
         }
     }
     Ok((
@@ -554,15 +561,17 @@ fn pad_to(col: &[Goldilocks], log_vars: usize) -> Vec<Goldilocks> {
     v
 }
 
-fn placebo_opening(
+fn placebo_opening_salsa(
     pcs: &AkitaPcs,
     col: &[Goldilocks],
     log_vars: usize,
-) -> Result<EvaluationProof, PipelineError> {
+) -> Result<SalsaGroupedResponse, PipelineError> {
     let mle = DenseMle { num_vars: log_vars, evaluations: pad_to(col, log_vars) };
     let mut t = Transcript::new_default(b"lzx-placebo");
     let point: Vec<Goldilocks> = (0..log_vars).map(|i| fe(i as u64 + 1)).collect();
-    Ok(pcs.prove_evaluation(&mle, &point, &mut t)?)
+    let claims = [GroupedOpening { point, value: fe(0) }];
+    let (resp, _packed) = pcs.prove_grouped_salsa(&mle, &claims, &mut t)?;
+    Ok(resp)
 }
 
 fn ram_map() -> fn(FactorId) -> Option<usize> {
@@ -825,7 +834,7 @@ pub fn verify_v2(
             num_packed: 0,
             num_vars: col_log_vars(ci, log_t, log_t_in),
         };
-        pcs.verify_grouped(&comm, &col_claims, opening, &mut transcript)?;
+        pcs.verify_grouped_salsa(&comm, &col_claims, opening, &mut transcript)?;
     }
     Ok(())
 }
@@ -897,6 +906,45 @@ mod tests {
             c.value = c.value.add(&Goldilocks::ONE);
         }
         assert!(verify_v2(&pcs, &program, &input, &state, &proof, 64).is_err());
+    }
+
+    /// The D4 response-layer swap's tamper coverage at the pipeline
+    /// level: a tampered SALSAA opening (f_term / z_r / carrier round)
+    /// must reject at Stage 5.
+    #[test]
+    fn v2_tampered_salsa_opening_rejected() {
+        let pcs = setup();
+        let program = demo_program();
+        let input = 42u64.to_le_bytes().to_vec();
+        let (state, mut proof) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
+        // Tamper the first non-placebo opening's f_term: the terminal
+        // binding fails.
+        if let Some(op) = proof
+            .openings
+            .iter_mut()
+            .find(|o| o.chain.num_elements > 0)
+        {
+            op.f_term = op.f_term.add(&Goldilocks::ONE);
+        }
+        assert!(verify_v2(&pcs, &program, &input, &state, &proof, 64).is_err());
+
+        // Tamper z_r on a fresh proof: the D1 reconstruction fails.
+        let (state2, mut proof2) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
+        if let Some(op) = proof2
+            .openings
+            .iter_mut()
+            .find(|o| o.chain.num_elements > 0)
+        {
+            op.z_r = op.z_r.add(&Goldilocks::ONE);
+        }
+        assert!(verify_v2(&pcs, &program, &input, &state2, &proof2, 64).is_err());
+
+        // The proof carries NO opened witness anywhere (the disclosure
+        // removal): the openings' wire is two sumchecks + O(1) claims.
+        let (_, proof3) = prove_v2(&pcs, &program, &input, 64).ok().unwrap();
+        for op in &proof3.openings {
+            assert!(std::mem::size_of_val(&op.chain) < 4096);
+        }
     }
 
     #[test]
