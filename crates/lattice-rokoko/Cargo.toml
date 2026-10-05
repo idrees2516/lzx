@@ -13,3 +13,4 @@ lattice-ring = { workspace = true }
 lattice-commitment = { workspace = true }
 lattice-sumcheck = { workspace = true }
 lattice-salsa = { workspace = true }
+lattice-sis-estimator = { workspace = true }

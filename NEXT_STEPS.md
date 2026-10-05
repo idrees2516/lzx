@@ -1,5 +1,48 @@
 # LZX Next-Implementation Research
 
+## Session update (2026-10-05 (III) — the RoKoko statement-growth driver + the parbreak estimator wiring + the SOTA ledger)
+
+The parallel session's landing (this one; rebased onto (II)):
+
+1. **The RoKoko statement-growth driver** (the top ledger item) —
+   `lattice-rokoko/driver.rs`: Π^proj-c (Fig 2/Lemma 7) and
+   **Π^proj-f (Fig 3/Lemma 8 — the k_lin → k_lin + 2 growth with the
+   exact trace-dual lift `Tr(V) = (I⊗J)·cf(W)` and the n_bat
+   trace-consistency rows)**, the §8.3 round loop (coarse → fine →
+   terminal), the growth-ledger replay (fail-closed on any deviation
+   from Lemma 7/8's exact growth), the ℓ-block conversion (Fig 4
+   step 1), the signed balanced gadget, the TraceDiff constraint
+   variant, and the successor chain (the column key + the gadget
+   product + the z0 eq-claim carry). Complements session (II)'s
+   `proj_f.rs`/`schedule.rs`/`pcs_front.rs` components with the full
+   multi-round composition.
+2. **The parbreak estimator wiring** —
+   `lattice-rokoko/parbreak.rs`: Lemma 4's parbreak SIS derivation
+   for any COM depth through the offline estimator (both norms, the
+   cheaper attack governs), unioned with the fold-extraction
+   instance — fail-closed at driver setup on both sides, the verdict
+   riding the proof.
+3. **The SOTA ledger** — `docs/SOTA_COMPARISON.md` (NEW): Airbender
+   (~1 s L2 blocks; L1 blocks 9.4 s on 2× RTX 5090), Zisk (~32 GPUs
+   real-time L1), Lattice Jolt (>10 M cycles/s GPU / >2 M CPU,
+   ~200 B/cycle), Akita (61–70 KB proofs at 8.1–15.9 ms verify,
+   19–90× over Greyhound; in-Jolt 1.477 MHz at T=2²⁷), the EF bar
+   (≤10 s for 99% of blocks) — with the honest 4-order throughput
+   gap analysis and the **7-mechanism path to the bar** (the GPU
+   backend, the sparse default, the streaming default, the 2-level
+   fold, the MLE verifier tables, A3/A4's commitment-scale
+   substitution, the §12 planner).
+4. **The full-system re-benchmark** — `docs/BENCHMARKS.md` §0: fib
+   1 366 ms / 198 ms / 33.0 KB batched-compact; the driver bench
+   4 620 ms / 484 ms; the docs/matrix/paper-page updates
+   (RoKoko → implemented, 37 tests).
+
+The remaining top-of-ledger (unchanged from (II) + the SOTA path):
+the GPU backend (~10×, mechanism #1), the sparse engine as the zkVM
+default (#2), the 2-level fold (Stage 5.2 — the 128-bit closure), the
+unified-field ring_check residual (a5_committed's documented gap), and
+the per-level §12 planner.
+
 ## Session update (2026-10-05 (II) — the H6 full-fidelity route + the A5 commitment-scale driver)
 
 The two highest-value ledger items landed, closing the honest-ledger's

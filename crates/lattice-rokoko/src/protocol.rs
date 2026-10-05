@@ -262,6 +262,15 @@ pub enum ScConstraint {
     Norm {
         value: RingElement,
     },
+    /// The statement-growth driver's Lemma-8 trace row:
+    /// `⟨a_l, ŵ⟩ − ⟨a_r, ŵ⟩ = value` with the additional public gate
+    /// `ct(value) = 0` (the trace-zero consistency; Remark 3's
+    /// power-of-two shortcut).
+    TraceDiff {
+        a_l: Vec<RingElement>,
+        a_r: Vec<RingElement>,
+        value: RingElement,
+    },
 }
 
 impl ScConstraint {
@@ -299,6 +308,19 @@ impl ScConstraint {
                     value: value.clone(),
                 }])
             }
+            ScConstraint::TraceDiff { a_l, a_r, .. } => {
+                let neg_r: Vec<RingElement> = a_r.iter().map(|x| x.neg()).collect();
+                Ok(vec![
+                    ProductClaim {
+                        tables: vec![a_l.clone(), w_hat.to_vec()],
+                        value: ring.zero(),
+                    },
+                    ProductClaim {
+                        tables: vec![neg_r, w_hat.to_vec()],
+                        value: ring.zero(),
+                    },
+                ])
+            }
         }
     }
 
@@ -315,6 +337,13 @@ impl ScConstraint {
             }
             ScConstraint::Lin { a, .. } => vec![vec![a.clone(), vec![z0.clone()]]],
             ScConstraint::Norm { .. } => vec![vec![vec![z0.clone()], vec![z1.clone()]]],
+            ScConstraint::TraceDiff { a_l, a_r, .. } => {
+                let neg_r: Vec<RingElement> = a_r.iter().map(|x| x.neg()).collect();
+                vec![
+                    vec![a_l.clone(), vec![z0.clone()]],
+                    vec![neg_r, vec![z0.clone()]],
+                ]
+            }
         }
     }
 
@@ -325,7 +354,21 @@ impl ScConstraint {
             ScConstraint::Lindiff { .. } => None,
             ScConstraint::Lin { value, .. } => Some(value),
             ScConstraint::Norm { value } => Some(value),
+            ScConstraint::TraceDiff { value, .. } => Some(value),
         }
+    }
+}
+
+/// The constant-coefficient balanced representative (Remark 3's
+/// power-of-two trace shortcut: `Tr(x) = n·ct(x)` with `n` invertible
+/// mod q — the driver's trace gates run on `ct`).
+pub fn ct_of(x: &RingElement) -> i64 {
+    let q = i64::from(x.config().modulus.q);
+    let c0 = x.coeff(0) as i64;
+    if c0 > q / 2 {
+        c0 - q
+    } else {
+        c0
     }
 }
 
@@ -773,6 +816,16 @@ pub fn rokoko_verify(
             }
             ScConstraint::Norm { value } => {
                 if norm_conjugate_inner(w_hat)? != *value {
+                    return Err(ProtocolError::ConstraintFailed);
+                }
+            }
+            ScConstraint::TraceDiff { a_l, a_r, value } => {
+                // the full ring identity (sumcheckified above) …
+                if ring_dot(a_l, w_hat)?.sub(&ring_dot(a_r, w_hat)?)? != *value {
+                    return Err(ProtocolError::ConstraintFailed);
+                }
+                // … plus Lemma 8's public trace gate: ct(value) = 0.
+                if ct_of(value) != 0 {
                     return Err(ProtocolError::ConstraintFailed);
                 }
             }

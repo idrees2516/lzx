@@ -1,8 +1,23 @@
 # LZX zkVM Benchmarks — End-to-End Memory-Argument Proofs vs SOTA zkVMs
 
-Date: 2026-09-29. Harness: `cargo run --release -p lattice-bench --bin
-zkvm-membench`. Guest programs: `lattice-guest` (Jolt-lineage benchmark
-set, real algorithms, reference-checked).
+Date: 2026-09-29; re-run + extended 2026-10-05. Harness: `cargo run
+--release -p lattice-bench --bin zkvm-membench`. Guest programs:
+`lattice-guest` (Jolt-lineage benchmark set, real algorithms,
+reference-checked).
+
+## 0. The 2026-10-05 full-system re-run (this session)
+
+| harness | workload | prove | verify | size |
+|---|---|---|---|---|
+| zkvm-membench (batched-compact) | fibonacci, 185 cycles | **1 366 ms** | **198 ms** | **33.0 KB** |
+| rokoko driver_bench | m_w=512, r=2, 2 rounds (coarse +1 → fine +2/+n_bat) | 4 620 ms | 484 ms | ledger-published |
+| akita recursion_bench | 4-block fold chain + the Rice terminal | ~1 ms | ~1 ms | 600 B terminal |
+| labinius lattice-bench | the PCS round suite (sizem) | 78 ms/round | 2.6 ms | — |
+| projsumcheck proj_bench | degree-2 sumcheck n=20 | 18.8 ms | — | 320 B (1.50× smaller) |
+
+The SOTA reading of these numbers lives in
+[`SOTA_COMPARISON.md`](SOTA_COMPARISON.md) — the Airbender / Zisk /
+Lattice-Jolt / Akita ledger and the mechanism-by-mechanism gap map.
 
 ## 1. What is measured
 

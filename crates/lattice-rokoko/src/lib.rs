@@ -38,6 +38,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod com;
+pub mod driver;
+pub mod parbreak;
 pub mod pcs_front;
 pub mod proj_f;
 pub mod protocol;
