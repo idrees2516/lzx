@@ -25,7 +25,7 @@ measures today and which specific mechanism separates the two.
 
 | workload | prove | verify | proof | note |
 |---|---|---|---|---|
-| zkVM end-to-end (fib, 185 cycles, batched-compact) | 1 366 ms | 198 ms | **33.0 KB** | the full memory argument: 9 T&S instances, 12 batched sumchecks, verifier never re-executes |
+| zkVM end-to-end (fib, 185 cycles, batched-compact) | 160 ms | 58 ms | **31.0 KB** | the full memory argument: 9 T&S instances, 12 batched sumchecks, the Stage-5.2 claims fold, verifier never re-executes |
 | zkVM end-to-end (regex, 451 cycles, compact) | ~4 600 ms | ~288 ms | 108.4 KB | pre-batching number, kept for the record |
 | RoKoko statement-growth driver (m_w=512, 2 rounds: coarse +1 block, fine +2 blocks/+n_bat) | 4 620 ms | 484 ms | — | this session: Lemma 7/8 semantics, the parbreak estimator gate (11.7 bits at toy params — fail-closed) |
 | Akita A5 recursion driver (4-block batch → fold → Rice terminal) | ~1 ms | ~1 ms | 600 B terminal (Rice) | this session: the §8.2 stop rule + signed-Rice reveal |
@@ -45,12 +45,15 @@ measures today and which specific mechanism separates the two.
    but is not yet the default.
 2. **Proof size (within ~2× at the PCS layer, ahead at the
    memory-argument layer).** Our batched-compact memory-argument proof
-   is 33 KB at 185 cycles; Akita's PCS opening is 61–70 KB at 2²⁷ bits
+   is 31 KB at 185 cycles; Akita's PCS opening is 61–70 KB at 2²⁷ bits
    — different objects, but the *shape* is right: the 50 KB design
-   target was met via leg batching + amortized openings (110× over the
-   clear mode). The remaining term is the 3.5 KB values-only claims
-   list (345 claims) — the paper's recursive/2-level fold (Stage 5.2)
-   compresses it further.
+   target was met via leg batching + amortized openings (117× over the
+   clear mode), and the last per-claim term — the 3.5 KB values-only
+   claims list — is now folded away by the **Stage-5.2 claims fold
+   (mechanism #4, this session)**: a GKR-style product tree over the
+   deferred expect identities, terminating in two leaf claims bound by
+   the carriers. 2.9–3.5 KB → **1.02 KB** (shape-flat across the
+   fib-test/fib(18)/fib(40) ladder).
 3. **Verification (within ~1 order at kernel scale).** 198 ms vs
    Akita's 8–16 ms single-thread at full scale — the gap is the
    O(cycles) public-table recomputation (the program image) plus the
@@ -82,7 +85,7 @@ measures today and which specific mechanism separates the two.
 | 1 | GPU/Metal prover backend for the sumcheck+fold kernels | Zisk/LJ practice | ~10× (the LJ CPU→Metal ratio) | not started |
 | 2 | sparse engine as the zkVM default (the 0s-are-free path) | T&S §6.3/§7 | lifts the cycle cap; K=2¹⁰×T=2¹⁰ Shout already <60 ms | engine landed, wiring partial |
 | 3 | streaming as the default prover (O(K+log T)) | ePrint 2025/611 | unbounded T at ~3.3× the hybrid switch speed | landed, opt-in |
-| 4 | the 2-level fold (LaBRADOR decider, Stage 5.2) | LaBRADOR/§5.6 | 128-bit MSIS at benchmark lengths; claims 3.5 KB → ~1 KB | specified |
+| 4 | the 2-level fold (LaBRADOR decider, Stage 5.2) | LaBRADOR/§5.6 | 128-bit MSIS at benchmark lengths; claims 3.5 KB → ~1 KB | **landed**: the width-fold chain (2026-10-04) + the claims fold (2026-10-05) |
 | 5 | MLE-structured verifier tables (Stage 5.3) | §9.4 constant-root | verify 198 ms → ~20 ms | specified |
 | 6 | the A3/A4 commitment-scale substitution | Akita §7 | polylog private responses (kill the terminal reveals) | the documented gap |
 | 7 | the per-level planner (digit-depth re-tuning) | Akita §12 | shrinking multi-level recursion (the A5 driver's chain grows at fixed depths) | the documented gap |
@@ -97,7 +100,8 @@ different question — "what do the eleven protocol cores beneath those
 systems actually compute, and do they compose" — and measures itself
 against the second cohort's mechanisms, not the first cohort's
 deployments. The kernel's honest position: **proof-size machinery
-within reach of Akita's shape; throughput 4 orders out pending the GPU
-backend and the sparse/streaming defaults; security gated
-fail-closed by the in-tree estimator with the second-level fold as
-the named 128-bit closure.**
+within reach of Akita's shape (the claims list folded away — mechanism
+#4 landed); throughput 4 orders out pending the GPU backend and the
+sparse/streaming defaults; security gated fail-closed by the in-tree
+estimator with the second-level fold's coverage as the named 128-bit
+closure.**

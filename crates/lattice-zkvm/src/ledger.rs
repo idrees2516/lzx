@@ -217,6 +217,59 @@ pub struct ValueClaim {
     pub value: Goldilocks,
 }
 
+/// **The Stage-5.2 slot ledger** (the claims-fold verifier mode): pops
+/// record `(factor, point)` pairs in first-pop order — the slot list —
+/// instead of consuming transmitted values. The fold's leaf references
+/// and the carrier's flat-point mapping consume the slot list; the
+/// VALUES never cross the wire.
+///
+/// The discipline mirrors `Ledger::pop` exactly: the first pop of a
+/// `(factor, point)` key records a fresh slot; repeats return the cached
+/// slot index without recording (the prover's `record` dedups the same
+/// way, so both sides agree on the slot numbering).
+#[derive(Default)]
+pub struct SlotLedger {
+    seen: HashMap<(u8, usize, Vec<u8>), usize>,
+    slots: Vec<(Factor, Vec<Goldilocks>)>,
+}
+
+impl SlotLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Pop a slot index for `(factor, point)` — recording on first pop.
+    pub fn pop(&mut self, factor: Factor, point: &[Goldilocks]) -> Result<usize, LedgerError> {
+        let key = (factor.discriminant(), factor.payload(), point_bytes(point));
+        if let Some(&i) = self.seen.get(&key) {
+            return Ok(i);
+        }
+        let i = self.slots.len();
+        self.slots.push((factor, point.to_vec()));
+        self.seen.insert(key, i);
+        Ok(i)
+    }
+
+    /// The recorded slot list — `(factor, point)` in first-pop order;
+    /// index `i` is slot `i` of the fold.
+    pub fn slots(&self) -> &[(Factor, Vec<Goldilocks>)] {
+        &self.slots
+    }
+
+    /// The slot list as base claims (value-free) for the carrier's
+    /// flat-point mapping.
+    pub fn to_claims(&self) -> Vec<BaseClaim> {
+        self.slots
+            .iter()
+            .map(|(f, p)| BaseClaim {
+                factor: *f,
+                point: p.clone(),
+                value: Goldilocks::ZERO,
+            })
+            .collect()
+    }
+}
+
 impl<'a> Ledger<'a> {
     /// Prover-mode ledger over the full committed-factor table.
     pub fn prover(table: Vec<(Factor, &'a DenseMle)>) -> Self {
@@ -257,6 +310,42 @@ impl<'a> Ledger<'a> {
         }
     }
 
+    /// The first-occurrence claims in first-recording order — the
+    /// claims-fold's slot list (factor, point, value): the values feed
+    /// the prover's fold, the factors the bundle split, and the points
+    /// the carriers' flat mapping.
+    pub fn slot_claims(&self) -> Vec<BaseClaim> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for c in self.claims.iter() {
+            if seen.insert((
+                c.factor.discriminant(),
+                c.factor.payload(),
+                point_bytes(&c.point),
+            )) {
+                out.push(c.clone());
+            }
+        }
+        out
+    }
+
+    /// The first-occurrence claim values in first-recording order — the
+    /// claims-fold's slot values (the verifier's `SlotLedger` numbering).
+    pub fn slot_values(&self) -> Vec<Goldilocks> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for c in self.claims.iter() {
+            if seen.insert((
+                c.factor.discriminant(),
+                c.factor.payload(),
+                point_bytes(&c.point),
+            )) {
+                out.push(c.value);
+            }
+        }
+        out
+    }
+
     /// The recorded base claims.
     pub fn claims(&self) -> &[BaseClaim] {
         &self.claims
@@ -279,6 +368,19 @@ impl<'a> Ledger<'a> {
             point: point.to_vec(),
             value,
         });
+    }
+
+    /// The prover-side slot index of a recorded claim (the claims-fold
+    /// derivation's leaf references): the index into `claims()` of the
+    /// FIRST recording of `(factor, point)` — the verifier's slot
+    /// numbering (the `SlotLedger`'s first-pop order).
+    pub fn claim_index(&self, factor: Factor, point: &[Goldilocks]) -> Option<usize> {
+        let key = (factor.discriminant(), factor.payload(), point_bytes(point));
+        self.seen.get(&key).map(|_| ())?;
+        // First occurrence in recording order.
+        self.claims
+            .iter()
+            .position(|c| c.factor == factor && point_bytes(&c.point) == point_bytes(point))
     }
 
     fn pop(&mut self, factor: Factor, point: &[Goldilocks]) -> Result<Goldilocks, LedgerError> {

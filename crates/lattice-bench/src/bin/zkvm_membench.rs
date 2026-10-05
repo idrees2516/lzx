@@ -131,9 +131,16 @@ fn measure_memory_argument(
 
 fn compact_proof_size_kb(proof: &CompactMemoryProof) -> usize {
     let mut bytes = 0usize;
-    for _c in &proof.claims {
-        bytes += 1 + 1 + 8; // values-only (points verifier-derived)
+    // The Stage-5.2 claims fold replaces the values-only claims list:
+    // the layer sumchecks + the claim pairs + the two S values + the 18
+    // pre-leg claimed-vector entries (the only values still in the
+    // clear).
+    for layer in &proof.fold.layers {
+        bytes += layer.rounds.len() * layer.rounds[0].len().max(1) * 8 + 16;
     }
+    bytes += proof.fold.claims.len() * 2 * 8;
+    bytes += 16; // s_bits + s_vals
+    bytes += (proof.fold.addr_claims.len() + proof.fold.rv_claims.len()) * 8;
     for sc in proof.legs.sumchecks() {
         bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
     }

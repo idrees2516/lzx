@@ -11,6 +11,31 @@ chronological order (newest first). Companion artifacts:
 
 Test counts are the workspace totals at each wave's landing commit.
 
+## 2026-10-05 (IV) — the Stage-5.2 claims fold: the values-only list folded away
+
+**Modules:** `lattice-zkvm/src/claimsfold.rs` (NEW, ~710 lines, 3
+suites), the `legbatch.rs` deferred derivation + the folded verifier
+(~640 new lines), `ledger.rs`'s `SlotLedger` + the prover slot-index
+map, `memproof.rs`'s folded carriers (both the compact and the Sound
+modes). The SOTA ledger's mechanism #4 ("claims 3.5 KB → ~1 KB") is
+LANDED: the compact/Sound memory arguments no longer transmit the
+values-only claims list — every expect identity of the batched legs is
+transcribed into a deferred monomial over the claim slots (the affine
+leaves absorb `digit_affine` and the inc-offset shift), a GKR-style
+product tree of `s = ⌈log₂ max arity⌉` degree-3 layer sumchecks folds
+them into two leaf claims, the leaf linear form's weights are
+verifier-computable (the preimage-eq collapse), and the CARRIERS —
+with the fold-derived weights plus fresh ρ′ for the 18 pre-leg
+entries — bind everything to the committed bundles exactly as before.
+Measured: the claims component 2.9–3.5 KB → **1.02 KB** (3 layers, 24
+rounds, shape-flat across the fib ladder); the end-to-end
+batched-compact proof **33.0 → 31.0 KB** at the 185-cycle fibonacci.
+Workspace 88 suites / **1,328 tests green** (was 1,313); clippy clean
+on the touched crates; fmt applied. See BENCHMARKS §0f + the
+`claims_probe` example for the measured tables.
+
+---
+
 ## 2026-10-05 (II) — the H6 full-fidelity route + the A5 commitment-scale driver
 
 **Modules:** `lattice-pcs/src/hyperwolf_labrador.rs` (NEW, ~3,400

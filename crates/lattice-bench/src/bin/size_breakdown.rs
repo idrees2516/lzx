@@ -62,12 +62,17 @@ fn main() {
 }
 
 fn breakdown_compact(proof: &CompactMemoryProof) {
+    // The Stage-5.2 claims fold (the values-only list is gone): the
+    // layers + the claim pairs + the S values + the 18 pre-leg entries.
     let mut claims_bytes = 0usize;
     let mut n_claims = 0usize;
-    for _c in &proof.claims {
-        claims_bytes += 1 + 1 + 8; // values-only
+    for layer in &proof.fold.layers {
+        claims_bytes += layer.rounds.len() * layer.rounds[0].len().max(1) * 8 + 16;
         n_claims += 1;
     }
+    claims_bytes += proof.fold.claims.len() * 2 * 8 + 16;
+    claims_bytes += (proof.fold.addr_claims.len() + proof.fold.rv_claims.len()) * 8;
+    n_claims += 2; // the S pair
     let mut legs_bytes = 0usize;
     let mut n_legs = 0usize;
     for sc in proof.legs.sumchecks() {

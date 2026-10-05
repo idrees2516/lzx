@@ -34,10 +34,11 @@ use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_vm::{run as vm_run, MachineState};
 
+use crate::claimsfold::{prove_claims_fold, verify_claims_fold, ClaimsFoldProof};
 use crate::columns::{build_cycle_witness, CycleWitness, FetchWindow, RamWindow};
 use crate::ledger::{
     bits_bundle_commit, values_bundle_commit, verify_bundle_opening, BaseClaim, BundleOpening,
-    Factor, Ledger, ValueClaim,
+    Factor, Ledger, SlotLedger,
 };
 use crate::memory::{
     activity_factor, addr_factor, inc_factor, prove_memory, rv_factor, verify_memory, wv_factor,
@@ -79,6 +80,8 @@ pub enum MemProofError {
     Memory(crate::memory::MemoryError),
     Ledger(crate::ledger::LedgerError),
     Execution(lattice_vm::ExecError),
+    /// The Stage-5.2 claims fold's own error surface.
+    Fold(crate::claimsfold::FoldError),
     Shape,
     VerificationFailed,
 }
@@ -750,21 +753,23 @@ use crate::ledger::{idx_point, LedgerError};
 use lattice_sumcheck::sumcheck;
 use lattice_sumcheck::VirtualPolynomial;
 
-/// The compact memory-argument proof.
+/// The compact memory-argument proof — **the Stage-5.2 folded form**: the
+/// values-only claims list is REPLACED by the claims fold (`fold`), with
+/// only the 18 pre-leg claimed-vector entries (the address / read-value
+/// entries) still crossing the wire in the clear.
 #[derive(Clone, Debug)]
 pub struct CompactMemoryProof {
     pub statement: MemoryStatement,
-    /// Values-only claims in ledger recording order (the points are
-    /// verifier-derived from the leg replay).
-    pub claims: Vec<ValueClaim>,
+    /// The claims fold: the layer sumchecks + the terminal claims + the
+    /// per-bundle leaf sums (the values list never appears).
+    pub fold: ClaimsFoldProof,
     /// The Stage-4 batched legs (12 sumchecks replacing the ~117
     /// per-instance legs; the DESIGN_50KB final cut).
     pub legs: crate::legbatch::BatchedLegs,
     /// The per-bundle column commitments (r × k ring elements each).
     pub bits_commitment: Vec<u8>,
     pub values_commitment: Vec<u8>,
-    /// The Goldilocks grouped carriers (identical protocol to the Clear
-    /// mode's carrier).
+    /// The Goldilocks grouped carriers (with the fold-derived weights).
     pub bits_carrier: sumcheck::SumcheckProof,
     pub values_carrier: sumcheck::SumcheckProof,
     /// f(r_sc) per bundle (the carrier terminal bound by the fold).
@@ -954,7 +959,7 @@ pub fn prove_memory_argument_compact(
         .append_bytes(b"values-commitment", &values_commitment)
         .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
 
-    // 7. The legs (identical to the Clear mode).
+    // 7. The legs + the fold context (the values never leave the prover).
     let mut table: Vec<(Factor, &DenseMle)> = Vec::new();
     for (f, m) in digit_tensors.iter() {
         table.push((*f, m));
@@ -966,51 +971,94 @@ pub fn prove_memory_argument_compact(
         table.push((*f, m));
     }
     let mut ledger = Ledger::prover(table);
-    let all_legs = crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
-        .map_err(MemProofError::Memory)?;
-    let full_claims: Vec<BaseClaim> = ledger.claims().to_vec();
-    let claims: Vec<ValueClaim> = full_claims
+    let (all_legs, fold_ctx) =
+        crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
+            .map_err(MemProofError::Memory)?;
+    // The pre-leg claimed-vector entries are transmitted in the clear:
+    // absorb them (FS hygiene) before any fold challenge.
+    absorb_field_slice(&mut transcript, b"fold-addr", &fold_ctx.addr_claims)?;
+    absorb_field_slice(&mut transcript, b"fold-rv", &fold_ctx.rv_claims)?;
+
+    // 8. The claims fold (Stage 5.2): the deferred expects over the slot
+    //    list, proven by the layer sumchecks — no values cross.
+    let slot_claims: Vec<BaseClaim> = ledger.slot_claims();
+    let slot_values: Vec<Goldilocks> = slot_claims.iter().map(|c| c.value).collect();
+    let slot_bits: Vec<bool> = slot_claims
         .iter()
-        .map(|c| ValueClaim {
-            factor: c.factor,
-            value: c.value,
-        })
+        .map(|c| c.factor.in_bits_bundle())
         .collect();
-    let bits_claims: Vec<BaseClaim> = full_claims
+    let set = crate::legbatch::derive_claims_fold(
+        &instances,
+        &all_legs,
+        &fold_ctx,
+        |f, pt| {
+            ledger
+                .claim_index(f, pt)
+                .ok_or(crate::memory::MemoryError::ClaimMismatch)
+        },
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    let (fold, binding) = prove_claims_fold(
+        &set,
+        &slot_values,
+        &slot_bits,
+        fold_ctx.addr_claims.clone(),
+        fold_ctx.rv_claims.clone(),
+        &mut transcript,
+    )
+    .map_err(MemProofError::Fold)?;
+
+    // 9. The carriers with the fold-derived weights + compact openings.
+    let bits_flat = bits_prover.flat_mle();
+    let values_flat = values_prover.flat_mle();
+    let bits_refs: Vec<(Factor, &DenseMle)> = digit_tensors
+        .iter()
+        .chain(activity_cols.iter())
+        .map(|(f, m)| (*f, m))
+        .collect();
+    let values_refs: Vec<(Factor, &DenseMle)> = stream_cols.iter().map(|(f, m)| (*f, m)).collect();
+    let bits_claims: Vec<BaseClaim> = slot_claims
         .iter()
         .filter(|c| c.factor.in_bits_bundle())
         .cloned()
         .collect();
-    let values_claims: Vec<BaseClaim> = full_claims
+    let values_claims: Vec<BaseClaim> = slot_claims
         .iter()
         .filter(|c| !c.factor.in_bits_bundle())
         .cloned()
         .collect();
+    let bits_slot_of: Vec<usize> = (0..slot_claims.len())
+        .filter(|&i| slot_claims[i].factor.in_bits_bundle())
+        .collect();
+    let values_slot_of: Vec<usize> = (0..slot_claims.len())
+        .filter(|&i| !slot_claims[i].factor.in_bits_bundle())
+        .collect();
+    let bits_pts = flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat.num_vars)?;
+    let values_pts =
+        flat_points_for_claims_full(&values_refs, &values_claims, values_flat.num_vars)?;
+    let bits_weights: Vec<Goldilocks> = bits_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let values_weights: Vec<Goldilocks> =
+        values_slot_of.iter().map(|&i| binding.weights[i]).collect();
 
-    // 8. The carriers + compact openings.
-    let bits_flat = bits_prover.flat_mle();
-    let values_flat = values_prover.flat_mle();
-    let bits_pts = flat_points_for_claims_full(
-        &digit_tensors
-            .iter()
-            .chain(activity_cols.iter())
-            .map(|(f, m)| (*f, m))
-            .collect::<Vec<_>>(),
+    let (bits_carrier, bits_rsc, bits_w) = prove_carrier_folded(
+        bits_flat,
         &bits_claims,
-        bits_flat.num_vars,
-    )?;
-    let values_pts = flat_points_for_claims_full(
-        &stream_cols.iter().map(|(f, m)| (*f, m)).collect::<Vec<_>>(),
+        &bits_pts,
+        &bits_weights,
+        fold.s_bits,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    let (values_carrier, values_rsc, values_w) = prove_carrier_folded(
+        values_flat,
         &values_claims,
-        values_flat.num_vars,
-    )?;
-
-    let (bits_carrier, bits_rsc, bits_w) =
-        prove_carrier_goldilocks(bits_flat, &bits_claims, &bits_pts, &mut transcript)
-            .map_err(MemProofError::Ledger)?;
-    let (values_carrier, values_rsc, values_w) =
-        prove_carrier_goldilocks(values_flat, &values_claims, &values_pts, &mut transcript)
-            .map_err(MemProofError::Ledger)?;
+        &values_pts,
+        &values_weights,
+        fold.s_vals,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
 
     let bits_opening = bits_prover
         .prove_compact_opening(&bits_rsc, &bits_w, &mut transcript)
@@ -1022,7 +1070,7 @@ pub fn prove_memory_argument_compact(
     Ok((
         CompactMemoryProof {
             statement,
-            claims,
+            fold,
             legs: all_legs,
             bits_commitment,
             values_commitment,
@@ -1045,31 +1093,119 @@ pub fn prove_memory_argument_compact(
     ))
 }
 
-/// The Goldilocks grouped carrier (the Clear mode's carrier, extracted):
-/// proves Σ_x f(x)·E(x) = Σ_i ρ_i·v_i with E = Σ_i ρ_i·eq(pt_i, ·).
-/// Returns (proof, r_sc, f(r_sc)).
-fn prove_carrier_goldilocks(
+/// Absorb a field-element slice under a label.
+fn absorb_field_slice(
+    transcript: &mut Transcript,
+    label: &[u8],
+    values: &[Goldilocks],
+) -> Result<(), MemProofError> {
+    transcript
+        .append_field_slice(label, values)
+        .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))
+}
+
+/// The folded carrier: the same grouped sumcheck as the clear-list
+/// design with the fold-derived weights replacing the fresh ρ challenges
+/// and the right-hand side the fold-bound per-bundle partial sum plus
+/// the (verifier-computable) ρ′-weighted transmitted entries.
+fn prove_carrier_folded(
     flat: &DenseMle,
     claims: &[BaseClaim],
     points: &[Vec<Goldilocks>],
+    fold_weights: &[Goldilocks],
+    s_bundle: Goldilocks,
     transcript: &mut Transcript,
 ) -> Result<(sumcheck::SumcheckProof, Vec<Goldilocks>, Goldilocks), LedgerError> {
+    // The fresh ρ′ for the transmitted (addr/rv) slots of this bundle —
+    // their values are public, so their carrier contribution is
+    // verifier-computable.
+    let trans: Vec<bool> = claims
+        .iter()
+        .map(|c| matches!(c.factor, Factor::AddrCol { .. } | Factor::RvCol { .. }))
+        .collect();
+    let n_trans = trans.iter().filter(|&&t| t).count();
     let rhos = transcript
-        .challenge_fields(b"bundle-rho", points.len())
+        .challenge_fields(b"trans-rho", n_trans)
         .map_err(LedgerError::Transcript)?;
+    let mut weights = Vec::with_capacity(claims.len());
+    let mut rho_iter = rhos.iter();
+    let mut rhs = s_bundle;
+    for (i, c) in claims.iter().enumerate() {
+        let w = fold_weights
+            .get(i)
+            .copied()
+            .ok_or_else(|| LedgerError::Layout("fold weight arity".into()))?;
+        if trans[i] {
+            let rho = rho_iter.next().ok_or(LedgerError::Layout("rho".into()))?;
+            weights.push(w.add(rho));
+            rhs = rhs.add(&rho.mul(&c.value));
+        } else {
+            weights.push(w);
+        }
+    }
     let mut vp = VirtualPolynomial::new(flat.num_vars);
     let fi = vp.add_factor(flat.clone()).map_err(LedgerError::Virtual)?;
-    let mut combined = Goldilocks::ZERO;
     for (i, pt) in points.iter().enumerate() {
         let eq = DenseMle::eq_extension(pt);
         let ei = vp.add_factor(eq).map_err(LedgerError::Virtual)?;
-        vp.add_term(rhos[i], vec![fi, ei])
+        vp.add_term(weights[i], vec![fi, ei])
             .map_err(LedgerError::Virtual)?;
-        combined = combined.add(&rhos[i].mul(&claims[i].value));
     }
-    let out = sumcheck::prove(&vp, combined, transcript).map_err(LedgerError::Sumcheck)?;
+    let out = sumcheck::prove(&vp, rhs, transcript).map_err(LedgerError::Sumcheck)?;
     let w = out.factor_claims[fi];
     Ok((out.proof, out.challenges, w))
+}
+
+/// The folded carrier's verifier: recomputes the weights (the fold's W +
+/// the fresh ρ′ for the transmitted slots) and the right-hand side.
+#[allow(clippy::too_many_arguments)]
+fn verify_carrier_folded(
+    log_flat: usize,
+    claims: &[BaseClaim],
+    points: &[Vec<Goldilocks>],
+    fold_weights: &[Goldilocks],
+    s_bundle: Goldilocks,
+    carrier: &sumcheck::SumcheckProof,
+    w: &Goldilocks,
+    transcript: &mut Transcript,
+) -> Result<(Vec<Goldilocks>, Goldilocks), LedgerError> {
+    let trans: Vec<bool> = claims
+        .iter()
+        .map(|c| matches!(c.factor, Factor::AddrCol { .. } | Factor::RvCol { .. }))
+        .collect();
+    let n_trans = trans.iter().filter(|&&t| t).count();
+    let rhos = transcript
+        .challenge_fields(b"trans-rho", n_trans)
+        .map_err(LedgerError::Transcript)?;
+    let mut weights = Vec::with_capacity(claims.len());
+    let mut rho_iter = rhos.iter();
+    let mut rhs = s_bundle;
+    for (i, c) in claims.iter().enumerate() {
+        let w = fold_weights
+            .get(i)
+            .copied()
+            .ok_or_else(|| LedgerError::Layout("fold weight arity".into()))?;
+        if trans[i] {
+            let rho = rho_iter.next().ok_or(LedgerError::Layout("rho".into()))?;
+            weights.push(w.add(rho));
+            rhs = rhs.add(&rho.mul(&c.value));
+        } else {
+            weights.push(w);
+        }
+    }
+    let verdict = carrier
+        .verify(log_flat, 2, rhs, transcript, None)
+        .map_err(LedgerError::Sumcheck)?;
+    // E(r_sc) = Σ_i weight_i·eq(pt_i, r_sc); require E·w = final_claim.
+    let mut e_r = Goldilocks::ZERO;
+    for (i, pt) in points.iter().enumerate() {
+        let eq_v = DenseMle::eq_eval(pt, &verdict.point).map_err(LedgerError::Mle)?;
+        e_r = e_r.add(&weights[i].mul(&eq_v));
+    }
+    if e_r.mul(w) != verdict.final_claim {
+        return Err(LedgerError::DerivedMismatch);
+    }
+    Ok((verdict.point, verdict.final_claim))
 }
 
 /// Verify the compact memory argument with NO re-execution: the same
@@ -1182,16 +1318,59 @@ pub fn verify_memory_argument_compact(
         .append_bytes(b"values-commitment", &proof.values_commitment)
         .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
 
-    // 4. Ledger (values-only verifier mode) + per-instance leg replay:
-    //    the claim points are re-derived by the replay.
-    let mut ledger = Ledger::verifier_values(proof.claims.clone());
-    crate::legbatch::verify_legs_batched(&instances, &proof.legs, &mut ledger, &mut transcript)
-        .map_err(MemProofError::Memory)?;
-    if ledger.queue_len() != 0 {
-        return Err(MemProofError::Shape);
+    // 4. The deferred leg replay (NO values cross): the claimed vectors'
+    let ctx = crate::legbatch::verify_legs_batched_folded(
+        &instances,
+        &proof.legs,
+        &proof.fold.addr_claims,
+        &proof.fold.rv_claims,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    // The pre-leg values are absorbed AFTER the legs (the prover's
+    // order: the legs' sumcheck totals pin them first).
+    absorb_field_slice(&mut transcript, b"fold-addr", &proof.fold.addr_claims)?;
+    absorb_field_slice(&mut transcript, b"fold-rv", &proof.fold.rv_claims)?;
+
+    // 5. The claims fold: the derivation records the slots (the resolver)
+    //    and the layer sumchecks verify the deferred expects.
+    let mut slots = SlotLedger::new();
+    let set = crate::legbatch::derive_claims_fold(
+        &instances,
+        &proof.legs,
+        &ctx,
+        |f, pt| slots.pop(f, pt).map_err(crate::memory::MemoryError::Ledger),
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    let num_slots = slots.slots().len();
+    let binding = verify_claims_fold(&proof.fold, &set, num_slots, &mut transcript)
+        .map_err(MemProofError::Fold)?;
+
+    // The derived slot claims (factor + verifier-derived point, in slot
+    // order) — the carriers' flat mapping.
+    let mut derived: Vec<BaseClaim> = slots.to_claims();
+    // The transmitted pre-leg values (addr/rv) fill their slots' values —
+    // both in the derivation's pop order.
+    {
+        let mut addr_iter = proof.fold.addr_claims.iter();
+        let mut rv_iter = proof.fold.rv_claims.iter();
+        for c in derived.iter_mut() {
+            match c.factor {
+                Factor::AddrCol { .. } => {
+                    if let Some(v) = addr_iter.next() {
+                        c.value = *v;
+                    }
+                }
+                Factor::RvCol { .. } => {
+                    if let Some(v) = rv_iter.next() {
+                        c.value = *v;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
-    // The derived claims (with the verifier-derived points).
-    let derived: Vec<BaseClaim> = ledger.claims().to_vec();
     let bits_claims: Vec<BaseClaim> = derived
         .iter()
         .filter(|c| c.factor.in_bits_bundle())
@@ -1201,6 +1380,12 @@ pub fn verify_memory_argument_compact(
         .iter()
         .filter(|c| !c.factor.in_bits_bundle())
         .cloned()
+        .collect();
+    let bits_slot_of: Vec<usize> = (0..derived.len())
+        .filter(|&i| derived[i].factor.in_bits_bundle())
+        .collect();
+    let values_slot_of: Vec<usize> = (0..derived.len())
+        .filter(|&i| !derived[i].factor.in_bits_bundle())
         .collect();
     // Rebuild the bundle geometries (deterministic from the instances).
     let bits_entries = bundle_entries(&instances, true);
@@ -1226,26 +1411,32 @@ pub fn verify_memory_argument_compact(
         total.next_power_of_two().max(1).trailing_zeros() as usize
     };
 
-    // The carriers: the claim points come from the ledger's flat mapping
-    // over the geometry (full Factor matching).
+    // 6. The carriers with the fold-derived weights + the openings.
     let bits_refs: Vec<(Factor, &DenseMle)> = bits_entries.iter().map(|(f, m)| (*f, m)).collect();
     let values_refs: Vec<(Factor, &DenseMle)> =
         values_entries.iter().map(|(f, m)| (*f, m)).collect();
     let bits_pts = flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat_log)?;
     let values_pts = flat_points_for_claims_full(&values_refs, &values_claims, values_flat_log)?;
-    let (bits_rsc, _) = verify_carrier_goldilocks(
+    let bits_weights: Vec<Goldilocks> = bits_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let values_weights: Vec<Goldilocks> =
+        values_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let (bits_rsc, _) = verify_carrier_folded(
         bits_flat_log,
         &bits_claims,
         &bits_pts,
+        &bits_weights,
+        proof.fold.s_bits,
         &proof.bits_carrier,
         &proof.bits_w,
         &mut transcript,
     )
     .map_err(MemProofError::Ledger)?;
-    let (values_rsc, _) = verify_carrier_goldilocks(
+    let (values_rsc, _) = verify_carrier_folded(
         values_flat_log,
         &values_claims,
         &values_pts,
+        &values_weights,
+        proof.fold.s_vals,
         &proof.values_carrier,
         &proof.values_w,
         &mut transcript,
@@ -1291,19 +1482,19 @@ use crate::compact::{
     compact_bundle_commit_with_params, verify_sound_opening, FoldParams, SoundOpening,
 };
 
-/// The Sound memory-argument proof.
+/// The Sound memory-argument proof — **the Stage-5.2 folded form**: the
+/// claims list is replaced by the fold exactly as in the compact mode.
 #[derive(Clone, Debug)]
 pub struct SoundMemoryProof {
     pub statement: MemoryStatement,
-    /// Values-only claims in ledger recording order (the points are
-    /// verifier-derived from the leg replay).
-    pub claims: Vec<ValueClaim>,
+    /// The claims fold (the values list never appears).
+    pub fold: ClaimsFoldProof,
     /// The Stage-4 batched legs (identical to the Clear/compact modes).
     pub legs: crate::legbatch::BatchedLegs,
     /// The per-bundle column commitments (r × k ring elements each).
     pub bits_commitment: Vec<u8>,
     pub values_commitment: Vec<u8>,
-    /// The Goldilocks grouped carriers (identical protocol).
+    /// The Goldilocks grouped carriers (the fold-derived weights).
     pub bits_carrier: sumcheck::SumcheckProof,
     pub values_carrier: sumcheck::SumcheckProof,
     /// f(r_sc) per bundle (the carrier terminal bound by the fold).
@@ -1478,47 +1669,92 @@ pub fn prove_memory_argument_sound(
         .append_bytes(b"values-commitment", &values_commitment)
         .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
 
-    // 7. The legs (identical to the compact mode).
+    // 7. The legs + the fold context (the values never leave the prover).
     let mut table: Vec<(Factor, &DenseMle)> = Vec::new();
     table.extend(bits_factors.iter().copied());
     table.extend(values_factors.iter().copied());
     let mut ledger = Ledger::prover(table);
-    let all_legs = crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
-        .map_err(MemProofError::Memory)?;
-    let full_claims: Vec<BaseClaim> = ledger.claims().to_vec();
-    let claims: Vec<ValueClaim> = full_claims
-        .iter()
-        .map(|c| ValueClaim {
-            factor: c.factor,
-            value: c.value,
-        })
-        .collect();
-    let bits_claims: Vec<BaseClaim> = full_claims
-        .iter()
-        .filter(|c| c.factor.in_bits_bundle())
-        .cloned()
-        .collect();
-    let values_claims: Vec<BaseClaim> = full_claims
-        .iter()
-        .filter(|c| !c.factor.in_bits_bundle())
-        .cloned()
-        .collect();
+    let (all_legs, fold_ctx) =
+        crate::legbatch::prove_legs_batched(&instances, &mut ledger, &mut transcript)
+            .map_err(MemProofError::Memory)?;
+    absorb_field_slice(&mut transcript, b"fold-addr", &fold_ctx.addr_claims)?;
+    absorb_field_slice(&mut transcript, b"fold-rv", &fold_ctx.rv_claims)?;
 
-    // 8. The carriers + the SOUND openings.
+    // 8. The claims fold (identical to the compact mode's).
+    let slot_claims: Vec<BaseClaim> = ledger.slot_claims();
+    let slot_values: Vec<Goldilocks> = slot_claims.iter().map(|c| c.value).collect();
+    let slot_bits: Vec<bool> = slot_claims
+        .iter()
+        .map(|c| c.factor.in_bits_bundle())
+        .collect();
+    let set = crate::legbatch::derive_claims_fold(
+        &instances,
+        &all_legs,
+        &fold_ctx,
+        |f, pt| {
+            ledger
+                .claim_index(f, pt)
+                .ok_or(crate::memory::MemoryError::ClaimMismatch)
+        },
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    let (fold, binding) = prove_claims_fold(
+        &set,
+        &slot_values,
+        &slot_bits,
+        fold_ctx.addr_claims.clone(),
+        fold_ctx.rv_claims.clone(),
+        &mut transcript,
+    )
+    .map_err(MemProofError::Fold)?;
+
+    // 9. The carriers with the fold-derived weights + the SOUND openings.
     let bits_flat = bits_prover.flat_mle();
     let values_flat = values_prover.flat_mle();
     let bits_refs: Vec<(Factor, &DenseMle)> = bits_factors.clone();
     let values_refs: Vec<(Factor, &DenseMle)> = values_factors.clone();
+    let bits_claims: Vec<BaseClaim> = slot_claims
+        .iter()
+        .filter(|c| c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let values_claims: Vec<BaseClaim> = slot_claims
+        .iter()
+        .filter(|c| !c.factor.in_bits_bundle())
+        .cloned()
+        .collect();
+    let bits_slot_of: Vec<usize> = (0..slot_claims.len())
+        .filter(|&i| slot_claims[i].factor.in_bits_bundle())
+        .collect();
+    let values_slot_of: Vec<usize> = (0..slot_claims.len())
+        .filter(|&i| !slot_claims[i].factor.in_bits_bundle())
+        .collect();
     let bits_pts = flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat.num_vars)?;
     let values_pts =
         flat_points_for_claims_full(&values_refs, &values_claims, values_flat.num_vars)?;
+    let bits_weights: Vec<Goldilocks> = bits_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let values_weights: Vec<Goldilocks> =
+        values_slot_of.iter().map(|&i| binding.weights[i]).collect();
 
-    let (bits_carrier, bits_rsc, bits_w) =
-        prove_carrier_goldilocks(bits_flat, &bits_claims, &bits_pts, &mut transcript)
-            .map_err(MemProofError::Ledger)?;
-    let (values_carrier, values_rsc, values_w) =
-        prove_carrier_goldilocks(values_flat, &values_claims, &values_pts, &mut transcript)
-            .map_err(MemProofError::Ledger)?;
+    let (bits_carrier, bits_rsc, bits_w) = prove_carrier_folded(
+        bits_flat,
+        &bits_claims,
+        &bits_pts,
+        &bits_weights,
+        fold.s_bits,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
+    let (values_carrier, values_rsc, values_w) = prove_carrier_folded(
+        values_flat,
+        &values_claims,
+        &values_pts,
+        &values_weights,
+        fold.s_vals,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Ledger)?;
 
     let bits_opening = bits_prover
         .prove_sound_opening(&bits_rsc, &bits_w, &mut transcript)
@@ -1530,7 +1766,7 @@ pub fn prove_memory_argument_sound(
     Ok((
         SoundMemoryProof {
             statement,
-            claims,
+            fold,
             legs: all_legs,
             bits_commitment,
             values_commitment,
@@ -1664,14 +1900,53 @@ pub fn verify_memory_argument_sound(
         .append_bytes(b"values-commitment", &proof.values_commitment)
         .map_err(|e| MemProofError::Ledger(crate::ledger::LedgerError::Transcript(e)))?;
 
-    // The ledger + leg replay (the compact verifier's flow).
-    let mut ledger = Ledger::verifier_values(proof.claims.clone());
-    crate::legbatch::verify_legs_batched(&instances, &proof.legs, &mut ledger, &mut transcript)
-        .map_err(MemProofError::Memory)?;
-    if ledger.queue_len() != 0 {
-        return Err(MemProofError::Shape);
+    // The deferred leg replay + the claims fold (the compact verifier's
+    // flow, verbatim).
+    let ctx = crate::legbatch::verify_legs_batched_folded(
+        &instances,
+        &proof.legs,
+        &proof.fold.addr_claims,
+        &proof.fold.rv_claims,
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    // The pre-leg values absorbed after the legs (the prover's order).
+    absorb_field_slice(&mut transcript, b"fold-addr", &proof.fold.addr_claims)?;
+    absorb_field_slice(&mut transcript, b"fold-rv", &proof.fold.rv_claims)?;
+    let mut slots = SlotLedger::new();
+    let set = crate::legbatch::derive_claims_fold(
+        &instances,
+        &proof.legs,
+        &ctx,
+        |f, pt| slots.pop(f, pt).map_err(crate::memory::MemoryError::Ledger),
+        &mut transcript,
+    )
+    .map_err(MemProofError::Memory)?;
+    let num_slots = slots.slots().len();
+    let binding = verify_claims_fold(&proof.fold, &set, num_slots, &mut transcript)
+        .map_err(MemProofError::Fold)?;
+    let mut derived: Vec<BaseClaim> = slots.to_claims();
+    // The transmitted pre-leg values (addr/rv) fill their slots' values —
+    // both in the derivation's pop order.
+    {
+        let mut addr_iter = proof.fold.addr_claims.iter();
+        let mut rv_iter = proof.fold.rv_claims.iter();
+        for c in derived.iter_mut() {
+            match c.factor {
+                Factor::AddrCol { .. } => {
+                    if let Some(v) = addr_iter.next() {
+                        c.value = *v;
+                    }
+                }
+                Factor::RvCol { .. } => {
+                    if let Some(v) = rv_iter.next() {
+                        c.value = *v;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
-    let derived: Vec<BaseClaim> = ledger.claims().to_vec();
     let bits_claims: Vec<BaseClaim> = derived
         .iter()
         .filter(|c| c.factor.in_bits_bundle())
@@ -1681,6 +1956,12 @@ pub fn verify_memory_argument_sound(
         .iter()
         .filter(|c| !c.factor.in_bits_bundle())
         .cloned()
+        .collect();
+    let bits_slot_of: Vec<usize> = (0..derived.len())
+        .filter(|&i| derived[i].factor.in_bits_bundle())
+        .collect();
+    let values_slot_of: Vec<usize> = (0..derived.len())
+        .filter(|&i| !derived[i].factor.in_bits_bundle())
         .collect();
     let bits_entries = bundle_entries(&instances, true);
     let values_entries = bundle_entries(&instances, false);
@@ -1705,25 +1986,32 @@ pub fn verify_memory_argument_sound(
         total.next_power_of_two().max(1).trailing_zeros() as usize
     };
 
-    // The carriers.
+    // The carriers (the fold-derived weights).
     let bits_refs: Vec<(Factor, &DenseMle)> = bits_entries.iter().map(|(f, m)| (*f, m)).collect();
     let values_refs: Vec<(Factor, &DenseMle)> =
         values_entries.iter().map(|(f, m)| (*f, m)).collect();
     let bits_pts = flat_points_for_claims_full(&bits_refs, &bits_claims, bits_flat_log)?;
     let values_pts = flat_points_for_claims_full(&values_refs, &values_claims, values_flat_log)?;
-    let (bits_rsc, _) = verify_carrier_goldilocks(
+    let bits_weights: Vec<Goldilocks> = bits_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let values_weights: Vec<Goldilocks> =
+        values_slot_of.iter().map(|&i| binding.weights[i]).collect();
+    let (bits_rsc, _) = verify_carrier_folded(
         bits_flat_log,
         &bits_claims,
         &bits_pts,
+        &bits_weights,
+        proof.fold.s_bits,
         &proof.bits_carrier,
         &proof.bits_w,
         &mut transcript,
     )
     .map_err(MemProofError::Ledger)?;
-    let (values_rsc, _) = verify_carrier_goldilocks(
+    let (values_rsc, _) = verify_carrier_folded(
         values_flat_log,
         &values_claims,
         &values_pts,
+        &values_weights,
+        proof.fold.s_vals,
         &proof.values_carrier,
         &proof.values_w,
         &mut transcript,
@@ -1785,38 +2073,6 @@ fn bundle_entries(instances: &[MemoryInstance], bits: bool) -> Vec<(Factor, Dens
     out
 }
 
-/// Verify the Goldilocks carrier; returns (r_sc, final_claim).
-#[allow(clippy::too_many_arguments)]
-fn verify_carrier_goldilocks(
-    log_flat: usize,
-    claims: &[BaseClaim],
-    points: &[Vec<Goldilocks>],
-    carrier: &sumcheck::SumcheckProof,
-    w: &Goldilocks,
-    transcript: &mut Transcript,
-) -> Result<(Vec<Goldilocks>, Goldilocks), LedgerError> {
-    let rhos = transcript
-        .challenge_fields(b"bundle-rho", points.len())
-        .map_err(LedgerError::Transcript)?;
-    let mut combined = Goldilocks::ZERO;
-    for (rho, c) in rhos.iter().zip(claims.iter()) {
-        combined = combined.add(&rho.mul(&c.value));
-    }
-    let verdict = carrier
-        .verify(log_flat, 2, combined, transcript, None)
-        .map_err(LedgerError::Sumcheck)?;
-    // E(r_sc) = Σ_i ρ_i·eq(pt_i, r_sc); require E·w = final_claim.
-    let mut e_r = Goldilocks::ZERO;
-    for (i, pt) in points.iter().enumerate() {
-        let eq_v = DenseMle::eq_eval(pt, &verdict.point).map_err(LedgerError::Mle)?;
-        e_r = e_r.add(&rhos[i].mul(&eq_v));
-    }
-    if e_r.mul(w) != verdict.final_claim {
-        return Err(LedgerError::DerivedMismatch);
-    }
-    Ok((verdict.point, verdict.final_claim))
-}
-
 #[cfg(test)]
 mod compact_tests {
     use super::*;
@@ -1847,9 +2103,14 @@ mod compact_tests {
 
         // Size accounting: the honest wire estimate.
         let mut bytes = 0usize;
-        for _c in &proof.claims {
-            bytes += 1 + 1 + 8; // disc + payload + value (points derived)
+        // The fold replaces the values-only claims list: the layers + the
+        // claim pairs + the two S values + the 18 pre-leg entries.
+        for layer in &proof.fold.layers {
+            bytes += layer.rounds.len() * layer.rounds[0].len().max(1) * 8 + 16;
         }
+        bytes += proof.fold.claims.len() * 2 * 8;
+        bytes += 16; // s_bits + s_vals
+        bytes += (proof.fold.addr_claims.len() + proof.fold.rv_claims.len()) * 8;
         for sc in proof.legs.sumchecks() {
             bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
         }
@@ -1891,36 +2152,39 @@ mod compact_tests {
         bad2.statement.program_digest[0] ^= 0xFF;
         assert!(verify_memory_argument_compact(&bad2, &program, &input).is_err());
 
-        // Tampered claim value: rejected.
+        // Tampered pre-leg value (the fold's transmitted addr entry):
+        // rejected.
         let mut bad3 = clone_proof(&proof);
-        if let Some(c) = bad3.claims.first_mut() {
-            c.value = c.value.add(&Goldilocks::from_u64(1));
+        if let Some(c) = bad3.fold.addr_claims.first_mut() {
+            *c = c.add(&Goldilocks::from_u64(1));
         }
         assert!(verify_memory_argument_compact(&bad3, &program, &input).is_err());
 
-        // Reordered claims across DIFFERENT factors are semantically
-        // neutral under the key-indexed claim store (the values pair by
-        // key; the carrier's rho derivation is unchanged) — the
-        // meaningful order tamper is swapping the VALUES of two claims
-        // on the SAME factor (the per-key FIFO): rejected.
-        let mut bad9 = clone_proof(&proof);
-        let mut pair: Option<(usize, usize)> = None;
-        'outer: for i in 0..bad9.claims.len() {
-            for j in (i + 1)..bad9.claims.len() {
-                if bad9.claims[i].factor == bad9.claims[j].factor
-                    && bad9.claims[i].value != bad9.claims[j].value
-                {
-                    pair = Some((i, j));
-                    break 'outer;
-                }
+        // Tampered fold layer round message: rejected.
+        let mut bad3b = clone_proof(&proof);
+        if let Some(r) = bad3b
+            .fold
+            .layers
+            .first_mut()
+            .and_then(|l| l.rounds.first_mut())
+        {
+            if let Some(x) = r.first_mut() {
+                *x = x.add(&Goldilocks::from_u64(1));
             }
         }
-        if let Some((i, j)) = pair {
-            let (vi, vj) = (bad9.claims[i].value, bad9.claims[j].value);
-            bad9.claims[i].value = vj;
-            bad9.claims[j].value = vi;
-            assert!(verify_memory_argument_compact(&bad9, &program, &input).is_err());
+        assert!(verify_memory_argument_compact(&bad3b, &program, &input).is_err());
+
+        // Tampered fold leaf claim pair: rejected.
+        let mut bad3c = clone_proof(&proof);
+        if let Some(p) = bad3c.fold.claims.last_mut() {
+            p[0] = p[0].add(&Goldilocks::from_u64(1));
         }
+        assert!(verify_memory_argument_compact(&bad3c, &program, &input).is_err());
+
+        // Tampered fold S value: rejected.
+        let mut bad3d = clone_proof(&proof);
+        bad3d.fold.s_bits = bad3d.fold.s_bits.add(&Goldilocks::from_u64(1));
+        assert!(verify_memory_argument_compact(&bad3d, &program, &input).is_err());
 
         // Tampered carrier terminal w: rejected.
         let mut bad4 = clone_proof(&proof);
@@ -1978,9 +2242,11 @@ mod compact_tests {
         // legs/carriers/commitments as the compact mode, with the
         // openings' response replaced by the width-fold artifact.
         let mut bytes = 0usize;
-        for _c in &proof.claims {
-            bytes += 1 + 1 + 8;
+        for layer in &proof.fold.layers {
+            bytes += layer.rounds.len() * layer.rounds[0].len().max(1) * 8 + 16;
         }
+        bytes += proof.fold.claims.len() * 2 * 8 + 16;
+        bytes += (proof.fold.addr_claims.len() + proof.fold.rv_claims.len()) * 8;
         for sc in proof.legs.sumchecks() {
             bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
         }
@@ -2022,12 +2288,18 @@ mod compact_tests {
         bad2.statement.program_digest[0] ^= 0xFF;
         assert!(verify_memory_argument_sound(&bad2, &program, &input).is_err());
 
-        // Tampered claim value: rejected.
+        // Tampered pre-leg value (the fold's transmitted rv entry):
+        // rejected.
         let mut bad3 = proof.clone();
-        if let Some(c) = bad3.claims.first_mut() {
-            c.value = c.value.add(&Goldilocks::from_u64(1));
+        if let Some(c) = bad3.fold.rv_claims.first_mut() {
+            *c = c.add(&Goldilocks::from_u64(1));
         }
         assert!(verify_memory_argument_sound(&bad3, &program, &input).is_err());
+
+        // Tampered fold S value: rejected.
+        let mut bad3b = proof.clone();
+        bad3b.fold.s_vals = bad3b.fold.s_vals.add(&Goldilocks::from_u64(1));
+        assert!(verify_memory_argument_sound(&bad3b, &program, &input).is_err());
 
         // Tampered carrier terminal w: rejected.
         let mut bad4 = proof.clone();

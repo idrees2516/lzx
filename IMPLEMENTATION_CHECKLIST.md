@@ -140,6 +140,13 @@ Legend: [x] landed + test-pinned · [~] partial (the gap stated) ·
 
 ## The open engineering ledger (top of NEXT_STEPS)
 
+- [x] **the Stage-5.2 claims fold** (`lattice-zkvm/src/claimsfold.rs` +
+      the legbatch deferred derivation + the folded carriers): the
+      values-only claims list of the compact/Sound memory arguments
+      replaced by a GKR-style product-tree fold over the deferred
+      expect identities — claims 2.9–3.5 KB → **1.02 KB**, the proof
+      33.0 → 31.0 KB at the fibonacci shape (SOTA mechanism #4's claims
+      half, LANDED 2026-10-05)
 - [ ] the Modulus-50 class as the widthfold operating modulus (the
       norm-law headroom beyond the Q_32 ceiling)
 - [ ] folding the D4 split's r column-chains into ONE accumulator

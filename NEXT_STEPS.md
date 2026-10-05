@@ -1,5 +1,61 @@
 # LZX Next-Implementation Research
 
+## Session update (2026-10-05 (IV) — the Stage-5.2 claims fold: mechanism #4's claims half LANDED)
+
+The SOTA ledger's mechanism #4 named two effects: "128-bit MSIS at
+benchmark lengths" (the width-fold chain, landed 2026-10-04) and "claims
+3.5 KB → ~1 KB" (this session). **The values-only claims list of the
+compact and Sound memory arguments is gone**:
+
+1. **The deferred derivation** (`legbatch.rs`'s `derive_claims_fold`):
+   every expect identity of the batched legs — the stage-A
+   booleanity/raf tails, the stage-B write-leg wv monomial, and every
+   matrix-terminal product (`act · Π_b digit_affine(row_b) · (inc −
+   INC_OFFSET)`) — transcribed into monomials over the claim slots with
+   **affine leaves** (`u = α·v + β` absorbing `digit_affine`'s
+   `α = 2ρ−1, β = 1−ρ` and the inc-offset shift without exponential
+   monomial expansion). The derivation is ONE function shared by prover
+   and verifier (the slot resolver records on the verifier side through
+   the new `SlotLedger`, resolves through the prover ledger's recording
+   index); the pop order mirrors the prover's `tensor_claim` sequence
+   exactly.
+2. **The product-tree fold** (`claimsfold.rs`): the leaf values form the
+   level-0 table over the (check, position) cube; layer 0 merges the
+   γ-fold (`Σ κ_c·U_s = TARGET`, the target the stage finals pin minus
+   the public constants — verifier-computable); `s−1` further degree-3
+   layers (`Ẽ·L·R`) walk the tree down with μ-combinations between
+   layers; the two leaf claims' MLE collapse is a **linear form in the
+   values with verifier-computable weights** (the preimage-eq sums) —
+   `W_i` and the constant fix per-slot, the prover transmits the two
+   per-bundle partial sums `S_bits`/`S_vals` (16 B), and the split
+   check pins them to the leaf claims.
+3. **The folded carriers**: the same grouped sumchecks with the
+   fold-derived `W` weights replacing the fresh ρ challenges; the 18
+   pre-leg claimed-vector entries (the address / read-value sums —
+   needed before their stages' sumchecks run) ride with fresh ρ′ whose
+   contribution to the right-hand side is verifier-computable (their
+   values are the only ones still in the clear).
+4. **Measured** (`claims_probe` + `zkvm-membench`): the fold is 3
+   layers / 24 rounds / **1 024 B** — shape-flat across the
+   fib-test/fib(18)/fib(40) ladder while the clear list grows linearly
+   with the claim count; the claims component 2.9–3.5 KB → 1.02 KB; the
+   end-to-end batched-compact proof **33.0 → 31.0 KB** at the 185-cycle
+   fibonacci. Tamper pins: the pre-leg values, the layer rounds, the
+   leaf pairs, and the S values all fail closed.
+
+Workspace: 88 suites / **1,328 tests green** (was 1,313: +3 claimsfold
+suites, the memproof suites extended with the fold tamper cases);
+clippy clean on the touched crates; fmt applied.
+
+**The remaining top-of-ledger** (updated): the GPU backend (~10×,
+mechanism #1), the sparse engine as the zkVM default (#2), the streaming
+default (#3), the MLE verifier tables (#5), the A3/A4 commitment-scale
+substitution (#6), the per-level §12 planner (#7) — and the honest
+fold follow-ups recorded in-module: the arity padding is uniform (a
+per-check arity would shave ~30% of the leaf cube), and the 18 pre-leg
+entries could join the fold if the stage-A/B claimed totals were
+themselves deferred (a protocol revision at the leg layer).
+
 ## Session update (2026-10-05 (III) — the RoKoko statement-growth driver + the parbreak estimator wiring + the SOTA ledger)
 
 The parallel session's landing (this one; rebased onto (II)):

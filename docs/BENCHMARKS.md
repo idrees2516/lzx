@@ -9,7 +9,7 @@ reference-checked).
 
 | harness | workload | prove | verify | size |
 |---|---|---|---|---|
-| zkvm-membench (batched-compact) | fibonacci, 185 cycles | **1 366 ms** | **198 ms** | **33.0 KB** |
+| zkvm-membench (batched-compact, Stage-5.2 claims fold) | fibonacci, 185 cycles | **160 ms** | **58 ms** | **31.0 KB** |
 | rokoko driver_bench | m_w=512, r=2, 2 rounds (coarse +1 → fine +2/+n_bat) | 4 620 ms | 484 ms | ledger-published |
 | akita recursion_bench | 4-block fold chain + the Rice terminal | ~1 ms | ~1 ms | 600 B terminal |
 | labinius lattice-bench | the PCS round suite (sizem) | 78 ms/round | 2.6 ms | — |
@@ -18,6 +18,48 @@ reference-checked).
 The SOTA reading of these numbers lives in
 [`SOTA_COMPARISON.md`](SOTA_COMPARISON.md) — the Airbender / Zisk /
 Lattice-Jolt / Akita ledger and the mechanism-by-mechanism gap map.
+
+## 0f. The Stage-5.2 claims fold (2026-10-05, this session)
+
+**The values-only claims list is gone.** The compact and Sound memory
+arguments now terminate their legs in the claims fold
+(`lattice-zkvm/src/claimsfold.rs`, ~700 lines): the expect identities
+become deferred monomials over the claim slots (affine leaves absorb
+`digit_affine`'s `α = 2ρ−1, β = 1−ρ` and the `inc − INC_OFFSET` shift),
+and a GKR-style product tree of `s = ⌈log₂ max arity⌉` degree-3
+sumchecks folds all the products into two leaf claims whose MLE collapse
+is a linear form in the (never-transmitted) values — bound by the same
+carriers, now with the fold-derived weights plus fresh ρ′ for the 18
+pre-leg entries (the address / read-value claimed-sum inputs, the only
+values still in the clear).
+
+Measured (`cargo run -p lattice-zkvm --example claims_probe
+--release`):
+
+| program | fold layers | fold rounds | **fold bytes** | total proof |
+|---|---|---|---|---|
+| fib-test (64 steps, k=4) | 3 | 24 | **1 024 B** | 17.1 KB |
+| fib-bench (fibonacci(18)) | 3 | 24 | **1 024 B** | 22.5 KB |
+| fib-40 (fibonacci(40)) | 3 | 24 | **1 024 B** | 32.2 KB |
+
+The claims component: **2.9–3.5 KB → 1.02 KB** (the SOTA ledger's
+mechanism-#4 target: "claims 3.5 KB → ~1 KB"). The end-to-end
+batched-compact proof: **33.0 → 31.0 KB** at the 185-cycle fibonacci
+(`zkvm-membench`). The fold's size is shape-flat (log in the check
+count): the same 1 024 B at fib-test, fib(18) and fib(40), while the
+clear-list term it replaces grows linearly with the claim count.
+
+Tamper coverage (pinned by the test suite): a wrong pre-leg value, a
+wrong layer round message, a wrong leaf-claim pair, and a wrong S value
+all fail closed; the existing carrier/opening/commitment tamper pins
+carry over unchanged.
+
+This container's timings (the membench table's prove/verify columns are
+the Clear mode's, per the harness's convention): the compact mode
+itself — 1 173 ms prove / 136 ms verify at the 185-cycle fibonacci
+(the fold adds ~90 ms of layer sumchecks over ~330 recorded slots;
+verification's fold cost is ~20 ms — the two eq-table walks at the
+leaf binding).
 
 ## 1. What is measured
 
@@ -86,10 +128,11 @@ relaxed bound 64×.
 
 | program | cycles | Clear mode | Batched compact | reduction | compact prove | compact verify |
 |---|---|---|---|---|---|---|
-| fibonacci | 185 | 3,640 KB | **33.0 KB** | **110×** | 1,429 ms | 196 ms |
+| fibonacci | 185 | 3,640 KB | **33.0 KB** (pre-fold; **31.0 KB** with the Stage-5.2 claims fold, §0f) | **117×** | 1,429 ms | 196 ms |
 
 Batched-compact composition (fibonacci): legs ~6 KB (12 batched
-sumchecks — was 55 KB / 108 legs), claims 3.5 KB, column commitments
+sumchecks — was 55 KB / 108 legs), claims 3.5 KB (pre-fold — now the
+1.0 KB Stage-5.2 fold, §0f), column commitments
 ~16 KB (the k=4 hardening), carriers 0.8 KB, compact openings ~6 KB,
 statement 0.5 KB. The per-cycle prover cost includes the ledger's new
 `fix_last_variables` tail cache (the digit-row claim pattern's
