@@ -160,12 +160,15 @@ impl HwRing {
         HwElt(c)
     }
 
-    /// Schoolbook negacyclic multiply (i128 accumulation — q < 2^62 so
-    /// d·(q/2)² < 2^126 for d ≤ 64).
+    /// Schoolbook negacyclic multiply. The accumulator reduces mod q every
+    /// 32 additions (products < q² ≈ 2^122; i128 holds 2^127 — the
+    /// adversarial full-width regime would overflow an unreduced
+    /// accumulator, so the reduction is unconditional and exact).
     pub fn mul(&self, a: &HwElt, b: &HwElt) -> HwElt {
         let n = self.n;
         let q = i128::from(self.q);
         let mut acc = vec![0i128; n];
+        let mut ops = 0usize;
         for i in 0..n {
             let ai = i128::from(a.0[i]);
             if ai == 0 {
@@ -179,6 +182,13 @@ impl HwRing {
                 } else {
                     // X^n = -1
                     acc[idx - n] -= prod;
+                }
+                ops += 1;
+                if ops == 32 {
+                    ops = 0;
+                    for x in acc.iter_mut() {
+                        *x = x.rem_euclid(q);
+                    }
                 }
             }
         }
@@ -935,6 +945,8 @@ pub enum HwError {
     /// A verifier check failed (evaluation identity / JL norm / binding /
     /// projection consistency / final pinning).
     VerificationFailed,
+    /// An engine-level failure (the H6 LaBRADOR route's String channel).
+    Engine(String),
     /// An optional PCS trait feature (H7 multi-claim batching) is
     /// unsupported by this backend.
     Feature(PcsFeatureError),
@@ -961,6 +973,7 @@ impl std::fmt::Display for HwError {
                 write!(f, "shape mismatch: expected {}, got {}", expected, got)
             }
             HwError::VerificationFailed => write!(f, "verification failed"),
+            HwError::Engine(msg) => write!(f, "engine error: {msg}"),
             HwError::Feature(e) => write!(f, "unsupported PCS feature: {}", e),
         }
     }

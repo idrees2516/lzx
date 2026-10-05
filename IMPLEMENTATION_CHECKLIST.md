@@ -70,7 +70,23 @@ Legend: [x] landed + test-pinned · [~] partial (the gap stated) ·
 - [x] labinius port — the full PCS + the AVX-512 parity kernels + the
       Recursive mode
 - [x] LaBRADOR — the native port (`lattice-labrador`) AND the
-      paper-faithful engine + Greyhound (`lattice-greyhound`)
+      paper-faithful engine + Greyhound (`lattice-greyhound`) AND the
+      **H6 re-parameterization to the HyperWolf ring**
+      (`lattice-pcs/src/hyperwolf_labrador.rs`): the amortized
+      Dachshund at `q = 2^61 − 259` with per-round exact ℓ2 statements,
+      the fold-consistency dot-products natively in-ring, the recursive
+      outer-commitment compaction driver (the O(log log log N) route),
+      and the full-fidelity `eval_prove_labrador`/`eval_verify_labrador`
+      protocol — the faithful-gate pin + the KernelBypass demonstrator
+      mode, the wraparound guard fail-closed
+- [x] **the A5 commitment-scale recursion driver**
+      (`lattice-akita/src/a5_committed.rs`): the Eq 5/6/7/8/2 row set
+      over the committed successor witness, ONE A2 fused sum-check over
+      the flat Goldilocks coordinates, the A3 digit-range deferred
+      claims as eq-anchored rows (`verify_digit_range_deferred`), the
+      A4 evaluation-trace rows (the Eq-135 c0/c1 coordinates), the
+      App F.1 ordering, the per-level deferred Goldilocks claim, the
+      terminal discharge — the split-field residual honestly recorded
 
 ## The zkVM stack
 

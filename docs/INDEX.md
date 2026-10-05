@@ -15,6 +15,9 @@ top-to-bottom or searched in-page (`Ctrl-F` / GitHub's `in:file`).
 | Ajtai commitment / SIS hash | `crates/lattice-commitment/src/ajtai.rs`, `crates/lattice-labinius/src/commit.rs` |
 | ABDLOP linear proofs | `crates/lattice-commitment/src/` (linear proofs), `crates/lattice-blindfold/src/protocol.rs` |
 | Akita PCS / packed commitments | `crates/lattice-akita/src/pcs.rs` |
+| Akita A5 commitment-scale driver | `crates/lattice-akita/src/a5_committed.rs` (the Eq 5/6/7/8/2 rows, the A3/A4 wiring, the deferred claims) |
+| H6 full-fidelity route / the LaBRADOR-in-HyperWolf engine | `crates/lattice-pcs/src/hyperwolf_labrador.rs` (the amortized Dachshund, the compaction driver, `eval_prove_labrador`) |
+| per-round exact ℓ2 / the square-decomposition slack | `crates/lattice-pcs/src/hyperwolf_labrador.rs` (`square_decomposition`, `projection_statement`) |
 | D4 — the response-layer swap (open) | `crates/lattice-akita/src/salsa_response.rs`, `docs/papers/implemented/salsaa.md` |
 | D4 — the binding closure (bound) | `crates/lattice-akita/src/salsa_binding.rs`, `docs/analysis/D4_BINDING_CLOSURE.md` |
 | D4 — the r-column capacity split | `crates/lattice-akita/src/salsa_binding.rs` (`byte_capacity`, `prove_grouped_salsa_split`) |
@@ -71,10 +74,8 @@ docs/
   ARCHITECTURE.md             the deep architecture (core engine, protocols, invariants)
   PAPERS_MAP.md               the papers' inner connections (this index's companion)
   BENCHMARKS.md               the measured evidence per wave (§2a–§2l)
-  DESIGN_50KB.md              the compact-opening pipeline specification
   CLOB_WORKLOAD_RESEARCH.md   the CLOB guest port plan
   ETHREX_ZODA_INTEGRATION.md  the L1/L2 integration design
-  WAVE_ANALYSIS.md            the wave planning history
   INDEX.md                    this file
   analysis/                   the formal analyses (extraction, D4 closure)
   papers/                     per-paper coverage docs (implemented / partial / unimplemented)

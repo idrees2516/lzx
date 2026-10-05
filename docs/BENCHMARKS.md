@@ -39,7 +39,7 @@ are the Wave 8.5 follow-up.
 
 `prove_memory_argument_compact` replaces the Θ(N) digit-revealing
 bundle openings with the folded amortized opening
-(docs/DESIGN_50KB.md): narrow byte packing (1 byte/coefficient — also
+(consolidated into this file's history): narrow byte packing (1 byte/coefficient — also
 fixing the bits-bundle 31-bit vacuous-gate security defect), the
 r-aligned column layout with per-column Ajtai commitments, the
 scalar-challenge integer fold with the Goldilocks commuting functional,
@@ -434,7 +434,7 @@ the selector-gated shape and would benefit from the same route.
 
 ## 2j. The LaBRADOR decider wave: the width fold + the Sound memory argument (2026-10-04, this session)
 
-DESIGN_50KB Stage 5.2's completion — the quadratic-garbage
+The 50KB pipeline's Stage 5.2 completion — the quadratic-garbage
 width-reducing fold (`lattice-zkvm/src/width_fold.rs`) wired through
 the Sound compact profile (`compact.rs::CompactProfile::Sound`) into
 the live memory-argument path (`memproof.rs::
@@ -652,7 +652,8 @@ Honest reading of the gap:
    norm proofs' digit tables and the per-bit claim expansion (16 row
    claims per limb claim). The paper routes are the Akita fold driver
    (7.11 A5), LaBRADOR compaction (7.12 H6), and the SALSAA norm chain —
-   all on the Wave 7 remainder ledger in `docs/WAVE_ANALYSIS.md`.
+   all on the Wave 7 remainder ledger in `NEXT_STEPS.md` (the consolidated
+   planning history).
 4. **The constraint layer**: the memory argument proves the memory
    timeline over committed streams; the instruction-semantics families
    (ALU/decode/control routing) are the remaining P0-4 work — the SOTA
@@ -707,3 +708,24 @@ Notes:
   norms when the measured output norm exceeds the heuristic prediction
   (the [norm] lines in the bench show pred ≈ measured within ~1% at the
   paper's parameter scales).
+
+
+## §7c — the H6 full-fidelity route (2026-10-05)
+
+The amortized-Dachshund compaction of the HyperWolf projection payload
+(`lattice-pcs/src/hyperwolf_labrador.rs`):
+
+| measurement | value |
+|---|---|
+| kernel shape (d=64, b=2, k=3, jl_rows=32) — clear projection payload | (k−1)·b·jl_rows·d·61 bits |
+| kernel amortized proof (`lab_proof_size_bytes`, tail-only at this size) | measured in-test, the level table published |
+| paper shape (2^20, `lab_size_model`) — clear | (k−1)·b·256·64·61 bits ≈ 3.4 MB |
+| paper shape — amortized (2 levels + the tail's final witness) | ~130 KB modelled |
+
+The honest caveats: at kernel statement sizes the amortization is
+tail-only (the shrink gate needs the paper scale); the faithful SIS
+gates fail closed at N = 64 (the recorded parameter residual); the
+paper-scale β ladder exceeds the `B_r < q/4` wraparound guard and is
+modelled, not executed. All pinned by the module's tests
+(`full_fidelity_size_beats_clear_payload`, `round_bound_gate_is_fail_closed`,
+`faithful_gate_fails_at_kernel_scale`).

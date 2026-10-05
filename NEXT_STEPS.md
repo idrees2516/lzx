@@ -1,5 +1,114 @@
 # LZX Next-Implementation Research
 
+## Session update (2026-10-05 (II) — the H6 full-fidelity route + the A5 commitment-scale driver)
+
+The two highest-value ledger items landed, closing the honest-ledger's
+top residuals:
+
+(1) **The H6 full-fidelity route** (`lattice-pcs/hyperwolf_labrador.rs`,
+~3,400 lines, 10 tests): the **LaBRADOR engine re-parameterized to the
+HyperWolf ring** `R_q = Z_q[X]/(X^d+1]`, `q = 2^61 − 259` — the
+paper-faithful amortized-Dachshund structure of `lattice-greyhound`
+(the join / inner commitments / quadratic garbage / the JL projection
+with rejection / LIFTS = 3 / α-β aggregation / the h-garbage / the
+amortized opening `z = Σ c_i s_i` with digit decomposition / the
+E1–E6 target relation / the §5.6 tail with 2r−1 interleaved garbage),
+with the workspace's certified fixed-weight challenges (T = Γ_C = 4,
+τ = 10) replacing the (23,31,10)+SVD sampler — closing the recorded
+"constraint coefficients do not embed" gap (the fold-consistency
+challenges are native ring elements). On top of it:
+
+* **the recursive outer-commitment compaction driver** (the
+  O(log log log N) route): `lab_prove` iterates levels while the
+  statement shrinks, then one tail level — the level table + the
+  measured/analytic size models (`lab_level_table`,
+  `lab_proof_size_bytes`, `lab_size_model`);
+* **the full-fidelity HyperWolf protocol**
+  (`eval_prove_labrador` / `eval_verify_labrador`): the per-round JL
+  projection vectors are NEVER transmitted — ONE amortized Dachshund
+  statement covers all rounds' projections with
+  * **per-round exact ℓ2 statements** — the σ⁻¹-conjugate quadratic
+    constraints with the greedy square-decomposition slack (the
+    binary-bits trap documented in-module: bits give the VALUE, not
+    the norm), and
+  * **the fold-consistency dot-products** as full-ring constraints,
+    and
+  * **the terminal tie** against the revealed `s^(1)`;
+* the honest pins: `SisGateMode::Faithful` fails closed at N=64 (the
+  tail's uniform images exceed the Core-SVP cap — the recorded
+  parameter residual, N ≥ 128 or the RNS path needed) with
+  `KernelBypass` as the demonstrator mode; the round-bound wraparound
+  gate `B_r < q/4` fail-closed (the paper-scale ladder is modelled by
+  `lab_size_model`, not executed);
+* the bug the port caught in the shared substrate: `HwRing::mul`'s
+  i128 accumulator could overflow on adversarial full-width input
+  (the d·(q/2)² < 2^126 comment was off by the adversary) — now
+  reduced every 32 additions; and the Greyhound-inherited
+  **per-vector part alignment** bug in the quadratic-mode
+  `materialize` (a short vector's successor landed inside its last
+  part — pinned by `shape_bisect_regression`).
+
+(2) **The A5 commitment-scale recursion driver**
+(`lattice-akita/a5_committed.rs`, ~1,800 lines, 3 tests): the A3/A4
+wiring the ledger demanded — the range/tree rows and the
+evaluation-trace rows feeding the A2 fused sum-check **against the
+COMMITTED successor witness** (the digit segments `ẑ|ê|t̂` are never
+revealed at the non-terminal levels):
+
+* **the row set over L**: every fold equation (Eq 5/6/7/8/2) as an
+  Eq-146 `RingRow` checked by ONE fused sum-check over the flat
+  Goldilocks coordinates of the committed L — including the
+  deferred-claim chain (Eq 2's `vR` at level j+1 is level j's
+  `ŵ(r_2)`);
+* **the α-reduction with the App F.1 repaired ordering**: `α` drawn
+  only AFTER the successor commitment `C_L` and the quotient lifts are
+  absorbed;
+* **the A3 wiring**: per digit segment the §6.1 digit-range pipeline
+  on the hidden values (re-balanced into the A3 alphabet — the
+  modules' documented `(−b/2, b/2]` vs `[−b/2, b/2)` convention gap),
+  its deferred claim an eq-anchored linear row — the new
+  `verify_digit_range_deferred` (the kernel route's revealed-witness
+  pinning replaced by the row);
+* **the A4 wiring**: the Eq-135 trace weights `ω_Tr(i, ℓ, ν)` over
+  the ê cells as two Goldilocks rows (the c0/c1 coordinates of the
+  `F_{Q32²}` functional) with the announced `v̄`;
+* **the deferred claim**: ONE Goldilocks `ŵ(r_2)` per level (the only
+  witness datum transmitted) + the fused sum-check's final binding
+  `P(r_2) = m̂(r_2)·ŵ(r_2)`;
+* **the driver**: levels chain via the successor L (prover) / the
+  claims (verifier); the terminal reveals the last L once — the final
+  discharge (the `C_L` opening + the deferred claim's direct MLE
+  check) + the §8.2 machinery (the grind, Eq 163–165, the Rice
+  encoding);
+* the honest deviation ledger (in-module): the split-field target
+  consistency (the announced V vs the F_q relation target) requires
+  the unified-field production path — the SAME residual ring_check
+  documents; the intermediate-commitment binding rides the recursion +
+  the terminal discharge (the paper's literal source-row against
+  `C^(j)`'s key needs the unified field); the small-θ kernel
+  discipline (θ mod 2^8) keeps the integer cell-sums inside
+  Goldilocks.
+
+Workspace: 88 suites, **1,313 tests green** (was 1,300); clippy clean
+on the touched crates; fmt applied. Docs consolidated: the superseded
+`docs/WAVE_ANALYSIS.md` and `docs/DESIGN_50KB.md` wiped (their landing
+records live in `IMPLEMENTATION_LOG.md`, the measured results in
+`docs/BENCHMARKS.md`, the forward roadmap here).
+
+**The remaining honest ledger** (updated):
+* the H6 faithful-gate regime: N ≥ 128 (or the RNS path) for the
+  tail's directly transmitted images at LOGQ = 61;
+* the A5 unified-field production path: the split-field target
+  consistency + the literal source-row binding (NEXT_STEPS §3.6
+  items A9/H2 — the large-modulus ring);
+* the RoKoko statement-growth driver (klin+2 blocks of Lemma 8's
+  self-reduction) and the estimator wiring for the schedule's
+  parbreak instances — still the top open item;
+* the paper-scale instantiation of the compaction (the 2^30 ladder)
+  is modelled (`lab_size_model`), not executed.
+
+---
+
 ## Session update (2026-10-05, Wave 7 completion — Akita A3/A4/A5 + HyperWolf H6/H7 + RoKoko 6/7/8)
 
 The Wave 7 protocol-completion residuals are CLOSED (the audit found

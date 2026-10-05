@@ -25,6 +25,7 @@
 
 pub mod a3_range;
 pub mod a4_tensor;
+pub mod a5_committed;
 pub mod a5_terminal;
 pub mod fold;
 pub mod pcs;

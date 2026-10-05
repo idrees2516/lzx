@@ -11,6 +11,30 @@ chronological order (newest first). Companion artifacts:
 
 Test counts are the workspace totals at each wave's landing commit.
 
+## 2026-10-05 (II) — the H6 full-fidelity route + the A5 commitment-scale driver
+
+**Modules:** `lattice-pcs/src/hyperwolf_labrador.rs` (NEW, ~3,400
+lines), `lattice-akita/src/a5_committed.rs` (NEW, ~1,800 lines), the
+`HwRing::mul` adversarial-overflow hardening. The honest ledger's two
+top residuals closed: (1) the LaBRADOR engine re-parameterized to the
+HyperWolf ring — the amortized Dachshund over ALL rounds' projection
+vectors with per-round exact ℓ2 statements (the σ⁻¹-conjugate
+quadratics + the greedy square-decomposition slack) and the
+fold-consistency dot-products natively in the same ring — plus the
+recursive outer-commitment compaction driver (the O(log log log N)
+route) and the `eval_prove_labrador`/`eval_verify_labrador` protocol;
+(2) the A5 commitment-scale recursion driver — the Eq 5/6/7/8/2 rows,
+the A3 digit-range deferred claims, and the A4 evaluation-trace rows
+all feeding ONE A2 fused sum-check against the COMMITTED successor
+witness, with the App F.1 ordering, the per-level deferred Goldilocks
+claim, and the terminal discharge. 88 suites / 1,313 tests green
+(was 1,300); clippy clean; fmt applied. The superseded
+`docs/WAVE_ANALYSIS.md` + `docs/DESIGN_50KB.md` wiped (records live
+here + `docs/BENCHMARKS.md`). See NEXT_STEPS's session update for the
+full per-item mapping and the honest residual ledger.
+
+---
+
 ## 2026-10-05 — Wave 7 completion: Akita A3/A4/A5, HyperWolf H6/H7, RoKoko 6/7/8
 
 **Modules:** `lattice-akita/{a3_range,a4_tensor,a5_terminal}.rs` (NEW,

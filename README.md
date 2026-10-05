@@ -1,6 +1,6 @@
 # LZX — Lattice-Based Post-Quantum zkVM
 
-**~68k lines of pure-`std` Rust. 33 crates. 1,237 tests. Zero external dependencies.**
+**~72k lines of pure-`std` Rust. 33 crates. 1,313 tests. Zero external dependencies.**
 
 LZX is a from-scratch, production-oriented implementation of the modern lattice-based
 zero-knowledge proof stack: it implements **seventeen research papers** end-to-end (prover +
@@ -136,7 +136,7 @@ lattice-bench         Pure-std reproducible benchmark matrix (35 stages + sizes)
 
 ## Guarantees carried in-tree
 
-- **1,237 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
+- **1,313 tests, 0 failures, 0 clippy warnings** — every fold identity, PCS round, and
   VM conformance class is verified exactly (algebraic identities, not statistical approximations);
   the full workspace is now clippy-clean on ALL targets and rustfmt-normalized, with CI
   running both profiles (debug = overflow checks ON) plus the evidence examples.
@@ -165,7 +165,7 @@ post-mortems) and `AUDIT_CHECKLIST.md` (G1-G8 evidence map).
 ## Build & test
 
 ```bash
-cargo test --workspace      # 1,237 tests (debug = overflow checks ON)
+cargo test --workspace      # 1,313 tests (debug = overflow checks ON)
 cargo clippy --workspace --all-targets -- -D warnings   # clean
 cargo run --release -p lattice-bench --bin lattice-bench   # 35-stage benchmark matrix
 cargo run --release -p lattice-widthfold --example extraction_table   # the extraction ledgers

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Succinct Shortness Check Under a Few Kilobytes via Tensor Train Random Projections
 
 **Paper**: Zhiyuan Geng, Maxime Plançon — ePrint 2026/2146.
@@ -160,7 +159,6 @@ Theorem 3 short/long separation; protocol completeness with the outer
 evaluation claim; tampered y0 / round / w_r / y1 rejections; the
 long-witness (16× norm) rejection over 12 fresh attempts; the
 mid-parameter end-to-end; the parameter-search constraints.
-=======
 # TTRP — succinct shortness under a few kilobytes (2026/2146) + the digit-free functional opening
 
 **Status: implemented** (`lattice-zkvm/src/ttrp.rs`, ~1100 lines, 7 tests)
@@ -234,4 +232,3 @@ compact-mode argument); the response `v` is the one transmitted vector
   `prove_grouped_carrier`) is the wiring follow-up; the module's
   `TtrpNormCheck` route is proven end-to-end with the swapped-commitment
   tamper catch.
->>>>>>> c6df3bd (docs: the Π_CCS / SVSC-window / TTRP wave — three paper notes (implemented/) with the honest deviation ledgers + WAVE_ANALYSIS §11)

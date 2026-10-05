@@ -33,6 +33,7 @@
 pub mod hyperwolf;
 pub mod hyperwolf_batch;
 pub mod hyperwolf_compact;
+pub mod hyperwolf_labrador;
 
 use lattice_commitment::ajtai::{AjtaiCommitment, AjtaiError, AjtaiParams, AjtaiPublicKey};
 use lattice_commitment::norm_proof::{NormProof, NormProofError};

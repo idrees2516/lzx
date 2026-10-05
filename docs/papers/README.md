@@ -24,8 +24,8 @@ Part-by-part coverage of every paper realized in this workspace. Folders:
 | Symphony (2025/1905) | lattice-folding/symphony.rs | 7.9 | partial (μ-ary fold kernel; tensor ring/Π_had open) | — |
 | SuperNeo (2026/242) | lattice-folding/superneo.rs | 7.15 | partial (committed-instance design; fold algebra exists) | — |
 | Quasar (2025/1912) | lattice-lookup | 7.10 | partial (Q1 committed lookups from Wave 6; Q2/Q3 open) | — |
-| Akita (2026/1983) | lattice-akita | 7.11 | partial (packed commit + sumcheck eval; A1–A5 open) | — |
-| HyperWolf (2025/1903) | lattice-pcs | 7.12 | partial (PcsBackend + transparent mode; guarded IPA open) | — |
+| Akita (2026/1983) | lattice-akita | 7.11 | **implemented** (A1–A5: the fold core, A2 ring checks with the App F.1 ordering, A3 digit-range + norm routes, A4 tensor reduction + trace rows, A5 the terminal + the grind + Rice — **+ the commitment-scale recursion driver** (`a5_committed.rs`: the rows/A3/A4 into ONE fused sum-check against the committed successor witness, the deferred claims, the terminal discharge)) | 77 |
+| HyperWolf (2025/922) | lattice-pcs | 7.12 | **implemented** (Protocols 1/2/3 + H5 certified challenges + H6 projection-compaction **+ the full-fidelity route** (`hyperwolf_labrador.rs`: the LaBRADOR engine re-parameterized to the HyperWolf ring, the amortized Dachshund over the projections with per-round exact ℓ2, the recursive outer-commitment compaction — the O(log log log N) route) + H7 batching) | 34 |
 | RoKoko (2026/575) | lattice-rokoko | 7.13 | partial (projection kernels; Π^proj-c/COM open) | — |
 | Twist & Shout (2025/105) | lattice-memory + zkvm | 7.3, 7.4 | **implemented** (the sparse `0s are free` engine + the v1 instruction-semantics constraint families — see `implemented/constraints-families.md`; shifts/MUL/DIV gated out) | 8 |
 | **Monomial-basis sum-check (2026/762)** | lattice-projsumcheck | — | **implemented** (projective protocol + structured tables + claim-preserving batching + Fp256 upper-limb challenges + grinding) | 27 |

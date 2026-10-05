@@ -452,7 +452,7 @@ pub fn certified_response_bound(params: &FoldParams, challenges: &[ShortChalleng
 /// Sample the fold challenges from the transcript **after** the partial
 /// payloads are absorbed (the Eq-7/8 ordering: the compared data is fixed
 /// before the comparison coefficients are drawn).
-fn sample_challenges(
+pub(crate) fn sample_challenges(
     params: &FoldParams,
     transcript: &mut Transcript,
 ) -> Result<Vec<ShortChallenge>, FoldError> {
@@ -477,7 +477,7 @@ fn sample_challenges(
     Ok(out)
 }
 
-fn embed(ring: &RingConfig, c: &ShortChallenge) -> RingElement {
+pub(crate) fn embed(ring: &RingConfig, c: &ShortChallenge) -> RingElement {
     RingElement::from_signed(ring, &c.coefficients)
 }
 
