@@ -787,3 +787,42 @@ paper-scale β ladder exceeds the `B_r < q/4` wraparound guard and is
 modelled, not executed. All pinned by the module's tests
 (`full_fidelity_size_beats_clear_payload`, `round_bound_gate_is_fail_closed`,
 `faithful_gate_fails_at_kernel_scale`).
+## 4. The v3 pipeline (2026-10-05): the COMPLETE protocol, first measurement
+
+`zkvm_v3bench` measures the full v3 statement — the v2 memory arguments
+PLUS the instruction-semantics AIR (all 17 families: ADD/ADDI/SUB/MUL/
+DIV/REMU/SLLI/SRLI/SLTU/BRCH×4/JAL/JALR/LOAD/STORE/LUI/AUIPC/HALT),
+byte-granular carry chains, five comparison containers, four schoolbooks,
+~205 read-only-table lookups, the α-batched AIR sumcheck, the r_air
+linear gates, and per-column grouped openings — over the sparse engine
+throughout.
+
+| program | cycles | prove (ms) | verify (ms) | proof (KB) | cycles/s | status |
+|---|---|---|---|---|---|---|
+| fibonacci | 185 | 1,795 | 377 | 1,970 | ~103 | **verified** (complete statement) |
+| scale_loop | — | not measurable in the 2-core/3 GB container (the prove exceeds the CPU/memory budget before completing; the batched-lookup + fold wave is the unlock) | | | | |
+
+The honest reading:
+
+1. **Correctness is the win**: v2 proved only the memory argument; v3
+   constrains the full instruction semantics — the verifier never
+   re-executes, and the tamper tests cover every layer. The statement is
+   now "the execution of the program" rather than "a read/write stream
+   consistent with the public image".
+2. **Throughput is NOT yet SOTA** — ~10² cycles/s vs Lattice Jolt's
+   ~2×10⁶ (CPU) — and the gap is now purely ENGINEERING, enumerable as:
+   (a) ~205 independent lookup Shouts (the dominant round count — the
+   batched-lookup design folds them into O(1) sumchecks);
+   (b) ~360 per-column Ajtai commitments + ~360 grouped openings with
+   norm proofs (the RLC cross-column fold at the shared r_air point
+   collapses these to O(#distinct points));
+   (c) the scalar field arithmetic (no SIMD in the engine inner loops);
+   (d) the clone-heavy AIR assembly (~300 dense-factor clones).
+3. The guests using byte/half loads (regex, muldiv, collatz, ...) fail
+   closed at the profile level (the v3 memory model is word-granular,
+   8-aligned); extending the load/store families to sub-word accesses
+   is a bounded, enumerated extension.
+4. The P0-63 profile: values < 2^63 (the mod-p ±window cannot open —
+   see pipeline3.rs's module doc for the soundness analysis);
+   non-wrapping ADD/SUB; shamt ≤ 62. The 64-bit mode requires the
+   binary-tensor bridge (the documented next layer).

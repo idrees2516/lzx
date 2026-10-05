@@ -1383,3 +1383,65 @@ discipline level (S ≲ 1-2 d, M ≈ 3-7 d, L ≈ 1-3 wk).
    (per-module gap tables in §3); the `lib.rs:14-17` "prover + verifier"
    claim holds only for `latticefold_plus::prove_range/verify_range`.
 5. labinius `Opening::Recursive` is declared but unwired and untested.
+
+---
+
+# Wave 9 (2026-10-05): the v3 pipeline landed — the complete statement
+
+## What landed (pipeline3.rs, ~3,700 lines)
+
+1. **The instruction-semantics AIR** — the v2 gap closed: every one of the
+   17 executor families is constrained through committed columns, with
+   selector-conditioned sumcheck terms on the sparse engine (support-
+   bounded work), the α-batched single AIR sumcheck, and the r_air linear
+   gates (multilinear identities checked at the terminal point — free).
+2. **Byte-grain integer discipline** (the soundness core): all u64
+   arithmetic goes through byte ADD-chains whose per-position identities
+   have magnitude < 2^9 ≪ p — the ONLY sound way to carry wrap semantics
+   in Goldilocks. Four schoolbooks (MUL/DIV/SLLI/SRLI) with bucket
+   chains; five comparison containers (dc1..dc5) with the LT bits as the
+   chains' top carries.
+3. **The P0-63 profile with the honest soundness analysis**: at 64 bits
+   the recomposition identity admits a ±p window (Σ = V + p fits the byte
+   ranges whenever V < 2^32−1) enabling a "+p-shifted execution" — a
+   total break. At 63 bits every identity has magnitude < p. The 64-bit
+   mode needs the binary-tensor bridge (bits-bundle lineage).
+4. **~205 read-only-table lookups** (decode/pow2/al8/range8/range7/
+   range12 identity Shouts) + the v2 memory legs, all sparse.
+5. **The decode-table sync fix**: the v2 decode keyed on funct6 could not
+   distinguish ADD from MUL (both funct6=0) and expected non-standard
+   funct6 values for SUB/M-extension — those v2 families were dead code.
+   v3 keys on the full funct7 (17-bit dkey) and matches the executor.
+6. 16 tests: happy paths (demo + rich + fibonacci-loop), tamper
+   rejections (final state / claim / wrong program), profile fail-closed
+   (MUL overflow, unaligned access, shamt 63), per-group AIR audits,
+   engine bisects.
+
+## The measured posture (honest)
+
+- fibonacci (185 cycles): prove 1.8 s, verify 0.38 s, proof 1.97 MB,
+  ~10² cycles/s. **The statement is complete; the throughput is not.**
+- The throughput gap vs Lattice Jolt (~2M cycles/s CPU) is enumerable
+  engineering (see BENCHMARKS.md §4): (a) batch the 205 lookup Shouts;
+  (b) RLC-fold the ~360 column openings at the shared r_air point;
+  (c) SIMD the engine inner loops; (d) de-clone the AIR assembly.
+
+## The next implementations (most depth, in dependency order)
+
+1. **Batched lookups** (the single biggest round-count win): fold the
+   205 identity-table Shouts into O(1) sumchecks via the stream-
+   concatenation + eq-block-RLC design (the paper's §7 batching); the
+   byte claims then ride the block-tensor space.
+2. **The cross-column RLC fold at r_air**: ~360 grouped openings →
+   ~#distinct-points openings (the Ajtai linear homomorphism lets the
+   verifier compute the folded commitment from the per-column ones).
+3. **SIMD (AVX-512) the sparse engine's round-message loop** — the
+   field_simd kernels exist; the engine's suffix-group iteration is the
+   integration point.
+4. **Sub-word loads/stores** (lb/lh/lbu/lhu/sb/sh) to bring the byte-
+   load guests (regex, muldiv, collatz, ...) into the profile.
+5. **The 64-bit value mode** via the binary-tensor bridge (the
+   bits-bundle/two-characteristic discipline) — lifts the P0-63 profile
+   to full u64 wrapping arithmetic.
+6. **The compact/H6 opening integration** for the proof size (the
+   current per-column full-witness openings ship O(#cols × T) bytes).
