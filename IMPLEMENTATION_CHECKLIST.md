@@ -134,7 +134,8 @@ Legend: [x] landed + test-pinned · [~] partial (the gap stated) ·
 - [~] clippy `-D warnings` clean workspace-WIDE on all targets
       (pre-existing test-target lint debt in `lattice-folding` —
       tracked, untouched)
-- [ ] GitHub topics/description set on the remote (this push)
+- [x] GitHub topics/description set on the remote (the Stage-5.2
+      push, 2026-10-05)
 - [ ] release tagging + CHANGELOG automation
 - [ ] external audit (see AUDIT_CHECKLIST's external items)
 
