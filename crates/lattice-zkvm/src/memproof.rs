@@ -2204,8 +2204,14 @@ pub fn prove_memory_argument_block(
         stream_cols.iter().map(|(f, m)| (f.discriminant() as u32, m)).collect();
     let bits_total: usize = bits_entries.iter().map(|(_, m)| m.evaluations.len()).sum();
     let values_total: usize = values_entries.iter().map(|(_, m)| m.evaluations.len()).sum();
-    let (r_bits, k_bits) = fold_params_for(bits_total, 1);
-    let (r_vals, k_vals) = fold_params_for(values_total, 3);
+    // The block mode's k rides the estimator-run SECURITY_K (the block-
+    // geometry MSIS table: k=16 covers the conservative composed-gate
+    // reading at 128 classical bits; k=8 already carries the byte-bound
+    // homogeneous argument at 253 bits — see blockfold.rs's doc).
+    let (r_bits, _) = fold_params_for(bits_total, 1);
+    let (r_vals, _) = fold_params_for(values_total, 3);
+    let k_bits = crate::blockfold::BlockFoldParams::SECURITY_K;
+    let k_vals = crate::blockfold::BlockFoldParams::SECURITY_K;
     let bits_prover: BlockBundleProver = block_bundle_commit(&bits_entries, seed, r_bits, k_bits)
         .map_err(MemProofError::Ledger)?;
     let values_prover: BlockBundleProver =
@@ -2925,9 +2931,11 @@ mod block_tests {
         );
         assert!(bytes < 300_000);
 
-        // The commitment layers are ONE k-vector each (4 ring elements).
-        assert_eq!(proof.bits_commitment.len(), 4 + 4 * 64 * 4);
-        assert_eq!(proof.values_commitment.len(), 4 + 4 * 64 * 4);
+        // The commitment layers are ONE k-vector each — the estimator-run
+        // SECURITY_K = 16 (the block-geometry MSIS table's conservative
+        // composed-gate reading at 128 classical bits; blockfold.rs).
+        assert_eq!(proof.bits_commitment.len(), 4 + 16 * 64 * 4);
+        assert_eq!(proof.values_commitment.len(), 4 + 16 * 64 * 4);
 
         // ---- Tamper suite ----
         // Wrong final register.

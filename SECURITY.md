@@ -310,26 +310,51 @@ old check was load-bearing; removing it REQUIRES a sumcheck to carry
 the binding. This is exactly Akita's fused Eq-160 pattern — the "outer
 layer" gap the research consensus documented.
 
+**The block-geometry MSIS table — RUN (2026-10-06)**:
+`cargo run --release -p lattice-sis-estimator --example
+block_geometry_table` (both norms, the Akita exact-ℓ2 discipline). The
+verdict, at the benchmark bundle shapes (m_ring = r·n̄^pad ∈
+[2048, 4096]):
+
+* the **byte-bound homogeneous instance** (two W-side openings of one
+  y — the block's distinctive preimage, coefficients ≤ 255,
+  r/A-INDEPENDENT): k=2 → 31.8 bits (broken), k=4 → 98.1,
+  **k=8 → 253 classical bits**; the exact-ℓ2 6σ path agrees;
+* the **conservative composed reading** (`[F | −y]` with the gate
+  regime 2·r·A·255): **k=16 reaches 128 classical bits**, stable across
+  every bundle shape — the ladder is `SECURITY_K = 16` (shipped);
+* the honest comparison: at equal k the block-byte instance BEATS the
+  compact's gate instance (31.8 vs 11.7 at k=2; 253 vs 61 at k=8) —
+  the byte bound more than pays for the wide instance's extra attack
+  freedom (the earlier "strengthens the m/n regime" intuition had the
+  mechanism backwards; the outcome holds);
+* the streamed key expansion (below) makes the k-ladder memory-free on
+  the verification side — the security knob costs O(m) verifier state,
+  not O(k·m).
+
 **The honest gaps** (recorded, not hidden):
 
 1. The composite extractor (sumcheck rewinding over (ρ, h, β, τ)
    composed with the Ajtai relation, terminating in MSIS on the wide
    `[F | −y]` with the byte-bounded preimage and the norm-gated
    response difference) is argued at the engineering level, not a
-   written formal reduction. The wide m-column key strengthens the
-   estimator's m/n regime vs the column-uniform F̄ (more constraints
-   per unknown), but the estimator table has not been re-run for the
-   block geometry — the follow-up is
-   `lattice-sis-estimator` at (k, m, n̄_pad) with the byte bound.
+   written formal reduction. The estimator table for the block
+   geometry IS now run (above); the residual is the formal reduction
+   write-up.
 2. The degree-2 sumcheck's soundness over Z_q (q prime, ≈ 2^31.6) gives
    ~31 bits per round × log₂m rounds — the binding is
    information-theoretically strong at the cube sizes in play, but the
    two-round rewinding schedule (the standard strong extractability
    argument for linear-PCS-style sumchecks) is not written out.
-3. The verifier materializes the wide key when computing `g` and
-   binding `C̃(τ)` (O(k·m) ring state at fib scale ≈ 10 MB); the
-   streamed expansion (a follow-up) removes the allocation without
-   changing the checks.
+3. CLOSED (2026-10-06): the verifier's key passes are STREAMED
+   (`streamed_c_array`) — each key column regenerates from the seed
+   with the SAME flat l-major indexing `AjtaiPublicKey::from_seed` uses,
+   `g_p` accumulates in place, and the public C-array fuses into the
+   one pass: O(m + n̄ + k) verifier state (bit-identical to the
+   materialized route, pinned by a dedicated test). This is Akita's
+   setup-offloading discipline in the seeded-key regime — the strictly
+   simpler case, since the key is transcript-derived and public (no
+   commitment of the setup matrix needed).
 
 The per-column compact mode (`compact.rs`) is UNCHANGED and remains the
 default; the block mode (`prove_memory_argument_block`) is the

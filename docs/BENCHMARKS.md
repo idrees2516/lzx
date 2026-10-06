@@ -202,20 +202,30 @@ to the ONE commitment and whose h-half pins the transmitted response v.
 The compact machinery (carrier, ũ_j's, interpolation, fold challenges,
 rANS response, norm gate, functional commute) is unchanged.
 
-| program | cycles | Batched compact | **Block-commit** | reduction | block prove | block verify |
-|---|---|---|---|---|---|---|
-| fibonacci | 185 | 33.0 KB | **19.0 KB** | **1.7×** | ~2,400 ms | ~1,170 ms |
+**The 2026-10-06 hardening update** (the estimator run + the streamed
+keys, SECURITY.md's block-geometry table): the block-geometry MSIS
+verdict ships `SECURITY_K = 16` (the conservative composed-gate reading
+at 128 classical bits; k=8 already carries the byte-bound homogeneous
+argument at 253 bits) and the verifier's key passes are STREAMED
+(`streamed_c_array`: per-column seed regeneration, g and the public
+C-array fused in one pass, O(m + n̄ + k) state — bit-identical, the
+dedicated test pins it).
 
-Block composition (fibonacci): legs ~6 KB, claims 3.5 KB, **commitments
-1 KB + 1 KB** (vs 16 KB), carriers 0.8 KB, openings ~6 KB + the binding
-sumchecks (~0.4 KB) + the terminals ŵ, statement 0.5 KB. The prover
-pays ~1.7× the compact mode (the fused sumcheck's per-round product
-passes — the same order as one extra commitment pass); the verifier's
-two streamed key passes (g and C̃(τ)) dominate its ~1.1 s — the
-streamed-key expansion (never materializing the k×m matrix) is the
-documented follow-up. The win GROWS with the column count: at richer
-workload scale (r → 256+ columns) the compact layer grows to 64+ KB per
-bundle while the block layer stays at 1 KB.
+| program | cycles | Batched compact | **Block-commit (k=16)** | reduction | block prove | block verify |
+|---|---|---|---|---|---|---|
+| fibonacci | 185 | 31.0 KB | **25.0 KB** | **1.2×** | 1,477 ms | 240 ms |
+
+The honest price of the 128-bit bar: the k=4 interim (98 bits in the
+byte-bound regime — insecure posture) measured 19.0 KB; the
+SECURITY_K=16 posture costs 6 KB of k-vector commitments (4.1 KB per
+bundle) and buys the estimator-certified binding. The streamed keys
+hold the verifier at 240 ms at 4× the rank (the materialized route's
+memory would have scaled with k; the stream's does not). The win GROWS
+with the column count: at richer workload scale (r → 256+ columns) the
+compact layer grows to 64+ KB per bundle while the block layer stays at
+4 KB — the estimator-certified posture at r× amortization. The
+block-commit layer at k=16 is 4× smaller than the per-column layer
+would be at the SAME security rank (r·k = 64 ring elements at r=4).
 
 
 ## 2c. The streaming / client-side prover (the small-space pipeline, 2026-09-30)

@@ -116,6 +116,21 @@ impl BlockFoldParams {
         }
     }
 
+    /// The estimator-run security k (the block-geometry MSIS table,
+    /// `lattice-sis-estimator/examples/block_geometry_table.rs`):
+    ///
+    /// * the byte-bound homogeneous instance (two W-side openings of one
+    ///   y, coefficients ≤ 255 — r/A-independent) reaches 253 classical
+    ///   bits at **k = 8** and the exact-ℓ2 6σ path agrees;
+    /// * the CONSERVATIVE composed reading (`[F | −y]` with the gate
+    ///   regime `2·r·A·255`) needs **k = 16** for 128 bits, stable across
+    ///   every benchmark bundle shape (m_ring ∈ [2048, 4096]);
+    /// * the shipped posture takes the conservative k = 16 — the
+    ///   commitment stays r×/4 smaller than the per-column layer at the
+    ///   benchmark r, and the STREAMED verifier key pass (below) keeps
+    ///   the k-ladder memory-free on the verification side.
+    pub const SECURITY_K: usize = 16;
+
     /// The worst-case fold bound r·A·β₀ (the completeness guarantee).
     pub fn worst_bound(&self, beta0: u64) -> u64 {
         (self.r as u64) * (self.amplitude as u64) * beta0
@@ -266,6 +281,9 @@ fn build_c_array(
 }
 
 /// The key pass: `g = Σ_l ρ_l·F[l] ∈ R^m`.
+///
+/// (The PROVER's route — it holds the materialized key from the commit.
+/// The VERIFIER uses `streamed_c_array` below and never materializes.)
 #[allow(clippy::expect_used)] // same-ring adds cannot fail (one RingConfig)
 fn key_pass(
     ring: &RingConfig,
@@ -284,6 +302,52 @@ fn key_pass(
         g.push(acc);
     }
     g
+}
+
+/// The STREAMED verifier key pass (the honest ledger's follow-up #2 —
+/// Akita's setup-offloading discipline in the seeded-key regime): the
+/// wide key `F ∈ R^{k×m}` is NEVER materialized — each column is
+/// regenerated from the seed with the SAME flat l-major indexing
+/// `AjtaiPublicKey::from_seed` uses (`uniform_from_seed(b"ajtai-A",
+/// seed, l·m + p)`), `g_p = Σ_l ρ_l·F[l][p]` accumulates in place, and
+/// the public C-array fuses into the same pass:
+/// `c_p = g_p + d_{j(p)}·h_{i(p)}`.
+///
+/// **Bit-identical** to the materialized `key_pass + build_c_array`
+/// route (the generation is deterministic per element) at
+/// `O(m + n̄ + k)` ring state instead of the key's `O(k·m)` — the
+/// k-ladder's security knob (`SECURITY_K`) becomes memory-free on the
+/// verification side.
+#[allow(clippy::expect_used)] // same-ring adds cannot fail (one RingConfig)
+fn streamed_c_array(
+    ring: &RingConfig,
+    seed: &[u8; 32],
+    rho: &[Fq],
+    d: &[i64],
+    h: &[RingElement],
+    r: usize,
+    n_bar_pad: usize,
+) -> Vec<RingElement> {
+    let m = r * n_bar_pad;
+    let mut c = Vec::with_capacity(m);
+    for p in 0..m {
+        // g_p = Σ_l ρ_l·F[l][p] — the column regenerated on the fly.
+        let mut gp = ring.zero();
+        for (l, &rl) in rho.iter().enumerate() {
+            let flp = ring.uniform_from_seed(b"ajtai-A", seed, (l * m + p) as u64);
+            gp = gp.add(&flp.scale_i64(rl.0 as i64)).expect("same-ring add");
+        }
+        // c_p = g_p + d_{j(p)}·h_{i(p)} (the public C-array).
+        let j = p / n_bar_pad;
+        let i = p % n_bar_pad;
+        let mut cp = gp;
+        let dj = d[j];
+        if dj != 0 {
+            cp = cp.add(&h[i].scale_i64(dj)).expect("same-ring add");
+        }
+        c.push(cp);
+    }
+    c
 }
 
 /// Bind one array: `next[i] = (1−τ)·cur[i] + τ·cur[half+i]`.
@@ -790,15 +854,13 @@ pub fn verify_block_opening(
         .collect();
     let beta = ring.uniform_from_seed(b"block-beta", &beta_seed, 0);
 
-    let ajtai = AjtaiParams {
-        ring: ring.clone(),
-        k: params.k,
-        m,
-        norm_bound: params.gate,
-    };
-    let key = AjtaiPublicKey::from_seed(ajtai, seed).map_err(LedgerError::Ajtai)?;
-    let g = key_pass(&ring, &key, &rho, m);
-    let mut c_cur = build_c_array(&ring, &g, &d, &h, params.r, n_bar_pad);
+    // 5'. The STREAMED key pass: the wide key F ∈ R^{k×m} is NEVER
+    //     materialized on the verifier — each column regenerates from
+    //     the seed (the from_seed flat index), g_p accumulates, and the
+    //     public C-array fuses in the same pass. O(m + n̄ + k) state
+    //     (the materialized route held O(k·m) — ~10 MB at fib scale,
+    //     and the SECURITY_K ladder would multiply it).
+    let mut c_cur = streamed_c_array(&ring, &seed, &rho, &d, &h, params.r, n_bar_pad);
 
     let claim = {
         let mut c_y = ring.zero();
@@ -1164,5 +1226,54 @@ mod tests {
         // elements (vs the compact mode's r·k).
         assert_eq!(prover.commitment_bytes().len(), 4 + 2 * n * 4);
         assert_eq!(prover.y.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod streamed_key_tests {
+    use super::*;
+
+    /// The streamed verifier key pass is BIT-IDENTICAL to the
+    /// materialized key_pass + build_c_array route: the per-column seed
+    /// regeneration reproduces from_seed's flat l-major indexing exactly,
+    /// so the fused C-array equals the two-step construction coefficient
+    /// for coefficient. This pins the O(m + n̄ + k) swap's correctness
+    /// (the whole tamper suite exercises it end-to-end).
+    #[test]
+    fn streamed_c_array_matches_materialized_route() {
+        let ring = column_ring().expect("ring");
+        let seed = [42u8; 32];
+        let (k, r, n_bar_pad) = (6usize, 4usize, 8usize);
+        let m = r * n_bar_pad;
+        let rho: Vec<Fq> = (0..k)
+            .map(|l| {
+                Fq::from_u64(
+                    ring.uniform_from_seed(b"t-rho", &seed, l as u64).coeffs()[0] as u64,
+                )
+            })
+            .collect();
+        let d: Vec<i64> = vec![-37, 0, 41, 12];
+        let h: Vec<RingElement> = (0..n_bar_pad)
+            .map(|i| ring.uniform_from_seed(b"t-h", &seed, i as u64))
+            .collect();
+
+        // The materialized route (the prover's path).
+        let ajtai = AjtaiParams {
+            ring: ring.clone(),
+            k,
+            m,
+            norm_bound: 1 << 20,
+        };
+        let key = AjtaiPublicKey::from_seed(ajtai, seed).expect("key");
+        let g = key_pass(&ring, &key, &rho, m);
+        let c_mat = build_c_array(&ring, &g, &d, &h, r, n_bar_pad);
+
+        // The streamed route (the verifier's path).
+        let c_str = streamed_c_array(&ring, &seed, &rho, &d, &h, r, n_bar_pad);
+
+        assert_eq!(c_mat.len(), c_str.len());
+        for (a, b) in c_mat.iter().zip(c_str.iter()) {
+            assert_eq!(a.coeffs(), b.coeffs(), "streamed and materialized must be bit-identical");
+        }
     }
 }

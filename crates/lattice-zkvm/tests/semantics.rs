@@ -2,6 +2,7 @@
 //! real execution, verify with NO re-execution, and tamper rejection
 //! (corrupted claim / leg / commitment / final registers).
 
+use lattice_core::Goldilocks;
 use lattice_zkvm::semantics::{
     prove_instruction_semantics, verify_instruction_semantics, SemanticsProof,
 };
@@ -211,4 +212,105 @@ fn semantics_proof_shape() {
                 || matches!(c.factor, lattice_zkvm::ledger::Factor::ValCol { .. })
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// The P1 sub-word constraint polynomials: LB/LBU/LH/LHU/SB/SH through the
+// full semantics layer (the byte-guest ISA's statement-path coverage).
+// ---------------------------------------------------------------------------
+
+fn enc_load(f3: u32, rd: u8, rs1: u8, imm: i64) -> u32 {
+    ((imm as u32 & 0xFFF) << 20)
+        | ((rs1 as u32) << 15)
+        | (f3 << 12)
+        | ((rd as u32) << 7)
+        | 0x03
+}
+
+fn enc_store(f3: u32, rs1: u8, rs2: u8, imm: i64) -> u32 {
+    // S-type: imm[11:5] at bits 25..31, imm[4:0] at bits 7..11.
+    let i = imm as u32 & 0xFFF;
+    ((i >> 5) << 25)
+        | ((rs2 as u32) << 20)
+        | ((rs1 as u32) << 15)
+        | (f3 << 12)
+        | ((i & 0x1F) << 7)
+        | 0x23
+}
+
+/// The sub-word program: byte stores at even AND odd offsets (the mux
+/// over all 8 byte positions), sign/zero extensions, half stores at two
+/// alignments, and a sign-extended half load (0x8000 -> -32768).
+fn subword_program() -> Vec<u8> {
+    let words = [
+        enc_addi(1, 0, 64),        // x1 = 64 (base)
+        enc_addi(2, 0, -2),        // x2 = 0xFFFE
+        enc_store(0, 1, 2, 0),     // sb x2, 0(x1)   -> 0xFE at 64
+        enc_store(0, 1, 2, 5),     // sb x2, 5(x1)   -> 0xFE at 69 (odd)
+        enc_load(4, 3, 1, 0),      // lbu x3, 0(x1)  -> 254
+        enc_load(0, 4, 1, 0),      // lb  x4, 0(x1)  -> -2 (sext)
+        enc_load(4, 5, 1, 5),      // lbu x5, 5(x1)  -> 254
+        enc_load(0, 6, 1, 5),      // lb  x6, 5(x1)  -> -2 (sext)
+        enc_addi(7, 0, 1),         // x7 = 1
+        enc_shift_imm(0, 15, 7, 1, 7, 0x13), // slli x7, x7, 15 -> 0x8000
+        enc_store(1, 1, 7, 2),     // sh x7, 2(x1)   -> half 0x8000 at 66
+        enc_load(5, 8, 1, 2),      // lhu x8, 2(x1)  -> 32768
+        enc_load(1, 9, 1, 2),      // lh  x9, 2(x1)  -> -32768 (sext)
+        enc_store(1, 1, 7, 4),     // sh x7, 4(x1)   -> half at 68
+        enc_load(1, 10, 1, 4),     // lh  x10, 4(x1) -> -32768
+        0x73u32,                   // ecall
+    ];
+    let mut v = Vec::new();
+    for w in words {
+        v.extend_from_slice(&w.to_le_bytes());
+    }
+    v
+}
+
+#[test]
+fn semantics_subword_program_roundtrip() {
+    let prog = subword_program();
+    let input: Vec<u8> = Vec::new();
+    let (proof, regs) = prove_instruction_semantics(&prog, &input, 64, 6, 4)
+        .ok()
+        .unwrap();
+    // The executed semantics: lbu 254, lb -2, lhu 32768, lh -32768 —
+    // the registers carry the two's-complement lifts as u64.
+    assert_eq!(regs[3], 254);
+    assert_eq!(regs[4], (-2i64) as u64);
+    assert_eq!(regs[5], 254);
+    assert_eq!(regs[6], (-2i64) as u64);
+    assert_eq!(regs[8], 32768);
+    assert_eq!(regs[9], (-32768i64) as u64);
+    assert_eq!(regs[10], (-32768i64) as u64);
+    // Verify with NO re-execution.
+    assert!(verify_instruction_semantics(&proof, &prog, &input).is_ok());
+}
+
+#[test]
+fn semantics_subword_tampered_claim_rejected() {
+    let prog = subword_program();
+    let input: Vec<u8> = Vec::new();
+    let (mut proof, _) = prove_instruction_semantics(&prog, &input, 64, 6, 4)
+        .ok()
+        .unwrap();
+    // Corrupt the first claim's value — the route family's P1 muxes
+    // (among others) bind the committed columns; the tamper must fail.
+    proof.claims[0].value = proof.claims[0].value.add(&Goldilocks::ONE);
+    assert!(verify_instruction_semantics(&proof, &prog, &input).is_err());
+}
+
+#[test]
+fn semantics_subword_wrong_program_rejected() {
+    let prog = subword_program();
+    let input: Vec<u8> = Vec::new();
+    let (proof, _) = prove_instruction_semantics(&prog, &input, 64, 6, 4)
+        .ok()
+        .unwrap();
+    // Change the first SB (instr 2, even offset 0) into an SH: the
+    // store-merge polynomials differ (the half muxes vs the byte mux)
+    // and the merged-word claims no longer match -> rejected.
+    let mut other = prog.clone();
+    other[(2 * 4) + 1] |= 0x10; // funct3 0 -> 1 at instr 2 (sb -> sh)
+    assert!(verify_instruction_semantics(&proof, &other, &input).is_err());
 }

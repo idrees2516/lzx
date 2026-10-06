@@ -174,6 +174,13 @@ pub const SELECTOR_TABLE: &[SelectorRow] = &[
     ("sel_lw", 0x03, 2, None, None),
     ("sel_lwu", 0x03, 6, None, None),
     ("sel_ld", 0x03, 3, None, None),
+    // the byte-guest ISA: the sub-word surface (P1)
+    ("sel_lb", 0x03, 0, None, None),
+    ("sel_lh", 0x03, 1, None, None),
+    ("sel_lbu", 0x03, 4, None, None),
+    ("sel_lhu", 0x03, 5, None, None),
+    ("sel_sb", 0x23, 0, None, None),
+    ("sel_sh", 0x23, 1, None, None),
     ("sel_sw", 0x23, 2, None, None),
     ("sel_sd", 0x23, 3, None, None),
 ];
@@ -190,6 +197,9 @@ pub struct AuxIndex {
     pub mem_re: usize,
     pub mem_we: usize,
     pub mem_half: usize,
+    /// The address's low three bits (the byte-granular sub-word
+    /// offsets — the P1 layer's position selectors).
+    pub mem_off: [usize; 3],
     pub halted: usize,
     pub taken: usize,
     pub carry_add_r: [usize; 4],
@@ -361,8 +371,14 @@ pub fn covered_instr(instr: &Instr) -> bool {
             | Lw { .. }
             | Lwu { .. }
             | Ld { .. }
+            | Lb { .. }
+            | Lh { .. }
+            | Lbu { .. }
+            | Lhu { .. }
             | Sw { .. }
             | Sd { .. }
+            | Sb { .. }
+            | Sh { .. }
             | Jal { .. }
             | Jalr { .. }
             | Ecall
@@ -434,6 +450,18 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
     push_bit!(w.mem_we.clone(), "mem_we");
     let mem_half_id = bits.len();
     push_bit!(w.mem_half.clone(), "mem_half");
+    // The P1 sub-word offsets: the address's low three bits, derived
+    // from the committed mem_addr value column (booleanity rides the
+    // flags family's (c) section — every aux bit column is covered).
+    let mem_off_id = [bits.len(), bits.len() + 1, bits.len() + 2];
+    for i in 0..3 {
+        push_bit!(
+            (0..t)
+                .map(|c| ((w.mem_addr[c].to_canonical_u64() >> i) & 1) as u8)
+                .collect::<Vec<u8>>(),
+            "mem_off"
+        );
+    }
     let halted_id = bits.len();
     push_bit!(w.halted.clone(), "halted");
     let taken: Vec<u8> = (0..t)
@@ -856,6 +884,7 @@ pub fn build_aux(w: &CycleWitness, instrs: &[Instr]) -> Result<AuxCols, Constrai
         mem_re: mem_re_id,
         mem_we: mem_we_id,
         mem_half: mem_half_id,
+        mem_off: mem_off_id,
         halted: halted_id,
         taken: taken_id,
         carry_add_r: carry_add_r.try_into().ok().unwrap_or([0; 4]),
@@ -955,7 +984,9 @@ fn raw_opcode(instr: &Instr) -> u32 {
         Jalr { .. } => 0x67,
         Beq { .. } | Bne { .. } | Blt { .. } | Bge { .. } | Bltu { .. } | Bgeu { .. } => 0x63,
         Lw { .. } | Lwu { .. } | Ld { .. } => 0x03,
+        Lb { .. } | Lh { .. } | Lbu { .. } | Lhu { .. } => 0x03,
         Sw { .. } | Sd { .. } => 0x23,
+        Sb { .. } | Sh { .. } => 0x23,
         Ecall | Ebreak => 0x73,
         _ => 0,
     }
@@ -1005,6 +1036,10 @@ fn raw_funct3(instr: &Instr) -> u32 {
         Lw { .. } | Sw { .. } => 2,
         Lwu { .. } => 6,
         Ld { .. } | Sd { .. } => 3,
+        Lb { .. } | Sb { .. } => 0,
+        Lh { .. } | Sh { .. } => 1,
+        Lbu { .. } => 4,
+        Lhu { .. } => 5,
         // system
         Ecall => 0,
         Ebreak => 1,
@@ -1468,6 +1503,9 @@ pub enum FV {
     InstrWord,
     /// A bit column over log T.
     Bit(usize),
+    /// The complement of a bit column (1 − the bit): the P1 sub-word
+    /// position products' zero legs.
+    FlipBit(usize),
     /// A value column over log T.
     Val(usize),
     /// A fixed tensor row, lifted constant over the bit block: the claim
@@ -1524,6 +1562,7 @@ fn bind_views(
                 FV::Combo { slot } => Some((0, *slot)),
                 FV::InstrWord => Some((1, 0)),
                 FV::Bit(id) => Some((3, *id)),
+                FV::FlipBit(id) => Some((3, *id)),
                 FV::Val(id) => Some((4, *id)),
                 FV::TensorRow { factor, .. } => Some((factor.discriminant(), factor.payload())),
                 FV::FlipTensorRow { factor, .. } => Some((factor.discriminant(), factor.payload())),
@@ -1556,6 +1595,9 @@ fn resolve_view(
         FV::Combo { slot } => Some(ledger.value_combo(*slot, point)?),
         FV::InstrWord => Some(ledger.instr_word(point)?),
         FV::Bit(id) => Some(ledger.tensor_claim(Factor::BitCol { id: *id }, point)?),
+        FV::FlipBit(id) => Some(
+            Goldilocks::ONE.sub(&ledger.tensor_claim(Factor::BitCol { id: *id }, point)?),
+        ),
         FV::Val(id) => Some(ledger.tensor_claim(Factor::ValCol { id: *id }, point)?),
         FV::TensorRow { factor, nbits, row } => {
             let mut pt = idx_point((*nbits).trailing_zeros() as usize, *row);
@@ -2225,20 +2267,26 @@ fn prove_flags(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
             }
             Ok(())
         };
-    // (1) mem_re = lw + lwu + ld
+    // (1) mem_re = lw + lwu + ld + lb + lbu + lh + lhu
     {
         let tgt = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_re, log_t)?;
         let lw = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lw"), log_t)?;
         let lwu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lwu"), log_t)?;
         let ld = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_ld"), log_t)?;
-        neg_sum_terms(&mut vp, tgt, &[lw, lwu, ld])?;
+        let lb = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lb"), log_t)?;
+        let lbu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lbu"), log_t)?;
+        let lh = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lh"), log_t)?;
+        let lhu = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_lhu"), log_t)?;
+        neg_sum_terms(&mut vp, tgt, &[lw, lwu, ld, lb, lbu, lh, lhu])?;
     }
-    // (2) mem_we = sw + sd
+    // (2) mem_we = sw + sd + sb + sh
     {
         let tgt = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_we, log_t)?;
         let sw = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sw"), log_t)?;
         let sd = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sd"), log_t)?;
-        neg_sum_terms(&mut vp, tgt, &[sw, sd])?;
+        let sb = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sb"), log_t)?;
+        let sh = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sh"), log_t)?;
+        neg_sum_terms(&mut vp, tgt, &[sw, sd, sb, sh])?;
     }
     // (3) NOTE: mem_half is the half-SELECTOR (which 32-bit half of the
     // word a word-granular access touches), not an access indicator —
@@ -2406,14 +2454,23 @@ fn verify_flags(
         let a = claim_bit(ledger, idx.sel_by("sel_lw"), pt)?;
         let b = claim_bit(ledger, idx.sel_by("sel_lwu"), pt)?;
         let c = claim_bit(ledger, idx.sel_by("sel_ld"), pt)?;
-        expect = expect.add(&alphas[0].mul(&t.sub(&a).sub(&b).sub(&c)).mul(&eq_at));
+        let d = claim_bit(ledger, idx.sel_by("sel_lb"), pt)?;
+        let e = claim_bit(ledger, idx.sel_by("sel_lbu"), pt)?;
+        let f = claim_bit(ledger, idx.sel_by("sel_lh"), pt)?;
+        let g = claim_bit(ledger, idx.sel_by("sel_lhu"), pt)?;
+        expect = expect
+            .add(&alphas[0]
+                .mul(&t.sub(&a).sub(&b).sub(&c).sub(&d).sub(&e).sub(&f).sub(&g))
+                .mul(&eq_at));
     }
     // (2) mem_we
     {
         let t = claim_bit(ledger, idx.mem_we, pt)?;
         let a = claim_bit(ledger, idx.sel_by("sel_sw"), pt)?;
         let b = claim_bit(ledger, idx.sel_by("sel_sd"), pt)?;
-        expect = expect.add(&alphas[0].mul(&t.sub(&a).sub(&b)).mul(&eq_at));
+        let c = claim_bit(ledger, idx.sel_by("sel_sb"), pt)?;
+        let d = claim_bit(ledger, idx.sel_by("sel_sh"), pt)?;
+        expect = expect.add(&alphas[0].mul(&t.sub(&a).sub(&b).sub(&c).sub(&d)).mul(&eq_at));
     }
     // (4) taken
     {
@@ -3411,7 +3468,7 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
         .map_err(ConstraintError::Transcript)?;
     let alphas = ctx
         .transcript
-        .challenge_fields(b"con-route-a", 5)
+        .challenge_fields(b"con-route-a", 8)
         .map_err(ConstraintError::Transcript)?;
     let eq = DenseMle::eq_extension(&r);
     let mut vp = VirtualPolynomial::new(log_t);
@@ -3663,6 +3720,239 @@ fn prove_route(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
                 .map_err(ConstraintError::Virtual)?;
         }
     }
+    // (8) THE P1 SUB-WORD ADDRESSING (the byte-guest ISA's routing):
+    //     byte accesses: addr = 8*word + off0 + 2*off1 + 4*off2;
+    //     half accesses: addr = 8*word + 2*off1 + 4*off2 AND off0 = 0
+    //     (the alignment, fail-closed — a misaligned half is rejected).
+    {
+        let a = &alphas[5];
+        let addr = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mem_addr, log_t)?;
+        let word = add_val_factor(&mut vp, &mut views, &aux.vals, idx.v_mem_word, log_t)?;
+        let off: Vec<usize> = (0..3)
+            .map(|i| add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_off[i], log_t))
+            .collect::<Result<_, _>>()?;
+        for name in ["sel_lb", "sel_lbu", "sel_sb"] {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+            vp.add_term(*a, vec![sel, addr, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.mul(&fe(8).neg()), vec![sel, word, ei])
+                .map_err(ConstraintError::Virtual)?;
+            for (i, w2) in [(0usize, 1u64), (1, 2), (2, 4)] {
+                vp.add_term(a.mul(&fe(w2).neg()), vec![sel, off[i], ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+        }
+        for name in ["sel_lh", "sel_lhu", "sel_sh"] {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+            vp.add_term(*a, vec![sel, addr, ei])
+                .map_err(ConstraintError::Virtual)?;
+            vp.add_term(a.mul(&fe(8).neg()), vec![sel, word, ei])
+                .map_err(ConstraintError::Virtual)?;
+            for (i, w2) in [(1usize, 2u64), (2, 4)] {
+                vp.add_term(a.mul(&fe(w2).neg()), vec![sel, off[i], ei])
+                    .map_err(ConstraintError::Virtual)?;
+            }
+            // sel*off0 = 0 — the half-alignment gate.
+            vp.add_term(*a, vec![sel, off[0], ei])
+                .map_err(ConstraintError::Virtual)?;
+        }
+    }
+    // (9) THE P1 SUB-WORD LOADS (bit-grain muxes over the off one-hot):
+    //     LBU/LB: rd[b] = sum_p pos_p*old[8p+b] for b in 0..8, where
+    //     pos_p = prod_i (off_i == p_i); LBU: rd[b] = 0 for b in 8..64;
+    //     LB: rd[b] = sign = sum_p pos_p*old[8p+7] for b in 8..64.
+    //     LHU/LH: rd[bit] = sum_h hpos_h*old[16h+bit] for bit in 0..16
+    //     with hpos_h = (off1 == h1)*(off2 == h2); LHU zero / LH sign.
+    {
+        let a = &alphas[6];
+        let off: Vec<usize> = (0..3)
+            .map(|i| add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_off[i], log_t))
+            .collect::<Result<_, _>>()?;
+        // The complements (1 - off_i) — the position products' zero legs.
+        let noff: Vec<usize> = (0..3)
+            .map(|i| {
+                let col = DenseMle {
+                    num_vars: log_t,
+                    evaluations: aux.bits[idx.mem_off[i]]
+                        .iter()
+                        .map(|v| fe(1 ^ (*v as u64)))
+                        .collect(),
+                };
+                let fi = vp.add_factor(col).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::FlipBit(idx.mem_off[i])));
+                Ok(fi)
+            })
+            .collect::<Result<Vec<usize>, ConstraintError>>()?;
+        // The byte-position product factor list for position p.
+        let byte_pos = |p: usize| -> Vec<usize> {
+            (0..3)
+                .map(|i| if (p >> i) & 1 == 1 { off[i] } else { noff[i] })
+                .collect()
+        };
+        // The half-position product factor list for half h (bits 1..2).
+        let half_pos = |h: usize| -> Vec<usize> {
+            (0..2)
+                .map(|i| if (h >> i) & 1 == 1 { off[i + 1] } else { noff[i + 1] })
+                .collect()
+        };
+        for (name, signed) in [("sel_lbu", false), ("sel_lb", true)] {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+            for b in 0..8usize {
+                let rd = add_vbit_factor(&mut vp, &mut views, w, T_RD, b, log_t)?;
+                vp.add_term(*a, vec![sel, rd, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                for p in 0..8usize {
+                    let old = add_vbit_factor(&mut vp, &mut views, w, T_MEM_OLD, 8 * p + b, log_t)?;
+                    let mut ids = vec![sel];
+                    ids.extend(byte_pos(p));
+                    ids.push(old);
+                    ids.push(ei);
+                    vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                }
+            }
+            for b in 8..64usize {
+                let rd = add_vbit_factor(&mut vp, &mut views, w, T_RD, b, log_t)?;
+                vp.add_term(*a, vec![sel, rd, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                if signed {
+                    // LB: the sign fans from the muxed top bit (8p+7).
+                    for p in 0..8usize {
+                        let old =
+                            add_vbit_factor(&mut vp, &mut views, w, T_MEM_OLD, 8 * p + 7, log_t)?;
+                        let mut ids = vec![sel];
+                        ids.extend(byte_pos(p));
+                        ids.push(old);
+                        ids.push(ei);
+                        vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+        }
+        for (name, signed) in [("sel_lhu", false), ("sel_lh", true)] {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by(name), log_t)?;
+            for b in 0..16usize {
+                let rd = add_vbit_factor(&mut vp, &mut views, w, T_RD, b, log_t)?;
+                vp.add_term(*a, vec![sel, rd, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                for h in 0..4usize {
+                    let old = add_vbit_factor(&mut vp, &mut views, w, T_MEM_OLD, 16 * h + b, log_t)?;
+                    let mut ids = vec![sel];
+                    ids.extend(half_pos(h));
+                    ids.push(old);
+                    ids.push(ei);
+                    vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                }
+            }
+            for b in 16..64usize {
+                let rd = add_vbit_factor(&mut vp, &mut views, w, T_RD, b, log_t)?;
+                vp.add_term(*a, vec![sel, rd, ei])
+                    .map_err(ConstraintError::Virtual)?;
+                if signed {
+                    for h in 0..4usize {
+                        let old = add_vbit_factor(
+                            &mut vp,
+                            &mut views,
+                            w,
+                            T_MEM_OLD,
+                            16 * h + 15,
+                            log_t,
+                        )?;
+                        let mut ids = vec![sel];
+                        ids.extend(half_pos(h));
+                        ids.push(old);
+                        ids.push(ei);
+                        vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                    }
+                }
+            }
+        }
+    }
+    // (10) THE P1 SUB-WORD STORE MERGES: SB replaces byte p of the word
+    //      with rs2's low byte; SH replaces half h with rs2's low half:
+    //      new[8p+b] = pos_p*rs2[b] + (1 - pos_p)*old[8p+b] (bit-grain).
+    {
+        let a = &alphas[7];
+        let off: Vec<usize> = (0..3)
+            .map(|i| add_bit_factor(&mut vp, &mut views, &aux.bits, idx.mem_off[i], log_t))
+            .collect::<Result<_, _>>()?;
+        let noff: Vec<usize> = (0..3)
+            .map(|i| {
+                let col = DenseMle {
+                    num_vars: log_t,
+                    evaluations: aux.bits[idx.mem_off[i]]
+                        .iter()
+                        .map(|v| fe(1 ^ (*v as u64)))
+                        .collect(),
+                };
+                let fi = vp.add_factor(col).map_err(ConstraintError::Virtual)?;
+                views.push((fi, FV::FlipBit(idx.mem_off[i])));
+                Ok(fi)
+            })
+            .collect::<Result<Vec<usize>, ConstraintError>>()?;
+        let byte_pos = |p: usize| -> Vec<usize> {
+            (0..3)
+                .map(|i| if (p >> i) & 1 == 1 { off[i] } else { noff[i] })
+                .collect()
+        };
+        let half_pos = |h: usize| -> Vec<usize> {
+            (0..2)
+                .map(|i| if (h >> i) & 1 == 1 { off[i + 1] } else { noff[i + 1] })
+                .collect()
+        };
+        {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sb"), log_t)?;
+            for p in 0..8usize {
+                for b in 0..8usize {
+                    let new =
+                        add_vbit_factor(&mut vp, &mut views, w, T_MEM_NEW, 8 * p + b, log_t)?;
+                    let old =
+                        add_vbit_factor(&mut vp, &mut views, w, T_MEM_OLD, 8 * p + b, log_t)?;
+                    let rs2 = add_vbit_factor(&mut vp, &mut views, w, T_RS2, b, log_t)?;
+                    // sel*(new - old - pos_p*(rs2 - old)) = 0
+                    vp.add_term(*a, vec![sel, new, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a.neg(), vec![sel, old, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    let mut ids = vec![sel];
+                    ids.extend(byte_pos(p));
+                    ids.push(rs2);
+                    ids.push(ei);
+                    vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                    let mut ids = vec![sel];
+                    ids.extend(byte_pos(p));
+                    ids.push(old);
+                    ids.push(ei);
+                    vp.add_term(*a, ids).map_err(ConstraintError::Virtual)?;
+                }
+            }
+        }
+        {
+            let sel = add_bit_factor(&mut vp, &mut views, &aux.bits, idx.sel_by("sel_sh"), log_t)?;
+            for h in 0..4usize {
+                for b in 0..16usize {
+                    let new =
+                        add_vbit_factor(&mut vp, &mut views, w, T_MEM_NEW, 16 * h + b, log_t)?;
+                    let old =
+                        add_vbit_factor(&mut vp, &mut views, w, T_MEM_OLD, 16 * h + b, log_t)?;
+                    let rs2 = add_vbit_factor(&mut vp, &mut views, w, T_RS2, b, log_t)?;
+                    vp.add_term(*a, vec![sel, new, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    vp.add_term(a.neg(), vec![sel, old, ei])
+                        .map_err(ConstraintError::Virtual)?;
+                    let mut ids = vec![sel];
+                    ids.extend(half_pos(h));
+                    ids.push(rs2);
+                    ids.push(ei);
+                    vp.add_term(a.neg(), ids).map_err(ConstraintError::Virtual)?;
+                    let mut ids = vec![sel];
+                    ids.extend(half_pos(h));
+                    ids.push(old);
+                    ids.push(ei);
+                    vp.add_term(*a, ids).map_err(ConstraintError::Virtual)?;
+                }
+            }
+        }
+    }
     ctx.stage("route", &mut vp, &views, Goldilocks::ZERO)
         .map(|_| ())
 }
@@ -3683,13 +3973,16 @@ fn verify_route(
         .challenge_fields(b"con-route-r", log_t)
         .map_err(ConstraintError::Transcript)?;
     let alphas = transcript
-        .challenge_fields(b"con-route-a", 5)
+        .challenge_fields(b"con-route-a", 8)
         .map_err(ConstraintError::Transcript)?;
     let leg = next_constraint_leg(iter, "route")?;
-    let verdict = verify_leg_header("route", leg, log_t, 5, transcript)?;
+    // Degree cap 6: the P1 sub-word muxes carry 6-factor terms
+    // (sel + 3 off-bit selectors + value-bit + eq).
+    let verdict = verify_leg_header("route", leg, log_t, 6, transcript)?;
     let eq_at = DenseMle::eq_eval(&r, &verdict.point).map_err(ConstraintError::Mle)?;
     let pt = &verdict.point;
     let mut expect = Goldilocks::ZERO;
+    let one = Goldilocks::ONE;
     // (1) effective address
     {
         let a = &alphas[0];
@@ -3828,6 +4121,145 @@ fn verify_route(
             let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
             let lt = claim_bit(ledger, col, pt)?;
             expect = expect.add(&d.mul(&sel).mul(&rd.sub(&lt)).mul(&eq_at));
+        }
+    }
+    // (8) THE P1 SUB-WORD ADDRESSING (mirror of the prover's (8)):
+    //     byte: addr - 8*word - off0 - 2*off1 - 4*off2; half: the same
+    //     without off0 plus the alignment sel*off0 = 0.
+    {
+        let a = &alphas[5];
+        let addr = claim_val(ledger, idx.v_mem_addr, pt)?;
+        let word = claim_val(ledger, idx.v_mem_word, pt)?;
+        let off: Vec<Goldilocks> =
+            (0..3).map(|i| claim_bit(ledger, idx.mem_off[i], pt)).collect::<Result<_, _>>()?;
+        for name in ["sel_lb", "sel_lbu", "sel_sb"] {
+            let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
+            let e = addr
+                .sub(&word.mul(&fe(8)))
+                .sub(&off[0])
+                .sub(&off[1].mul(&fe(2)))
+                .sub(&off[2].mul(&fe(4)));
+            expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+        }
+        for name in ["sel_lh", "sel_lhu", "sel_sh"] {
+            let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
+            let e = addr
+                .sub(&word.mul(&fe(8)))
+                .sub(&off[1].mul(&fe(2)))
+                .sub(&off[2].mul(&fe(4)));
+            expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+            // the alignment gate: sel*off0 = 0
+            expect = expect.add(&a.mul(&sel).mul(&off[0]).mul(&eq_at));
+        }
+    }
+    // (9) THE P1 SUB-WORD LOADS (mirror): the bit-grain muxes evaluated
+    //     at the leg point — pos_p is the product of (off_i or 1-off_i).
+    {
+        let a = &alphas[6];
+        let off: Vec<Goldilocks> =
+            (0..3).map(|i| claim_bit(ledger, idx.mem_off[i], pt)).collect::<Result<_, _>>()?;
+        let noff: Vec<Goldilocks> = off.iter().map(|o| one.sub(o)).collect();
+        let byte_pos = |p: usize| -> Goldilocks {
+            (0..3)
+                .map(|i| if (p >> i) & 1 == 1 { off[i] } else { noff[i] })
+                .fold(one, |acc, v| acc.mul(&v))
+        };
+        let half_pos = |h: usize| -> Goldilocks {
+            (0..2)
+                .map(|i| if (h >> i) & 1 == 1 { off[i + 1] } else { noff[i + 1] })
+                .fold(one, |acc, v| acc.mul(&v))
+        };
+        for (name, signed) in [("sel_lbu", false), ("sel_lb", true)] {
+            let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
+            for b in 0..8usize {
+                let rd = claim_vbit(ledger, T_RD, b, pt)?;
+                let mut mux = Goldilocks::ZERO;
+                for p in 0..8usize {
+                    let old = claim_vbit(ledger, T_MEM_OLD, 8 * p + b, pt)?;
+                    mux = mux.add(&byte_pos(p).mul(&old));
+                }
+                expect = expect.add(&a.mul(&sel).mul(&rd.sub(&mux)).mul(&eq_at));
+            }
+            for b in 8..64usize {
+                let rd = claim_vbit(ledger, T_RD, b, pt)?;
+                let mut target = Goldilocks::ZERO;
+                if signed {
+                    for p in 0..8usize {
+                        let old = claim_vbit(ledger, T_MEM_OLD, 8 * p + 7, pt)?;
+                        target = target.add(&byte_pos(p).mul(&old));
+                    }
+                }
+                expect = expect.add(&a.mul(&sel).mul(&rd.sub(&target)).mul(&eq_at));
+            }
+        }
+        for (name, signed) in [("sel_lhu", false), ("sel_lh", true)] {
+            let sel = claim_bit(ledger, idx.sel_by(name), pt)?;
+            for b in 0..16usize {
+                let rd = claim_vbit(ledger, T_RD, b, pt)?;
+                let mut mux = Goldilocks::ZERO;
+                for h in 0..4usize {
+                    let old = claim_vbit(ledger, T_MEM_OLD, 16 * h + b, pt)?;
+                    mux = mux.add(&half_pos(h).mul(&old));
+                }
+                expect = expect.add(&a.mul(&sel).mul(&rd.sub(&mux)).mul(&eq_at));
+            }
+            for b in 16..64usize {
+                let rd = claim_vbit(ledger, T_RD, b, pt)?;
+                let mut target = Goldilocks::ZERO;
+                if signed {
+                    for h in 0..4usize {
+                        let old = claim_vbit(ledger, T_MEM_OLD, 16 * h + 15, pt)?;
+                        target = target.add(&half_pos(h).mul(&old));
+                    }
+                }
+                expect = expect.add(&a.mul(&sel).mul(&rd.sub(&target)).mul(&eq_at));
+            }
+        }
+    }
+    // (10) THE P1 SUB-WORD STORE MERGES (mirror): new = old + pos*(rs2 -
+    //      old) at the byte/half grain, per bit.
+    {
+        let a = &alphas[7];
+        let off: Vec<Goldilocks> =
+            (0..3).map(|i| claim_bit(ledger, idx.mem_off[i], pt)).collect::<Result<_, _>>()?;
+        let noff: Vec<Goldilocks> = off.iter().map(|o| one.sub(o)).collect();
+        let byte_pos = |p: usize| -> Goldilocks {
+            (0..3)
+                .map(|i| if (p >> i) & 1 == 1 { off[i] } else { noff[i] })
+                .fold(one, |acc, v| acc.mul(&v))
+        };
+        let half_pos = |h: usize| -> Goldilocks {
+            (0..2)
+                .map(|i| if (h >> i) & 1 == 1 { off[i + 1] } else { noff[i + 1] })
+                .fold(one, |acc, v| acc.mul(&v))
+        };
+        {
+            let sel = claim_bit(ledger, idx.sel_by("sel_sb"), pt)?;
+            for p in 0..8usize {
+                for b in 0..8usize {
+                    let new = claim_vbit(ledger, T_MEM_NEW, 8 * p + b, pt)?;
+                    let old = claim_vbit(ledger, T_MEM_OLD, 8 * p + b, pt)?;
+                    let rs2 = claim_vbit(ledger, T_RS2, b, pt)?;
+                    let e = new
+                        .sub(&old)
+                        .sub(&byte_pos(p).mul(&rs2.sub(&old)));
+                    expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            }
+        }
+        {
+            let sel = claim_bit(ledger, idx.sel_by("sel_sh"), pt)?;
+            for h in 0..4usize {
+                for b in 0..16usize {
+                    let new = claim_vbit(ledger, T_MEM_NEW, 16 * h + b, pt)?;
+                    let old = claim_vbit(ledger, T_MEM_OLD, 16 * h + b, pt)?;
+                    let rs2 = claim_vbit(ledger, T_RS2, b, pt)?;
+                    let e = new
+                        .sub(&old)
+                        .sub(&half_pos(h).mul(&rs2.sub(&old)));
+                    expect = expect.add(&a.mul(&sel).mul(&e).mul(&eq_at));
+                }
+            }
         }
     }
     if expect != verdict.final_claim {
@@ -4119,8 +4551,14 @@ const SUBCLASS_PARTITIONS: [(&str, &[&str]); 7] = [
             "sel_beq", "sel_bne", "sel_blt", "sel_bge", "sel_bltu", "sel_bgeu",
         ],
     ),
-    ("sel_load", &["sel_lw", "sel_lwu", "sel_ld"]),
-    ("sel_store", &["sel_sw", "sel_sd"]),
+    (
+        "sel_load",
+        &["sel_lw", "sel_lwu", "sel_ld", "sel_lb", "sel_lh", "sel_lbu", "sel_lhu"],
+    ),
+    (
+        "sel_store",
+        &["sel_sw", "sel_sd", "sel_sb", "sel_sh"],
+    ),
 ];
 
 fn prove_decode(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
