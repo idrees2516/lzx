@@ -576,11 +576,24 @@ pub fn byte_pack_witness(
     ring: &lattice_ring::RingConfig,
     evals: &[Goldilocks],
 ) -> Vec<lattice_ring::RingElement> {
+    byte_pack_witness_w(ring, evals, 8)
+}
+
+/// The width-generalized byte packing: the low `w` LE bytes of each
+/// value, one byte per coefficient. `w = 8` is the full-u64 regime;
+/// `w = 4` covers every value below `2^32` (e.g. ring coefficients of
+/// the Q_32 family) and halves the D1 Lemma-4 gate's coefficient count
+/// (`count·B² < q/2`) — the regime the commitment-scale discharge uses.
+pub fn byte_pack_witness_w(
+    ring: &lattice_ring::RingConfig,
+    evals: &[Goldilocks],
+    w: usize,
+) -> Vec<lattice_ring::RingElement> {
     let n = ring.n();
-    let mut coeffs: Vec<u32> = Vec::with_capacity(evals.len() * 8);
+    let mut coeffs: Vec<u32> = Vec::with_capacity(evals.len() * w);
     for v in evals {
-        for b in v.to_canonical_u64().to_le_bytes() {
-            coeffs.push(u32::from(b));
+        for b in v.to_canonical_u64().to_le_bytes().iter().take(w) {
+            coeffs.push(u32::from(*b));
         }
     }
     coeffs
@@ -624,14 +637,26 @@ pub(crate) fn psi_weights_at(
     data_values: usize,
     total_coeffs: usize,
 ) -> Vec<Goldilocks> {
-    let data_flat = data_values * 8;
-    let mut w = vec![Goldilocks::ZERO; total_coeffs];
-    for (c, slot) in w.iter_mut().enumerate() {
+    psi_weights_at_w(r_sc, data_values, total_coeffs, 8)
+}
+
+/// The width-generalized ψ-weights: `w(c) = eq(r_sc, x(c))·2^{8·b(c)}`
+/// with `c = w·x + b` on the data region (the caller guarantees the
+/// values fit `w` bytes — the byte-recomposition identity's regime).
+pub(crate) fn psi_weights_at_w(
+    r_sc: &[Goldilocks],
+    data_values: usize,
+    total_coeffs: usize,
+    w: usize,
+) -> Vec<Goldilocks> {
+    let data_flat = data_values * w;
+    let mut wts = vec![Goldilocks::ZERO; total_coeffs];
+    for (c, slot) in wts.iter_mut().enumerate() {
         if c >= data_flat {
             break; // the pad: zero weights (the coefficients are zero)
         }
-        let x = c >> 3;
-        let b = c & 7;
+        let x = c / w;
+        let b = c % w;
         // eq(r_sc, x) over the value index bits (MSB-first).
         let mut eq = Goldilocks::ONE;
         for (i, &r) in r_sc.iter().enumerate() {
@@ -641,7 +666,7 @@ pub(crate) fn psi_weights_at(
         }
         *slot = eq.mul(&Goldilocks::from_u64(1u64 << (8 * b)));
     }
-    w
+    wts
 }
 
 impl AkitaPcs {
@@ -649,7 +674,16 @@ impl AkitaPcs {
     /// coefficient — the D1 Lemma-4 gate's bound). The response layer
     /// (`prove_grouped_salsa`) runs over the same packing.
     pub fn commit_bytes(&self, mle: &DenseMle) -> Result<Commitment, SalsaResponseError> {
-        let packed = byte_pack_witness(&self.pk.params.ring, &mle.evaluations);
+        self.commit_bytes_w(mle, 8)
+    }
+
+    /// The width-generalized byte commitment (see [`byte_pack_witness_w`]).
+    pub fn commit_bytes_w(
+        &self,
+        mle: &DenseMle,
+        w: usize,
+    ) -> Result<Commitment, SalsaResponseError> {
+        let packed = byte_pack_witness_w(&self.pk.params.ring, &mle.evaluations, w);
         let padded = self
             .pk
             .pad_to_m(&packed)
@@ -677,6 +711,21 @@ impl AkitaPcs {
         &self,
         mle: &DenseMle,
         claims: &[crate::pcs::GroupedOpening],
+        transcript: &mut Transcript,
+    ) -> Result<(SalsaGroupedResponse, Vec<lattice_ring::RingElement>), SalsaResponseError> {
+        self.prove_grouped_salsa_w(mle, claims, 8, transcript)
+    }
+
+    /// The width-generalized grouped SALSAA response: `w` bytes per
+    /// value (`w = 4` covers values `< 2^32` — the Q_32 ring-coordinate
+    /// regime, halving the D1 Lemma-4 gate's coefficient count so flat
+    /// cubes up to `2^12` values fit the q/2 span).
+    #[allow(clippy::type_complexity)]
+    pub fn prove_grouped_salsa_w(
+        &self,
+        mle: &DenseMle,
+        claims: &[crate::pcs::GroupedOpening],
+        w: usize,
         transcript: &mut Transcript,
     ) -> Result<(SalsaGroupedResponse, Vec<lattice_ring::RingElement>), SalsaResponseError> {
         if claims.is_empty() {
@@ -711,7 +760,7 @@ impl AkitaPcs {
         // 2. The byte-packed witness (one byte per coefficient — the
         //    D1 Lemma-4 gate's regime), padded to the key's m slots so
         //    the ψ-functional and D1 run over the SAME cube.
-        let packed = byte_pack_witness(&self.pk.params.ring, &mle.evaluations);
+        let packed = byte_pack_witness_w(&self.pk.params.ring, &mle.evaluations, w);
         let padded = self
             .pk
             .pad_to_m(&packed)
@@ -722,12 +771,13 @@ impl AkitaPcs {
         let z_mle = byte_cube_mle(&padded)?;
         // The ψ-functional carrier: Σ_c w(c)·z(c) = f(r_sc) with the
         // verifier-computable byte-recomposition weights at r_sc.
-        let w = psi_weights_at(
+        let psi_w = psi_weights_at_w(
             &out.challenges,
             mle.evaluations.len(),
             z_mle.evaluations.len(),
+            w,
         );
-        let w_mle = DenseMle::new(w)?;
+        let w_mle = DenseMle::new(psi_w)?;
         let mut vp2 = lattice_sumcheck::VirtualPolynomial::new(z_mle.num_vars);
         let zi = vp2.add_factor(z_mle.clone())?;
         let wi = vp2.add_factor(w_mle)?;
@@ -761,6 +811,19 @@ impl AkitaPcs {
         commitment: &Commitment,
         claims: &[crate::pcs::GroupedOpening],
         proof: &SalsaGroupedResponse,
+        transcript: &mut Transcript,
+    ) -> Result<(), SalsaResponseError> {
+        self.verify_grouped_salsa_w(commitment, claims, proof, 8, transcript)
+    }
+
+    /// The width-generalized verifier (`w` must match the prover's
+    /// packing width).
+    pub fn verify_grouped_salsa_w(
+        &self,
+        commitment: &Commitment,
+        claims: &[crate::pcs::GroupedOpening],
+        proof: &SalsaGroupedResponse,
+        w: usize,
         transcript: &mut Transcript,
     ) -> Result<(), SalsaResponseError> {
         if claims.is_empty() || proof.point.len() != commitment.num_vars {
@@ -798,8 +861,8 @@ impl AkitaPcs {
         let cube_vars = total.next_power_of_two().max(2).trailing_zeros() as usize;
         let cube_len = 1usize << cube_vars;
         let data_values = 1usize << commitment.num_vars;
-        let w = psi_weights_at(&verdict.point, data_values, cube_len);
-        let w_mle = DenseMle::new(w)?;
+        let psi_w = psi_weights_at_w(&verdict.point, data_values, cube_len, w);
+        let w_mle = DenseMle::new(psi_w)?;
         let mut vp2 = lattice_sumcheck::VirtualPolynomial::new(cube_vars);
         let wi = vp2.add_factor(w_mle)?;
         let _ = wi;

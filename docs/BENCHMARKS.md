@@ -787,41 +787,63 @@ paper-scale β ladder exceeds the `B_r < q/4` wraparound guard and is
 modelled, not executed. All pinned by the module's tests
 (`full_fidelity_size_beats_clear_payload`, `round_bound_gate_is_fail_closed`,
 `faithful_gate_fails_at_kernel_scale`).
-## 4. The v3 pipeline (2026-10-05): the COMPLETE protocol, first measurement
+## 4. The v3 pipeline (2026-10-06, Wave 10): the COMPLETE protocol, the throughput wave landed
 
 `zkvm_v3bench` measures the full v3 statement — the v2 memory arguments
 PLUS the instruction-semantics AIR (all 17 families: ADD/ADDI/SUB/MUL/
 DIV/REMU/SLLI/SRLI/SLTU/BRCH×4/JAL/JALR/LOAD/STORE/LUI/AUIPC/HALT),
 byte-granular carry chains, five comparison containers, four schoolbooks,
 ~205 read-only-table lookups, the α-batched AIR sumcheck, the r_air
-linear gates, and per-column grouped openings — over the sparse engine
-throughout.
+linear gates — over the sparse engine throughout, now with the **Wave-10
+throughput layer**: the batched lookups (~205 Shouts → 6 sumchecks), the
+r_air RLC fold (~300 per-column openings → chunked integer folds at the
+distinct points), the SIMD engine inner loops, the de-cloned assembly,
+and the O(1) claim index on the verify path.
 
 | program | cycles | prove (ms) | verify (ms) | proof (KB) | cycles/s | status |
 |---|---|---|---|---|---|---|
-| fibonacci | 185 | 1,795 | 377 | 1,970 | ~103 | **verified** (complete statement) |
-| scale_loop | — | not measurable in the 2-core/3 GB container (the prove exceeds the CPU/memory budget before completing; the batched-lookup + fold wave is the unlock) | | | | |
+| fibonacci | 185 | 742 | 39 | 443 | ~249 | **verified** (complete statement) |
+| scale_loop(n=60) | 121 | 376 | 37 | 374 | ~322 | **verified** |
+| scale_loop(n=200) | 401 | 1,402 | 41 | 570 | ~286 | **verified** |
+| scale_loop(n=500) | 1,001 | 2,828 | 45 | 815 | ~354 | **verified** |
+| scale_loop(n=1000) | 2,001 | 5,715 | 51 | 1,294 | ~350 | **verified** |
+| scale_loop(n=2000) | 4,001 | 11,617 | 62 | 2,240 | ~344 | **verified** |
+| collatz | 462,105 | skipped | — | — | — | the witness estimate (24.9 GB) exceeds the 2 GB container budget — the O(K·T) Val matrix (the virtual-Val route is the documented follow-up) |
+| regex/muldiv/sorting/... | — | — | — | — | — | unsupported instruction (sub-word loads/stores — the bounded, enumerated extension) |
+
+The Wave-9 → Wave-10 deltas at the fibonacci shape: prove 1,795 → 742 ms
+(2.4×), verify 377 → 39 ms (9.7×), proof 1,970 → 443 KB (4.4×),
+throughput ~10² → ~2.5×10² cycles/s — and the scale ladder now runs
+verified to 4,001 cycles (the 2-core/4 GB container's honest ceiling
+before the Val-matrix budget guard trips).
 
 The honest reading:
 
-1. **Correctness is the win**: v2 proved only the memory argument; v3
-   constrains the full instruction semantics — the verifier never
-   re-executes, and the tamper tests cover every layer. The statement is
-   now "the execution of the program" rather than "a read/write stream
-   consistent with the public image".
-2. **Throughput is NOT yet SOTA** — ~10² cycles/s vs Lattice Jolt's
-   ~2×10⁶ (CPU) — and the gap is now purely ENGINEERING, enumerable as:
-   (a) ~205 independent lookup Shouts (the dominant round count — the
-   batched-lookup design folds them into O(1) sumchecks);
-   (b) ~360 per-column Ajtai commitments + ~360 grouped openings with
-   norm proofs (the RLC cross-column fold at the shared r_air point
-   collapses these to O(#distinct points));
-   (c) the scalar field arithmetic (no SIMD in the engine inner loops);
-   (d) the clone-heavy AIR assembly (~300 dense-factor clones).
-3. The guests using byte/half loads (regex, muldiv, collatz, ...) fail
-   closed at the profile level (the v3 memory model is word-granular,
-   8-aligned); extending the load/store families to sub-word accesses
-   is a bounded, enumerated extension.
+1. **Correctness is the win (unchanged)**: the statement is still "the
+   execution of the program", the verifier never re-executes, and the
+   tamper tests cover every layer — now including the batched-lookup
+   and folded-opening tamper suites.
+2. **The four enumerated engineering gaps are CLOSED**: (a) the ~205
+   lookup Shouts collapsed into 6 batched sumchecks (one per table
+   group — the shared rcycle, the shared eq/table factors, the
+   per-(lookup, digit) ra claims riding the proofs); (b) the ~300
+   per-column grouped openings replaced by the chunked integer folds
+   at the distinct points (the Ajtai linear homomorphism — the verifier
+   computes each folded commitment from the per-column ones; the exact
+   `L·A·2^22 < q/2` integer-fold discipline); (c) the engine's round
+   loop is the affine W0/W1 form through the AVX-512 slice kernels —
+   each entry touched once per round regardless of round length;
+   (d) the claim index is O(1) and the AIR assembly is de-cloned (the
+   eq-table dot-product claim evaluation, the owned instances).
+3. **Throughput is still NOT SOTA** — ~3×10² cycles/s vs Lattice
+   Jolt's ~2×10⁶ (CPU) — and the remaining gap is a NEW enumerable
+   ledger: (a) the ~300 per-column Ajtai commitments now dominate the
+   prover (the block-commit batching — one packed block commitment for
+   the column universe — is the next fold); (b) the byte-guest ISA
+   extension (sub-word loads/stores) gates the richer workloads; (c)
+   the O(K·T) Val matrix caps the container scale (the virtual-Val
+   route); (d) no GPU backend (the excluded mechanism — the CPU floor
+   is the AVX-512 kernels).
 4. The P0-63 profile: values < 2^63 (the mod-p ±window cannot open —
    see pipeline3.rs's module doc for the soundness analysis);
    non-wrapping ADD/SUB; shamt ≤ 62. The 64-bit mode requires the

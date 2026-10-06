@@ -1,5 +1,101 @@
 # LZX Next-Implementation Research
 
+## Session update (2026-10-06 — Wave 10: the throughput layer — the four enumerated gaps + SOTA mechanisms #2/#3/#5/#6/#7 LANDED)
+
+The 2026-10-05 ledger closed with "the throughput gap is enumerable
+engineering: (a) batch the 205 lookup Shouts; (b) RLC-fold the ~360
+column openings at the shared r_air point; (c) SIMD the engine inner
+loops; (d) de-clone the AIR assembly." **All four landed this session,
+plus five of the seven SOTA mechanisms:**
+
+1. **The sparse engine's Wave-10 round loop** (`sparse_engine.rs`):
+   every factor's per-group contribution to the round polynomial is
+   AFFINE in the round variable (`W0·(1−t) + W1·t` for sparse factors,
+   `a + (b−a)·t` for dense) — each entry is touched ONCE per round
+   regardless of the round length, the entry sums and weight bindings
+   run through the `field_simd` AVX-512 kernels, and the canonical
+   `reverse_bits` ordering makes the suffix groups and the bit-splits
+   contiguous slices. **Byte-identical proofs to the dense engine**
+   (the equivalence tests pin it). The owned form
+   (`prove_sparse_sumcheck_owned`) permutes in place — half the peak
+   memory at large T.
+2. **Batched lookups** (`lattice-memory/lookup_batch.rs`): the ~205
+   read-only-table Shouts collapse into ONE sumcheck per table group
+   (6 groups: decode/pow2/al8/range7/range8/range12) — the shared
+   `rcycle` challenge (all claims of a group at ONE point), the shared
+   eq/table dense factors (bound once per round), the ρ-RLC over the
+   per-lookup terms, and the per-(lookup, digit) ra claims riding the
+   proofs. Round count: ~205×(log_k+log_t) → 6×(log_k+log_t).
+3. **The r_air RLC fold** (`lattice-akita/folded.rs`): the ~300
+   per-column grouped openings replaced by CHUNKED INTEGER FOLDS per
+   distinct point — the small-integer challenges `d_c ∈ [−16, 16]` (the
+   compact-opening discipline: `32·16·2^22 < q/2` keeps the limb-level
+   fold exact), ONE degree-2 sumcheck over `eq(p,·)·G` per chunk, ONE
+   folded packed witness, and the Ajtai-LINEARITY check
+   `A·V = Σ d_c·y_c` where the VERIFIER computes the folded commitment
+   from the per-column commitments. The commutation rides the packed
+   MLE functional Φ (mod-p per-term reduction). Proof 1,970 → 443 KB;
+   the placebo openings (unclaimed columns) are gone entirely.
+4. **De-cloning + the O(1) claim index**: the eq-table dot-product
+   replaces the O(T·log T) per-claim evaluation; the claim table is
+   indexed (HashMap) — the AIR/gate/leg terminal lookups were the
+   post-opening verify hot spot; the AIR and lookup instances are owned
+   (moved, not cloned).
+5. **MLE-structured verifier tables** (`structured_table.rs`, SOTA
+   mechanism #5): identity/pow2 closed-form MLE evaluations
+   (`O(log K)`), the `(family, log_k)` statement absorb replacing the
+   per-lookup `O(K)` table hashing. v3 verify: **377 → 39 ms (9.7×)**.
+6. **The sparse default (mechanism #2)**: the Wave-9 `pipeline4.rs` was
+   DEAD CODE — never registered in `lib.rs` (the bench importing it
+   could not compile; "710 tests green" never saw the v3 pipeline). The
+   registration fix + the Wave-10 wiring make the all-sparse v3
+   pipeline the canonical zkVM statement path — the scale ladder
+   verified to **4,001 cycles** (121/401/1001/2001/4001 — the cycle
+   caps of the dense posture do not apply).
+7. **The streaming default (mechanism #3)**:
+   `prove_program_default` / `ProverBackend` (lib.rs) — the
+   `O(K + log T)` streaming path is the DEFAULT backend; the
+   materialized route stays selectable (differential/benchmark use).
+8. **The A3/A4 commitment-scale substitution (mechanism #6)**
+   (`a5_committed.rs`, `DischargeMode::Committed`): the terminal reveal
+   is DEAD — the last level's L never ships (`final_witness` is
+   empty); the §8.2 final-edge `t_i = A_term·s_i` images + a byte-packed
+   flat commitment + the SALSAA `D1∘D2` polylog response (the
+   width-generalized 4-byte packing — `byte_pack_witness_w` /
+   `prove_grouped_salsa_w` — halves the D1 Lemma-4 gate's count so
+   `2^12`-value flat cubes fit the q/32 span) discharge the driver.
+   Tamper pins: the carrier rounds, the t-images, leaked witnesses,
+   cross-mode confusion — all fail closed. Residuals (documented): the
+   `C_flat ↔ C_L` unified-field binding (the ring_check gap) and the
+   response's Ajtai binding (the salsa layer's documented gap).
+9. **The per-level planner (mechanism #7)** (`planner.rs`): the §12
+   growth-law cost model
+   (`successor = block_len·src_digits·resp_digits + num_blocks·inner_digits·(1+rows)`),
+   the supported digit-shape lattice (b* ∈ {4..64} covering q), the
+   deterministic per-level schedule, and the planned driver wiring
+   (`prove/verify_committed_recursive_planned`). HONEST finding: the
+   fused-row machinery's digit-shape coupling blocks the (64,6)/(32,7)
+   re-tuning at this kernel (ring_check `NotDivisible` + the
+   level-shape bookkeeping desync — both reproduced with the PLAIN
+   driver), and the multi-level committed chain itself carries a
+   pre-existing 1-level limitation; the planner's admitted lattice is
+   the fixed posture, the schedule machinery + wiring are complete and
+   replay-safe, and the shrinkage unlocks with the row-set decoupling.
+
+**Measured (this container, release, 2 cores)**: fibonacci 185 cycles:
+prove 1,795 → **742 ms (2.4×)**, verify 377 → **39 ms (9.7×)**, proof
+1,970 → **443 KB (4.4×)**, ~**2.5×10² cycles/s**; the scale ladder
+121–4,001 cycles all verified (throughput flat ~3×10² — the ~300
+per-column Ajtai commitments are now the dominant fixed cost).
+
+**The new honest top-of-ledger**: (a) the column-commit batching (the
+~300 per-column commitments → block commitments — the next fold);
+(b) the sub-word load/store ISA extension (the byte-guest family);
+(c) the O(K·T) Val matrix of the RAM twist legs (the virtual-Val route —
+the 462K-cycle collatz needs 24.9 GB at the current kernel); (d) the
+multi-level committed chain's shape bookkeeping; (e) the GPU backend
+(excluded by scope — the AVX-512 kernels are the CPU floor).
+
 ## Session update (2026-10-05 (IV) — the Stage-5.2 claims fold: mechanism #4's claims half LANDED)
 
 The SOTA ledger's mechanism #4 named two effects: "128-bit MSIS at

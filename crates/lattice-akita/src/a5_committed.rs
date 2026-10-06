@@ -466,8 +466,57 @@ pub struct CommittedDriverProof {
     pub levels: Vec<CommittedLevelProof>,
     pub terminal: TerminalProof,
     /// The LAST level's successor witness, revealed once (the terminal
-    /// discharge).
+    /// discharge) — **Reveal mode only**; EMPTY in Committed mode.
     pub final_witness: Vec<RingElement>,
+    /// **Committed mode** (SOTA mechanism #6): the polylog private
+    /// discharge — the terminal reveal is replaced by the transmitted
+    /// final-edge `t` images plus the packed flat commitment with the
+    /// SALSAA `D1∘D2` evaluation proof of the deferred claim.
+    pub discharge: Option<PolylogDischarge>,
+}
+
+/// The discharge mode (Akita §7's commitment-scale substitution, SOTA
+/// mechanism #6): **polylog private responses — kill the terminal
+/// reveals**.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DischargeMode {
+    /// The §8.2 kernel route: the last level's `L` is revealed once
+    /// (`final_witness`, Θ(level size) ring elements) and discharged by
+    /// the full `C_L` opening recompute. Binding-complete; retained as
+    /// the reference route.
+    Reveal,
+    /// The commitment-scale substitution: the last `L` stays PRIVATE —
+    /// no `final_witness` bytes ship. The discharge carries the §8.2
+    /// final-edge `t_i = A_term·s_i` images (k ring elements, the
+    /// paper-faithful transmitted edge), a fresh packed commitment
+    /// `C_flat` of the flat coordinates, and the SALSAA `D1∘D2` norm
+    /// chain proving the deferred claim — a POLYLOG response with no
+    /// witness disclosure. The `C_flat ↔ C_L` unified-field binding is
+    /// the module's documented residual (the same ring_check gap), and
+    /// the D1 Lemma-4 gate caps the flat cube at `2^11` values at the
+    /// Q_32 kernel ring (the bigger-q unified-field path lifts it).
+    Committed,
+}
+
+/// The Committed-mode discharge artifact.
+#[derive(Clone, Debug)]
+pub struct PolylogDischarge {
+    /// The final-edge canonical inner-state images `t_i = A_term·s_i`
+    /// (the §8.2 transmitted edge — small).
+    pub t_images: Vec<Vec<RingElement>>,
+    /// The packed flat-coordinates commitment `C_flat` (canonical
+    /// bytes; the standard Akita geometry over the last level's flat
+    /// coordinates).
+    pub flat_commitment: Vec<u8>,
+    /// The polylog response: the grouped carrier + the ψ-functional
+    /// carrier + the D1 norm chain over the BYTE-PACKED flat witness —
+    /// `no opened_witness field exists at all`.
+    pub response: crate::salsa_response::SalsaGroupedResponse,
+    /// The flat MLE's variable count (the verifier's geometry check).
+    pub mu: usize,
+    /// The byte-packed Ajtai `m` geometry of the discharge PCS
+    /// (`4·2^mu/64` — one byte per coefficient at the 4-byte width).
+    pub m: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,9 +1401,105 @@ pub fn prove_committed_recursive(
     num_levels: u32,
     transcript: &mut Transcript,
 ) -> Result<CommittedDriverProof, CommittedError> {
+    prove_committed_recursive_mode(
+        params,
+        keys,
+        source,
+        point0,
+        state,
+        a_weights,
+        a_matrix,
+        eval_mle,
+        r_head,
+        r_tail,
+        v,
+        num_levels,
+        DischargeMode::Reveal,
+        transcript,
+    )
+}
+
+/// The mode-selecting driver (SOTA mechanism #6): `Committed` replaces
+/// the terminal reveal with the polylog private discharge.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn prove_committed_recursive_mode(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    source: &FoldSource,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    num_levels: u32,
+    mode: DischargeMode,
+    transcript: &mut Transcript,
+) -> Result<CommittedDriverProof, CommittedError> {
+    prove_committed_recursive_full(
+        params, keys, source, point0, state, a_weights, a_matrix, eval_mle, r_head, r_tail, v,
+        num_levels, mode, false, transcript,
+    )
+}
+
+/// The §12-planned driver (SOTA mechanism #7): the per-level digit-depth
+/// re-tuning shrinks the recursion — every level's evolved shape is
+/// re-planned (`planner::plan_level`) so the successor grows at the
+/// minimal-digit lattice point instead of the fixed posture. The
+/// schedule is deterministic in the evolved shape; the verifier replays
+/// it identically.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn prove_committed_recursive_planned(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    source: &FoldSource,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    num_levels: u32,
+    mode: DischargeMode,
+    transcript: &mut Transcript,
+) -> Result<CommittedDriverProof, CommittedError> {
+    prove_committed_recursive_full(
+        params, keys, source, point0, state, a_weights, a_matrix, eval_mle, r_head, r_tail, v,
+        num_levels, mode, true, transcript,
+    )
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn prove_committed_recursive_full(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    source: &FoldSource,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    num_levels: u32,
+    mode: DischargeMode,
+    use_planner: bool,
+    transcript: &mut Transcript,
+) -> Result<CommittedDriverProof, CommittedError> {
     let ring = &keys.ring;
     let mut levels: Vec<CommittedLevelProof> = Vec::with_capacity(num_levels as usize);
     let mut current_params = params.clone();
+    if use_planner {
+        current_params = crate::planner::apply_plan(
+            &current_params,
+            &crate::planner::plan_level(&current_params),
+        );
+    }
     let mut current_blocks = source.blocks.clone();
     let mut current_bound = source.budget.beta();
     let mut prev_point: Option<Vec<Goldilocks>> = None;
@@ -1391,6 +1536,15 @@ pub fn prove_committed_recursive(
             block_len: padded_len,
             ..current_params.clone()
         };
+        if use_planner {
+            // §12: re-tune the successor level's digit depths (the
+            // shrinking-recursion discipline — the chain grows at the
+            // minimal-digit lattice point).
+            current_params = crate::planner::apply_plan(
+                &current_params,
+                &crate::planner::plan_level(&current_params),
+            );
+        }
     }
     // The terminal group + the discharge.
     let mut state = state.clone();
@@ -1409,9 +1563,7 @@ pub fn prove_committed_recursive(
         transcript,
     )
     .map_err(|e| CommittedError::Gate(format!("{e:?}")))?;
-    // The final discharge: the last level's C_L opens the revealed L and
-    // the last deferred claim is the true MLE of the revealed flat
-    // coordinates.
+    // The last level's geometry (both modes need the flat MLE check).
     let last = levels.last().ok_or(CommittedError::Verify("no levels"))?;
     let flat = flat_goldilocks(ring, &last_l);
     let mu = flat
@@ -1423,20 +1575,68 @@ pub fn prove_committed_recursive(
     padded.resize(1usize << mu, Goldilocks::ZERO);
     let true_claim = DenseMle {
         num_vars: mu,
-        evaluations: padded,
+        evaluations: padded.clone(),
     }
     .evaluate(&last.fused.point)?;
     if true_claim != last.fused.w_claim {
         return Err(CommittedError::Verify("final deferred claim mismatch"));
     }
-    let l_padded = keys.successor_pk.pad_to_m(&last_l)?;
-    keys.successor_pk
-        .verify_opening(&last.successor_commitment, &l_padded)?;
-    Ok(CommittedDriverProof {
-        levels,
-        terminal,
-        final_witness: last_l,
-    })
+    match mode {
+        DischargeMode::Reveal => {
+            // The kernel route: the last level's C_L opens the revealed L.
+            let l_padded = keys.successor_pk.pad_to_m(&last_l)?;
+            keys.successor_pk
+                .verify_opening(&last.successor_commitment, &l_padded)?;
+            Ok(CommittedDriverProof {
+                levels,
+                terminal,
+                final_witness: last_l,
+                discharge: None,
+            })
+        }
+        DischargeMode::Committed => {
+            // SOTA mechanism #6: the polylog private discharge — the last L
+            // is NEVER transmitted. The final-edge t images ride the
+            // proof; the deferred claim is proven by the SALSAA D1∘D2
+            // chain against a fresh packed commitment of the flat
+            // coordinates (no witness bytes, no NormProof digits).
+            let t_images = state.t_images.clone();
+            // The byte-packed geometry: 4 bytes per flat value (the Q_32
+            // ring-coordinate regime — every value < 2^32), one byte per
+            // ring coefficient — halving the D1 Lemma-4 gate's count so
+            // flat cubes up to 2^12 values fit the q/2 span.
+            let w = 4usize;
+            let m = (w << mu).div_ceil(64).max(1);
+            let pcs = crate::akita_setup(6, m, 1 << 23, [9u8; 32])
+                .map_err(|_| CommittedError::Verify("discharge pcs setup"))?;
+            let mle = DenseMle {
+                num_vars: mu,
+                evaluations: padded,
+            };
+            let commitment = pcs
+                .commit_bytes_w(&mle, w)
+                .map_err(|e| CommittedError::Gate(format!("discharge commit: {e:?}")))?;
+            let claims = vec![crate::pcs::GroupedOpening {
+                point: last.fused.point.clone(),
+                value: last.fused.w_claim,
+            }];
+            let (response, _packed) = pcs
+                .prove_grouped_salsa_w(&mle, &claims, w, transcript)
+                .map_err(|e| CommittedError::Gate(format!("salsa discharge: {e:?}")))?;
+            Ok(CommittedDriverProof {
+                levels,
+                terminal,
+                final_witness: Vec::new(),
+                discharge: Some(PolylogDischarge {
+                    t_images,
+                    flat_commitment: commitment.commitment.to_bytes(),
+                    response,
+                    mu,
+                    m,
+                }),
+            })
+        }
+    }
 }
 
 /// Verify the commitment-scale recursion: every level witness-free, the
@@ -1456,8 +1656,95 @@ pub fn verify_committed_recursive(
     proof: &CommittedDriverProof,
     transcript: &mut Transcript,
 ) -> Result<(), CommittedError> {
+    verify_committed_recursive_mode(
+        params,
+        keys,
+        point0,
+        state,
+        a_weights,
+        a_matrix,
+        eval_mle,
+        r_head,
+        r_tail,
+        v,
+        proof,
+        DischargeMode::Reveal,
+        transcript,
+    )
+}
+
+/// The mode-selecting verifier (SOTA mechanism #6).
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn verify_committed_recursive_mode(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    proof: &CommittedDriverProof,
+    mode: DischargeMode,
+    transcript: &mut Transcript,
+) -> Result<(), CommittedError> {
+    verify_committed_recursive_full(
+        params, keys, point0, state, a_weights, a_matrix, eval_mle, r_head, r_tail, v, proof, mode,
+        false, transcript,
+    )
+}
+
+/// The §12-planned verifier: replays the planner's deterministic
+/// per-level schedule.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub fn verify_committed_recursive_planned(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    proof: &CommittedDriverProof,
+    mode: DischargeMode,
+    transcript: &mut Transcript,
+) -> Result<(), CommittedError> {
+    verify_committed_recursive_full(
+        params, keys, point0, state, a_weights, a_matrix, eval_mle, r_head, r_tail, v, proof, mode,
+        true, transcript,
+    )
+}
+
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+fn verify_committed_recursive_full(
+    params: &FoldParams,
+    keys: &FoldKeys,
+    point0: &OpeningPoint,
+    state: &TerminalState,
+    a_weights: &[RingElement],
+    a_matrix: &[Vec<RingElement>],
+    eval_mle: &DenseMle,
+    r_head: &Fq2,
+    r_tail: &[Fq2],
+    v: &Fq2,
+    proof: &CommittedDriverProof,
+    mode: DischargeMode,
+    use_planner: bool,
+    transcript: &mut Transcript,
+) -> Result<(), CommittedError> {
     let ring = &keys.ring;
     let mut current_params = params.clone();
+    if use_planner {
+        current_params = crate::planner::apply_plan(
+            &current_params,
+            &crate::planner::plan_level(&current_params),
+        );
+    }
     let mut prev_point: Option<Vec<Goldilocks>> = None;
     let mut first_point = point0.clone();
     for (level, lp) in proof.levels.iter().enumerate() {
@@ -1497,20 +1784,40 @@ pub fn verify_committed_recursive(
             block_len: succ_len,
             ..current_params.clone()
         };
+        if use_planner {
+            current_params = crate::planner::apply_plan(
+                &current_params,
+                &crate::planner::plan_level(&current_params),
+            );
+        }
     }
-    // The terminal over the final group (the state's t-images derived
-    // from the REVEALED final witness — the same binding the prover
-    // computes).
-    let final_blocks: Vec<Vec<RingElement>> = vec![{
-        let mut b = proof.final_witness.clone();
-        let padded = b.len().max(1).next_power_of_two();
-        b.resize(padded, ring.zero());
-        b
-    }];
+    // The terminal over the final group. REVEAL mode derives the
+    // t-images from the revealed final witness; COMMITTED mode uses the
+    // transmitted final-edge images (the §8.2 paper route).
     let mut state = state.clone();
-    state.t_images =
-        crate::a5_terminal::derive_terminal_state(ring, &final_blocks, a_matrix, &state)
-            .map_err(|e| CommittedError::Gate(format!("{e:?}")))?;
+    match mode {
+        DischargeMode::Reveal => {
+            let final_blocks: Vec<Vec<RingElement>> = vec![{
+                let mut b = proof.final_witness.clone();
+                let padded = b.len().max(1).next_power_of_two();
+                b.resize(padded, ring.zero());
+                b
+            }];
+            state.t_images =
+                crate::a5_terminal::derive_terminal_state(ring, &final_blocks, a_matrix, &state)
+                    .map_err(|e| CommittedError::Gate(format!("{e:?}")))?;
+        }
+        DischargeMode::Committed => {
+            let d = proof
+                .discharge
+                .as_ref()
+                .ok_or(CommittedError::Verify("committed mode: no discharge"))?;
+            if !proof.final_witness.is_empty() {
+                return Err(CommittedError::Verify("committed mode: witness leaked"));
+            }
+            state.t_images = d.t_images.clone();
+        }
+    }
     crate::a5_terminal::verify_terminal(
         &state,
         &proof.terminal,
@@ -1528,25 +1835,64 @@ pub fn verify_committed_recursive(
         .levels
         .last()
         .ok_or(CommittedError::Verify("no levels"))?;
-    let flat = flat_goldilocks(ring, &proof.final_witness);
-    let mu = flat
-        .len()
-        .checked_next_power_of_two()
-        .map(|p| p.trailing_zeros() as usize)
-        .unwrap_or(0);
-    let mut padded = flat;
-    padded.resize(1usize << mu, Goldilocks::ZERO);
-    let true_claim = DenseMle {
-        num_vars: mu,
-        evaluations: padded,
+    match mode {
+        DischargeMode::Reveal => {
+            let flat = flat_goldilocks(ring, &proof.final_witness);
+            let mu = flat
+                .len()
+                .checked_next_power_of_two()
+                .map(|p| p.trailing_zeros() as usize)
+                .unwrap_or(0);
+            let mut padded = flat;
+            padded.resize(1usize << mu, Goldilocks::ZERO);
+            let true_claim = DenseMle {
+                num_vars: mu,
+                evaluations: padded,
+            }
+            .evaluate(&last.fused.point)?;
+            if true_claim != last.fused.w_claim {
+                return Err(CommittedError::Verify("final deferred claim mismatch"));
+            }
+            let l_padded = keys.successor_pk.pad_to_m(&proof.final_witness)?;
+            keys.successor_pk
+                .verify_opening(&last.successor_commitment, &l_padded)?;
+        }
+        DischargeMode::Committed => {
+            // The polylog private discharge: reconstruct the discharge PCS
+            // from the transmitted geometry, rebuild the flat commitment,
+            // and verify the SALSAA response — the deferred claim's value
+            // MUST equal the level's fused w_claim (the carrier binds it;
+            // the C_flat↔C_L unified-field binding is the documented
+            // residual, honestly the same ring_check gap).
+            let d = proof
+                .discharge
+                .as_ref()
+                .ok_or(CommittedError::Verify("committed mode: no discharge"))?;
+            let mu = d.mu;
+            if mu != last.fused.point.len() {
+                return Err(CommittedError::Verify("committed discharge: point arity"));
+            }
+            let pcs = crate::akita_setup(6, d.m, 1 << 23, [9u8; 32])
+                .map_err(|_| CommittedError::Verify("discharge pcs setup"))?;
+            let commitment = lattice_commitment::ajtai::AjtaiCommitment::from_bytes(
+                &pcs.pk.params.ring,
+                pcs.pk.params.k,
+                &d.flat_commitment,
+            )
+            .map_err(|_| CommittedError::Verify("committed discharge: commitment bytes"))?;
+            let comm = crate::pcs::Commitment {
+                commitment,
+                num_packed: d.m,
+                num_vars: mu,
+            };
+            let claims = vec![crate::pcs::GroupedOpening {
+                point: last.fused.point.clone(),
+                value: last.fused.w_claim,
+            }];
+            pcs.verify_grouped_salsa_w(&comm, &claims, &d.response, 4, transcript)
+                .map_err(|e| CommittedError::Gate(format!("salsa verify: {e:?}")))?;
+        }
     }
-    .evaluate(&last.fused.point)?;
-    if true_claim != last.fused.w_claim {
-        return Err(CommittedError::Verify("final deferred claim mismatch"));
-    }
-    let l_padded = keys.successor_pk.pad_to_m(&proof.final_witness)?;
-    keys.successor_pk
-        .verify_opening(&last.successor_commitment, &l_padded)?;
     Ok(())
 }
 
@@ -1779,5 +2125,267 @@ mod tests {
             &proof, &mut vt,
         )
         .is_ok());
+    }
+
+    #[test]
+    fn committed_recursive_polylog_discharge_roundtrip() {
+        // SOTA mechanism #6: the Committed discharge — the final witness
+        // reveal is GONE (no ring elements ship), the final-edge t images
+        // + the packed flat commitment + the SALSAA D1∘D2 polylog
+        // response discharge the driver.
+        //
+        // Geometry note (honest): the D1 Lemma-4 gate requires
+        // `count·B² < q/2` — at the Q_32 kernel ring the byte-packed
+        // discharge supports flat cubes up to `2^11` values
+        // (`8·2^11·255² < q/2`); `block_len = 1` keeps the successor
+        // inside. The bigger-q unified-field ring lifts the cap (the
+        // documented residual family).
+        let p = params();
+        let keys = keys(&p);
+        let ring = &keys.ring;
+        let src = source(&p, ring, b"cdrv6");
+        let point = point(&p);
+        let state = terminal_state(ring);
+        let eval_mle = DenseMle {
+            num_vars: 2,
+            evaluations: vec![fq(3), fq(5), fq(7), fq(11)],
+        };
+        let r_head = fq2(13, 17);
+        let r_tail = vec![fq2(19, 23)];
+        let v = true_claim(&eval_mle, &r_head, &r_tail);
+        let a_weights: Vec<RingElement> = (0..512)
+            .map(|i| ring.constant(((i * 3 + 1) % 97) as u32))
+            .collect();
+        let a_matrix: Vec<Vec<RingElement>> = vec![(0..64)
+            .map(|i| ring.constant(((i * 5 + 2) % 89) as u32))
+            .collect()];
+        let mut t = Transcript::new_default(b"lzx-akita-cdrv6");
+        let proof = prove_committed_recursive_mode(
+            &p,
+            &keys,
+            &src,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            1,
+            DischargeMode::Committed,
+            &mut t,
+        )
+        .unwrap();
+        // The reveal is dead: no final-witness ring elements ship.
+        assert!(proof.final_witness.is_empty());
+        let d = proof.discharge.as_ref().unwrap();
+        // The response is structurally witness-free (the salsa chain's
+        // polylog story: the grouped carrier + the ψ-functional carrier +
+        // the D1 norm chain — no opened_witness field exists at all).
+        assert!(d.response.chain.sumcheck.rounds.len() > 0);
+        assert!(d.response.sumcheck.rounds.len() > 0);
+        assert!(d.response.functional.rounds.len() > 0);
+        // The combined RLC claim is the ρ-weighted deferred claim (the
+        // verifier recomputes it inside verify_grouped_salsa).
+        let mut vt = Transcript::new_default(b"lzx-akita-cdrv6");
+        assert!(verify_committed_recursive_mode(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &proof,
+            DischargeMode::Committed,
+            &mut vt,
+        )
+        .is_ok());
+        // (a) Tampered carrier round: the salsa sumcheck rejects.
+        let mut bad = clone_driver(&proof);
+        if let Some(d) = bad.discharge.as_mut() {
+            if let Some(r0) = d.response.sumcheck.rounds.first_mut() {
+                if let Some(v) = r0.first_mut() {
+                    *v = v.add(&fq(1));
+                }
+            }
+        }
+        let mut vt2 = Transcript::new_default(b"lzx-akita-cdrv6");
+        assert!(verify_committed_recursive_mode(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &bad,
+            DischargeMode::Committed,
+            &mut vt2,
+        )
+        .is_err());
+        // (b) Tampered t image: the terminal's Eq-163 direct check fails.
+        let mut bad2 = clone_driver(&proof);
+        if let Some(d) = bad2.discharge.as_mut() {
+            if let Some(row) = d.t_images.first_mut() {
+                if let Some(c) = row.first_mut() {
+                    if let Ok(sum) = c.add(&ring.one()) {
+                        *c = sum;
+                    }
+                }
+            }
+        }
+        let mut vt3 = Transcript::new_default(b"lzx-akita-cdrv6");
+        assert!(verify_committed_recursive_mode(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &bad2,
+            DischargeMode::Committed,
+            &mut vt3,
+        )
+        .is_err());
+        // (c) A leaked witness in committed mode fails closed.
+        let mut bad3 = clone_driver(&proof);
+        bad3.final_witness = vec![ring.one()];
+        let mut vt4 = Transcript::new_default(b"lzx-akita-cdrv6");
+        assert!(verify_committed_recursive_mode(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &bad3,
+            DischargeMode::Committed,
+            &mut vt4,
+        )
+        .is_err());
+        // (d) The Reveal-mode verifier refuses a committed proof.
+        let mut vt5 = Transcript::new_default(b"lzx-akita-cdrv6");
+        assert!(verify_committed_recursive(
+            &p, &keys, &point, &state, &a_weights, &a_matrix, &eval_mle, &r_head, &r_tail, &v,
+            &proof, &mut vt5,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn committed_recursive_planned_roundtrip() {
+        // SOTA mechanism #7: the §12 per-level planner — the chain's
+        // digit depths re-tuned at every level (the shrinking-recursion
+        // discipline), end-to-end through the Committed discharge.
+        //
+        // Honest scope: the multi-level committed chain itself carries a
+        // pre-existing shape limitation (a 2-level prove fails in the
+        // UNPLANNED driver too — the level-1 machinery's fused-cube
+        // bookkeeping; only 1-level drivers were ever exercised), so the
+        // planned wiring is pinned at the tested 1-level regime. The
+        // planner's schedule machinery and cost model carry their own
+        // tests in planner.rs; the re-tuning lattice is documented there.
+        let p = params();
+        let keys = keys(&p);
+        let ring = &keys.ring;
+        let src = source(&p, ring, b"cdrv7");
+        let point = point(&p);
+        let state = terminal_state(ring);
+        let eval_mle = DenseMle {
+            num_vars: 2,
+            evaluations: vec![fq(3), fq(5), fq(7), fq(11)],
+        };
+        let r_head = fq2(13, 17);
+        let r_tail = vec![fq2(19, 23)];
+        let v = true_claim(&eval_mle, &r_head, &r_tail);
+        let a_weights: Vec<RingElement> = (0..512)
+            .map(|i| ring.constant(((i * 3 + 1) % 97) as u32))
+            .collect();
+        let a_matrix: Vec<Vec<RingElement>> = vec![(0..64)
+            .map(|i| ring.constant(((i * 5 + 2) % 89) as u32))
+            .collect()];
+        let mut t = Transcript::new_default(b"lzx-akita-cdrv7");
+        let proof = prove_committed_recursive_planned(
+            &p,
+            &keys,
+            &src,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            1,
+            DischargeMode::Committed,
+            &mut t,
+        )
+        .unwrap();
+        assert_eq!(proof.levels.len(), 1);
+        assert!(proof.final_witness.is_empty());
+        let mut vt = Transcript::new_default(b"lzx-akita-cdrv7");
+        assert!(verify_committed_recursive_planned(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &proof,
+            DischargeMode::Committed,
+            &mut vt,
+        )
+        .is_ok());
+        // At the ADMITTED posture (the row set's digit-shape coupling),
+        // the planned schedule equals the fixed one — the unplanned
+        // verifier accepts the same flow (the wiring contract: the
+        // planner never desyncs the replay at an admitted shape).
+        let mut vt2 = Transcript::new_default(b"lzx-akita-cdrv7");
+        assert!(verify_committed_recursive_mode(
+            &p,
+            &keys,
+            &point,
+            &state,
+            &a_weights,
+            &a_matrix,
+            &eval_mle,
+            &r_head,
+            &r_tail,
+            &v,
+            &proof,
+            DischargeMode::Committed,
+            &mut vt2,
+        )
+        .is_ok());
+    }
+
+    fn clone_driver(p: &CommittedDriverProof) -> CommittedDriverProof {
+        CommittedDriverProof {
+            levels: p.levels.clone(),
+            terminal: p.terminal.clone(),
+            final_witness: p.final_witness.clone(),
+            discharge: p.discharge.clone(),
+        }
     }
 }

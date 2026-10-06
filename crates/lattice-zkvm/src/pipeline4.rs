@@ -72,21 +72,29 @@
 //!   column.
 
 use crate::pipeline::imm_u;
-use lattice_akita::pcs::{AkitaPcs, EvaluationProof, GroupedOpening};
+use lattice_akita::folded::{
+    prove_folded_openings, verify_folded_openings, FoldClaim, FoldError, FoldPoint, FoldedOpenings,
+};
+use lattice_akita::pcs::AkitaPcs;
 use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
+use lattice_memory::lookup_batch::{
+    prove_shout_batched, verify_shout_batched, BatchGroup, BatchedLookup, BatchedShoutProof,
+};
+use lattice_memory::onehot_check::OneHotSide as OHSide;
 use lattice_memory::sparse_engine::{
     build_twist_ports, prove_onehot_sparse, prove_shout_sparse, prove_twist_ports_sparse,
     verify_twist_ports_checked,
 };
+use lattice_memory::sparse_engine::{
+    prove_sparse_sumcheck_owned, ProjectedDense, SparseFactor, SparseInstance, SparseTerm,
+};
+use lattice_memory::structured_table::{StructuredTable, TableFamily};
 use lattice_memory::twist::TwistProof;
-use lattice_memory::onehot_check::OneHotSide as OHSide;
 use lattice_memory::{FactorId, FactorResolver, OneHotProof, PiopError, ShoutProof};
 use lattice_vm::{run as vm_run, MachineState};
-use lattice_memory::sparse_engine::{
-    prove_sparse_sumcheck, SparseFactor, SparseInstance, SparseTerm, ProjectedDense,
-};
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 fn fe(x: u64) -> Goldilocks {
     Goldilocks::from_u64(x)
@@ -109,9 +117,17 @@ pub enum Pipeline3Error {
     Virtual(lattice_sumcheck::VirtualPolyError),
     Transcript(lattice_core::transcript::TranscriptError),
     Mle(lattice_core::mle::MleError),
-    UnsupportedInstruction { pc: u64, word: u32 },
+    UnsupportedInstruction {
+        pc: u64,
+        word: u32,
+    },
     /// A witness value escaped the P0-63 profile (≥ 2^63, or shamt 63).
-    ProfileViolation { what: &'static str, value: u64 },
+    ProfileViolation {
+        what: &'static str,
+        value: u64,
+    },
+    /// The folded opening layer rejected a shape/norm/commitment.
+    Fold(FoldError),
     BadShape(String),
     VerificationFailed,
 }
@@ -144,6 +160,11 @@ impl From<lattice_core::transcript::TranscriptError> for Pipeline3Error {
 impl From<lattice_core::mle::MleError> for Pipeline3Error {
     fn from(e: lattice_core::mle::MleError) -> Self {
         Pipeline3Error::Mle(e)
+    }
+}
+impl From<FoldError> for Pipeline3Error {
+    fn from(e: FoldError) -> Self {
+        Pipeline3Error::Fold(e)
     }
 }
 
@@ -267,7 +288,11 @@ pub const NUM_BYTE_COLS: usize = DC_BYTES + DC_COUNT * DC_STEP;
 pub const NUM_COLS: usize = NUM_VALUES + NUM_BITS + NUM_BYTE_COLS;
 
 fn yb(value_col: usize) -> usize {
-    BYTE_VALUES.iter().position(|&c| c == value_col).unwrap_or(usize::MAX) * BYTES_PER_VALUE
+    BYTE_VALUES
+        .iter()
+        .position(|&c| c == value_col)
+        .unwrap_or(usize::MAX)
+        * BYTES_PER_VALUE
 }
 
 fn bit_col(b: usize) -> usize {
@@ -341,18 +366,14 @@ pub fn decode_family_v3(word: u32) -> u64 {
 
 /// The 17-bit decode key: `opcode | f3<<7 | f7<<10`.
 pub fn dkey_v3(word: u32) -> u64 {
-    (word & 0x7f) as u64
-        | (((word >> 12) & 0x7) as u64) << 7
-        | (((word >> 25) & 0x7f) as u64) << 10
+    (word & 0x7f) as u64 | (((word >> 12) & 0x7) as u64) << 7 | (((word >> 25) & 0x7f) as u64) << 10
 }
 
 /// The v3 decode table over 17-bit keys.
 pub fn decode_table_v3() -> Vec<Goldilocks> {
     let mut table = vec![Goldilocks::ZERO; 1 << 17];
     for key in 0..(1u32 << 17) {
-        let w = (key & 0x7f)
-            | ((key >> 7 & 0x7) << 12)
-            | ((key >> 10 & 0x7f) << 25);
+        let w = (key & 0x7f) | ((key >> 7 & 0x7) << 12) | ((key >> 10 & 0x7f) << 25);
         table[key as usize] = fe(decode_family_v3(w));
     }
     table
@@ -429,12 +450,10 @@ fn dc_witness(a: u64, b: u64, minus_one: bool) -> ([u8; 8], [u8; 7], u64) {
     let mut carries = [0u8; 7];
     let mut c: u64 = m;
     for k in 0..8 {
-        let acc = ((d >> (8 * k)) & 0xff) as u64
-            + ((b >> (8 * k)) & if k == 7 { 0x7f } else { 0xff })
-            + c;
+        let acc = ((d >> (8 * k)) & 0xff) + ((b >> (8 * k)) & if k == 7 { 0x7f } else { 0xff }) + c;
         // Position 7 spans bits 56..63 (D's top byte is full 8-bit), so
         // the carry out of position 7 lands at bit 64 = LT: radix 2^8.
-        let radix: u64 = if k == 7 { 1 << 8 } else { 1 << 8 };
+        let radix: u64 = 1 << 8;
         c = acc / radix;
         if k < 7 {
             carries[k] = c as u8;
@@ -556,6 +575,7 @@ fn imm_s64(word: u32) -> u64 {
     sext64(raw, 12)
 }
 
+#[allow(dead_code)]
 fn imm_b64(word: u32) -> u64 {
     let w = word as u64;
     let raw = (((w >> 31) & 1) << 12)
@@ -574,6 +594,7 @@ fn imm_b_field(word: u32) -> Goldilocks {
     signed_field(raw, 13)
 }
 
+#[allow(dead_code)]
 fn imm_j64(word: u32) -> u64 {
     let w = word as u64;
     let raw = (((w >> 31) & 1) << 20)
@@ -606,6 +627,7 @@ fn byte_of(v: u64, k: usize) -> u64 {
 }
 
 /// The S-type immediate (store offset), from the instruction word.
+#[allow(dead_code)]
 fn imm_s(word: u32) -> u64 {
     let w = word as u64;
     let imm = (((w >> 25) & 0x7f) << 5) | ((w >> 7) & 0x1f);
@@ -656,7 +678,7 @@ pub fn build_trace3(
         let rs1v = if rs1a == 0 { 0 } else { regs[rs1a as usize] };
         let rs2v = if rs2a == 0 { 0 } else { regs[rs2a as usize] };
         // ---- early witnesses (needed by the rdv recomputation) ----
-        let shamt_u32 = ((iw >> 20) & 0x3f) as u32;
+        let shamt_u32: u32 = (iw >> 20) & 0x3f;
         let (addr_row, old_w, new_w) = match &row.mem_access {
             Some((a, old, new)) => (*a, *old, *new),
             None => (0, 0, None),
@@ -712,7 +734,7 @@ pub fn build_trace3(
         // ---- division / shift witnesses ----
         let (q, r) = if family == fam::DIVQ || family == fam::DIVR {
             match rs2v {
-                0 => (u64::MAX & ((1 << 63) - 1), rs1v),
+                0 => ((1u64 << 63) - 1, rs1v),
                 b => (rs1v / b, rs1v % b),
             }
         } else {
@@ -738,12 +760,16 @@ pub fn build_trace3(
         let kpow = 1u64 << shamt;
         // SRLI remainder: rs1v mod 2^shamt; SLLI high part.
         let slli_hi = if family == fam::SLLI {
-            ((rs1v as u128) * (kpow as u128) >> 64) as u64
+            (((rs1v as u128) * (kpow as u128)) >> 64) as u64
         } else {
             0
         };
         profile("slli_hi", slli_hi)?;
-        let srlr_r = if family == fam::SRLI { rs1v & (kpow - 1) } else { 0 };
+        let srlr_r = if family == fam::SRLI {
+            rs1v & (kpow - 1)
+        } else {
+            0
+        };
         // ---- memory ----
         let _ = addr_row;
         // The computed effective byte address: LOAD/JALR use the
@@ -773,7 +799,11 @@ pub fn build_trace3(
         let is_load = is_load_row;
         let is_store = family == fam::STORE;
         let mrv = mrv_row;
-        let mwv = if is_store { new_w.unwrap_or(0) } else { *ram_now.get(&0).unwrap_or(&0) };
+        let mwv = if is_store {
+            new_w.unwrap_or(0)
+        } else {
+            *ram_now.get(&0).unwrap_or(&0)
+        };
         profile("mrv", mrv)?;
         profile("mwv", mwv)?;
         // ---- flags ----
@@ -897,7 +927,17 @@ pub fn build_trace3(
         p(C_WADAR, if is_store { ea } else { 0 });
         p(C_WADA, wada);
         p(C_AL8, (caddr & 0xff) / 8);
-        p(C_INVR, if rda == 0 { 0 } else { fe(rda).inverse().unwrap_or(Goldilocks::ZERO).to_canonical_u64() });
+        p(
+            C_INVR,
+            if rda == 0 {
+                0
+            } else {
+                fe(rda)
+                    .inverse()
+                    .unwrap_or(Goldilocks::ZERO)
+                    .to_canonical_u64()
+            },
+        );
         // Bit columns.
         for k in 0..NUM_SEL {
             p(bit_col(B_SEL0 + k), (selw >> k) & 1);
@@ -1005,9 +1045,11 @@ pub fn build_trace3(
         p(C_DKEY, dkey_v3(last_iw));
         p(C_SHAMT, 0);
         p(C_KPOW, 1);
-        for idx in [C_RS1A, C_RS2A, C_RDA, C_RS1V, C_RS2V, C_RDV, C_Q, C_RV, C_MRV, C_MWV,
-            C_WVR, C_HIM, C_HID, C_HIS, C_ADDR, C_EA, C_IMMI, C_IMMB, C_IMMJ, C_IMMU,
-            C_RADA, C_WADAR, C_WADA, C_AL8] {
+        for idx in [
+            C_RS1A, C_RS2A, C_RDA, C_RS1V, C_RS2V, C_RDV, C_Q, C_RV, C_MRV, C_MWV, C_WVR, C_HIM,
+            C_HID, C_HIS, C_ADDR, C_EA, C_IMMI, C_IMMB, C_IMMJ, C_IMMU, C_RADA, C_WADAR, C_WADA,
+            C_AL8,
+        ] {
             p(idx, 0);
         }
         // The fetch address keeps tracking the (frozen) PC: the gate
@@ -1025,8 +1067,9 @@ pub fn build_trace3(
         p(bit_col(B_FB0 + 1), 0);
         p(bit_col(B_FB0 + 2), 0);
         p(bit_col(B_FB0 + 3), 1);
-        for b in [B_TAKEN, B_WRMASK, B_LSB, B_CRR, B_LT1, B_GT1,
-            B_LT4, B_LTSUB] {
+        for b in [
+            B_TAKEN, B_WRMASK, B_LSB, B_CRR, B_LT1, B_GT1, B_LT4, B_LTSUB,
+        ] {
             p(bit_col(b), 0);
         }
         // Padding semantics: rs2v = 0 ⇒ LT3 = [0 ≤ 0] = 1, Bz = 1,
@@ -1042,7 +1085,11 @@ pub fn build_trace3(
         }
         // The dc carries are pushed with the containers below.
         for base in [B_MULC1, B_DIVC1, B_SLLIC1, B_SRLIC1] {
-            let n = if base == B_DIVC1 || base == B_SRLIC1 { 15 } else { 14 };
+            let n = if base == B_DIVC1 || base == B_SRLIC1 {
+                15
+            } else {
+                14
+            };
             for k in 0..n {
                 p(bit_col(base + k), 0);
             }
@@ -1161,8 +1208,9 @@ fn booleanity_bits() -> Vec<usize> {
     bits.extend(0..NUM_SEL); // B_SEL0..
     bits.extend(B_IBIT0..B_IBIT0 + NUM_IBITS);
     bits.extend(B_FB0..B_FB0 + 4);
-    for b in [B_TAKEN, B_EQB, B_X0F, B_WRMASK, B_LSB, B_CRR, B_LT1, B_GT1,
-        B_LT3, B_LT4, B_BZ, B_LTSUB] {
+    for b in [
+        B_TAKEN, B_EQB, B_X0F, B_WRMASK, B_LSB, B_CRR, B_LT1, B_GT1, B_LT3, B_LT4, B_BZ, B_LTSUB,
+    ] {
         bits.push(b);
     }
     bits.extend(B_ADDC1..B_ADDC1 + 8);
@@ -1244,8 +1292,18 @@ pub fn air_layout(log_t: usize) -> AirLayout {
         let g = group!();
         let sp = si!(SparseKind::Bit(b));
         let d = di!(bit_col(b));
-        terms.push(TermTpl { coeff: Goldilocks::ONE, sparse: vec![sp], dense: vec![d], group: g });
-        terms.push(TermTpl { coeff: Goldilocks::ONE.neg(), sparse: vec![sp], dense: vec![], group: g });
+        terms.push(TermTpl {
+            coeff: Goldilocks::ONE,
+            sparse: vec![sp],
+            dense: vec![d],
+            group: g,
+        });
+        terms.push(TermTpl {
+            coeff: Goldilocks::ONE.neg(),
+            sparse: vec![sp],
+            dense: vec![],
+            group: g,
+        });
     }
 
     // ---- ADD chain (Sel_ADD): Rs1v + Rs2v = Rdv + 2^64·c8, c8 = 0. ----
@@ -1360,15 +1418,23 @@ pub fn air_layout(log_t: usize) -> AirLayout {
     // DIV:  Q·Rs2v + Rv = Rs1v                (zero out for k ≥ 8, +R at 0)
     // SRLI: Rdv·Kpow + Rv = Rs1v
     {
-        let mk = |x_base: usize, y_base: usize, hi_base: Option<usize>, r_base: Option<usize>,
-                  carry_base: usize, sels: &[usize], terms: &mut Vec<TermTpl>,
-                  dense_cols: &mut Vec<usize>, dense_of: &mut std::collections::HashMap<usize, usize>,
+        let mk = |x_base: usize,
+                  y_base: usize,
+                  hi_base: Option<usize>,
+                  r_base: Option<usize>,
+                  carry_base: usize,
+                  sels: &[usize],
+                  terms: &mut Vec<TermTpl>,
+                  dense_cols: &mut Vec<usize>,
+                  dense_of: &mut std::collections::HashMap<usize, usize>,
                   sparse_kinds: &mut Vec<SparseKind>,
                   sparse_of: &mut std::collections::HashMap<SparseKind, usize>,
                   g: u32| {
             let _ = g;
-            let mut di = |col: usize, dense_cols: &mut Vec<usize>,
-                          dense_of: &mut std::collections::HashMap<usize, usize>| -> usize {
+            let di = |col: usize,
+                      dense_cols: &mut Vec<usize>,
+                      dense_of: &mut std::collections::HashMap<usize, usize>|
+             -> usize {
                 if let Some(&i) = dense_of.get(&col) {
                     i
                 } else {
@@ -1378,8 +1444,10 @@ pub fn air_layout(log_t: usize) -> AirLayout {
                     i
                 }
             };
-            let mut si = |kind: SparseKind, sparse_kinds: &mut Vec<SparseKind>,
-                          sparse_of: &mut std::collections::HashMap<SparseKind, usize>| -> usize {
+            let si = |kind: SparseKind,
+                      sparse_kinds: &mut Vec<SparseKind>,
+                      sparse_of: &mut std::collections::HashMap<SparseKind, usize>|
+             -> usize {
                 if let Some(&i) = sparse_of.get(&kind) {
                     i
                 } else {
@@ -1389,10 +1457,15 @@ pub fn air_layout(log_t: usize) -> AirLayout {
                     i
                 }
             };
-            let xb: Vec<usize> = (0..8).map(|k| di(x_base + k, dense_cols, dense_of)).collect();
-            let yb: Vec<usize> = (0..8).map(|k| di(y_base + k, dense_cols, dense_of)).collect();
-            let carries: Vec<usize> =
-                (0..15).map(|k| di(carry_base + k, dense_cols, dense_of)).collect();
+            let xb: Vec<usize> = (0..8)
+                .map(|k| di(x_base + k, dense_cols, dense_of))
+                .collect();
+            let yb: Vec<usize> = (0..8)
+                .map(|k| di(y_base + k, dense_cols, dense_of))
+                .collect();
+            let carries: Vec<usize> = (0..15)
+                .map(|k| di(carry_base + k, dense_cols, dense_of))
+                .collect();
             let sidx: Vec<usize> = sels
                 .iter()
                 .map(|&f| si(SparseKind::Sel(f), sparse_kinds, sparse_of))
@@ -1482,28 +1555,85 @@ pub fn air_layout(log_t: usize) -> AirLayout {
             }
         };
         let g_mul = group!();
-        mk(byte_col(YB_RS1V), byte_col(YB_RS2V), Some(byte_col(YB_HIM)), None,
-            bit_col(B_MULC1), &[fam::MUL], &mut terms, &mut dense_cols, &mut dense_of,
-            &mut sparse_kinds, &mut sparse_of, g_mul);
+        mk(
+            byte_col(YB_RS1V),
+            byte_col(YB_RS2V),
+            Some(byte_col(YB_HIM)),
+            None,
+            bit_col(B_MULC1),
+            &[fam::MUL],
+            &mut terms,
+            &mut dense_cols,
+            &mut dense_of,
+            &mut sparse_kinds,
+            &mut sparse_of,
+            g_mul,
+        );
         let g_slli = group!();
-        mk(byte_col(YB_RS1V), byte_col(YB_KPOW), Some(byte_col(YB_HIS)), None,
-            bit_col(B_SLLIC1), &[fam::SLLI], &mut terms, &mut dense_cols, &mut dense_of,
-            &mut sparse_kinds, &mut sparse_of, g_slli);
+        mk(
+            byte_col(YB_RS1V),
+            byte_col(YB_KPOW),
+            Some(byte_col(YB_HIS)),
+            None,
+            bit_col(B_SLLIC1),
+            &[fam::SLLI],
+            &mut terms,
+            &mut dense_cols,
+            &mut dense_of,
+            &mut sparse_kinds,
+            &mut sparse_of,
+            g_slli,
+        );
         let g_div = group!();
-        mk(byte_col(YB_Q), byte_col(YB_RS2V), None, Some(byte_col(YB_RV)),
-            bit_col(B_DIVC1), &[fam::DIVQ, fam::DIVR], &mut terms, &mut dense_cols,
-            &mut dense_of, &mut sparse_kinds, &mut sparse_of, g_div);
+        mk(
+            byte_col(YB_Q),
+            byte_col(YB_RS2V),
+            None,
+            Some(byte_col(YB_RV)),
+            bit_col(B_DIVC1),
+            &[fam::DIVQ, fam::DIVR],
+            &mut terms,
+            &mut dense_cols,
+            &mut dense_of,
+            &mut sparse_kinds,
+            &mut sparse_of,
+            g_div,
+        );
         let g_srli = group!();
-        mk(byte_col(YB_RDV), byte_col(YB_KPOW), None, Some(byte_col(YB_RV)),
-            bit_col(B_SRLIC1), &[fam::SRLI], &mut terms, &mut dense_cols, &mut dense_of,
-            &mut sparse_kinds, &mut sparse_of, g_srli);
+        mk(
+            byte_col(YB_RDV),
+            byte_col(YB_KPOW),
+            None,
+            Some(byte_col(YB_RV)),
+            bit_col(B_SRLIC1),
+            &[fam::SRLI],
+            &mut terms,
+            &mut dense_cols,
+            &mut dense_of,
+            &mut sparse_kinds,
+            &mut sparse_of,
+            g_srli,
+        );
     }
 
     // ---- Control flow: next_pc identities per family. ----
     {
         // Straight-line families: NextPc = Pc + 4.
-        for f in [fam::ADD, fam::ADDI, fam::SUB, fam::MUL, fam::DIVQ, fam::DIVR, fam::SLLI,
-            fam::SRLI, fam::SLTU, fam::LOAD, fam::STORE, fam::LUI, fam::AUIPC] {
+        for f in [
+            fam::ADD,
+            fam::ADDI,
+            fam::SUB,
+            fam::MUL,
+            fam::DIVQ,
+            fam::DIVR,
+            fam::SLLI,
+            fam::SRLI,
+            fam::SLTU,
+            fam::LOAD,
+            fam::STORE,
+            fam::LUI,
+            fam::AUIPC,
+        ] {
             let g = group!();
             let sp = si!(SparseKind::Sel(f));
             sel_lin!(g, sp,
@@ -1920,7 +2050,12 @@ pub fn air_layout(log_t: usize) -> AirLayout {
         });
     }
 
-    AirLayout { num_vars: log_t, dense_cols, sparse_kinds, terms }
+    AirLayout {
+        num_vars: log_t,
+        dense_cols,
+        sparse_kinds,
+        terms,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,7 +2119,9 @@ fn imm_j_bits() -> Vec<(usize, Goldilocks)> {
 }
 
 fn imm_u_bits() -> Vec<(usize, Goldilocks)> {
-    (12..32).map(|i| (bit_col(B_IBIT0 + i), fe(1u64 << i))).collect()
+    (12..32)
+        .map(|i| (bit_col(B_IBIT0 + i), fe(1u64 << i)))
+        .collect()
 }
 
 fn imm_s_bits() -> Vec<(usize, Goldilocks)> {
@@ -2015,7 +2152,9 @@ fn dkey_bits() -> Vec<(usize, Goldilocks)> {
 }
 
 fn shamt_bits() -> Vec<(usize, Goldilocks)> {
-    (20..26).map(|i| (bit_col(B_IBIT0 + i), fe(1u64 << (i - 20)))).collect()
+    (20..26)
+        .map(|i| (bit_col(B_IBIT0 + i), fe(1u64 << (i - 20))))
+        .collect()
 }
 
 /// Register-address bits: rd at iw 7..11, rs1 at 15..19, rs2 at 20..24.
@@ -2114,26 +2253,17 @@ pub fn build_gates() -> Vec<Gate> {
 
     // 7. FetchRa: 4·FetchRa − Pc + 0x1000 = 0.
     {
-        let slots = vec![
-            (C_FETCH_RA, fe(4)),
-            (C_PC, Goldilocks::ONE.neg()),
-        ];
+        let slots = vec![(C_FETCH_RA, fe(4)), (C_PC, Goldilocks::ONE.neg())];
         push(slots, fe(0x1000));
     }
 
     // 8. Alignment: addr_b0 = 8·al8; ea = al8 + Σ_{k≥1} 2^{8k−3}·addr_bk.
     {
-        let slots = vec![
-            (byte_col(YB_ADDR), Goldilocks::ONE),
-            (C_AL8, fe(8).neg()),
-        ];
+        let slots = vec![(byte_col(YB_ADDR), Goldilocks::ONE), (C_AL8, fe(8).neg())];
         push(slots, Goldilocks::ZERO);
     }
     {
-        let mut slots = vec![
-            (C_EA, Goldilocks::ONE),
-            (C_AL8, Goldilocks::ONE.neg()),
-        ];
+        let mut slots = vec![(C_EA, Goldilocks::ONE), (C_AL8, Goldilocks::ONE.neg())];
         for k in 1..BYTES_PER_VALUE {
             slots.push((byte_col(YB_ADDR + k), fe(1u64 << (8 * k - 3))));
         }
@@ -2219,36 +2349,38 @@ pub struct ProofV3 {
     pub twist_ram: TwistProof,
     pub twist_reg_a: TwistProof,
     pub twist_reg_b: TwistProof,
-    /// The decode / pow2 / alignment / range Shouts, in canonical order.
-    pub lookup_shouts: Vec<ShoutProof>,
+    /// The batched lookup proofs, one per (family, log_k) group in the
+    /// canonical order of [`lookup_groups`] (the Wave-10 batching: the
+    /// ~205 read-only-table Shouts collapse into ~6 sumchecks, with the
+    /// per-(lookup, digit) ra claims riding each proof).
+    pub lookup_batches: Vec<BatchedShoutProof>,
     /// The batched AIR sumcheck.
     pub air: lattice_sumcheck::SumcheckProof,
     /// The full claim table (column claims + sentinels).
     pub claims: Vec<ColumnClaim>,
-    /// Per-column grouped openings.
-    pub openings: Vec<EvaluationProof>,
+    /// The folded opening layer: the per-column grouped openings
+    /// replaced by chunked integer folds per DISTINCT point (the
+    /// r_air RLC fold — the Ajtai linear homomorphism lets the verifier
+    /// compute each folded commitment from the per-column ones).
+    pub openings: FoldedOpenings,
 }
 
-/// Evaluate a column MLE at a point without materializing a DenseMle.
+/// Evaluate a column MLE at a point without materializing a DenseMle —
+/// the SIMD eq-table + dot-product form (`O(T)` field ops through the
+/// AVX-512 kernels, replacing the per-entry `O(T·log T)` scalar loop).
 fn eval_col(col: &[Goldilocks], point: &[Goldilocks]) -> Goldilocks {
     let num_vars = point.len();
     debug_assert_eq!(col.len(), 1 << num_vars);
-    let mut acc = Goldilocks::ONE;
-    let mut value = Goldilocks::ZERO;
-    for (i, &x) in col.iter().enumerate() {
-        let mut w = acc;
-        // acc tracks Π eq(point[j], bit_j) incrementally over variables.
-        let mut idx = i;
-        for j in (0..num_vars).rev() {
-            let bit = idx & 1;
-            idx >>= 1;
-            w = w.mul(&eq_lerp_pub(point[j], bit as u64));
-        }
-        value = value.add(&w.mul(&x));
+    let eq = lattice_core::field_simd::eq_table(point);
+    if eq.len() != col.len() {
+        return Goldilocks::ZERO;
     }
-    value
+    let mut prod = vec![Goldilocks::ZERO; col.len()];
+    lattice_core::field_simd::mul_slices(col, &eq, &mut prod);
+    lattice_core::field_simd::sum_slice(&prod)
 }
 
+#[allow(dead_code)]
 fn eq_lerp_pub(p: Goldilocks, bit: u64) -> Goldilocks {
     if bit == 1 {
         p
@@ -2271,7 +2403,12 @@ impl<'a> ColRes<'a> {
         log_t: usize,
         map: &'a dyn Fn(FactorId) -> Option<usize>,
     ) -> Self {
-        Self { cols, log_t, claims: RefCell::new(Vec::new()), map }
+        Self {
+            cols,
+            log_t,
+            claims: RefCell::new(Vec::new()),
+            map,
+        }
     }
     fn drain(&self) -> Vec<ColumnClaim> {
         std::mem::take(&mut *self.claims.borrow_mut())
@@ -2282,7 +2419,10 @@ impl<'a> FactorResolver for ColRes<'a> {
     fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
         let col = (self.map)(factor).ok_or(PiopError::MissingFactor { factor })?;
         if point.len() != self.log_t {
-            return Err(PiopError::Shape { expected: self.log_t, got: point.len() });
+            return Err(PiopError::Shape {
+                expected: self.log_t,
+                got: point.len(),
+            });
         }
         let v = eval_col(&self.cols[col], point);
         self.claims.borrow_mut().push(ColumnClaim {
@@ -2295,30 +2435,130 @@ impl<'a> FactorResolver for ColRes<'a> {
     }
 }
 
-/// Verifier-side claim-table resolver.
+/// Verifier-side claim-table resolver — the O(1) INDEXED form (the
+/// Wave-10 de-scan: the linear claim-table scans of the AIR/gate/leg
+/// verifications were the dominant verify cost after the openings).
 struct TableRes<'a> {
-    claims: &'a [ColumnClaim],
+    by_col_point: &'a HashMap<(usize, Vec<u64>), Goldilocks>,
+    sentinel: &'a HashMap<(u64, Vec<u64>), Goldilocks>,
     map: &'a dyn Fn(FactorId) -> Option<usize>,
 }
 
 impl<'a> FactorResolver for TableRes<'a> {
     fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
         if let Some(col) = (self.map)(factor) {
-            for c in self.claims {
-                if c.col == col && c.point.as_slice() == point {
-                    return Ok(c.value);
-                }
+            let key = (col, point.iter().map(|p| p.to_canonical_u64()).collect());
+            if let Some(&v) = self.by_col_point.get(&key) {
+                return Ok(v);
             }
         }
-        for c in self.claims {
-            if c.col == SENTINEL_COL
-                && c.factor == factor.discriminant()
-                && c.point.as_slice() == point
-            {
-                return Ok(c.value);
-            }
+        let key = (
+            factor.discriminant(),
+            point.iter().map(|p| p.to_canonical_u64()).collect(),
+        );
+        if let Some(&v) = self.sentinel.get(&key) {
+            return Ok(v);
         }
         Err(PiopError::MissingFactor { factor })
+    }
+}
+
+/// Build the claim-table indexes once per verification: the
+/// (column, point) map and the sentinel (factor, point) map.
+struct ClaimIndex {
+    by_col_point: HashMap<(usize, Vec<u64>), Goldilocks>,
+    sentinel: HashMap<(u64, Vec<u64>), Goldilocks>,
+    /// (column → value at `r_air`) — the AIR/gate terminal lookups.
+    at_r_air: HashMap<usize, Goldilocks>,
+    r_air: Vec<Goldilocks>,
+}
+
+impl ClaimIndex {
+    fn build(claims: &[ColumnClaim]) -> Self {
+        let mut by_col_point = HashMap::with_capacity(claims.len());
+        let mut sentinel = HashMap::new();
+        for c in claims {
+            let pt: Vec<u64> = c.point.iter().map(|p| p.to_canonical_u64()).collect();
+            if c.col == SENTINEL_COL {
+                sentinel.entry((c.factor, pt)).or_insert(c.value);
+            } else {
+                by_col_point.entry((c.col, pt)).or_insert(c.value);
+            }
+        }
+        ClaimIndex {
+            by_col_point,
+            sentinel,
+            at_r_air: HashMap::new(),
+            r_air: Vec::new(),
+        }
+    }
+
+    fn set_r_air(&mut self, r_air: &[Goldilocks]) {
+        self.r_air = r_air.to_vec();
+        let key: Vec<u64> = r_air.iter().map(|p| p.to_canonical_u64()).collect();
+        self.at_r_air.clear();
+        for ((col, pt), &v) in &self.by_col_point {
+            if *pt == key {
+                self.at_r_air.insert(*col, v);
+            }
+        }
+    }
+
+    fn claim_at_r_air(&self, col: usize) -> Result<Goldilocks, Pipeline3Error> {
+        self.at_r_air
+            .get(&col)
+            .copied()
+            .ok_or(Pipeline3Error::VerificationFailed)
+    }
+}
+
+/// One lookup group entry: (address column = value column for the
+/// identity families).
+#[derive(Clone, Copy, Debug)]
+pub struct LookupEntry {
+    pub addr_col: usize,
+    pub val_col: usize,
+}
+
+/// A lookup group: all entries sharing one (family, log_k) table.
+#[derive(Clone, Debug)]
+pub struct LookupGroupDef {
+    pub kind: &'static str,
+    pub log_k: usize,
+    pub entries: Vec<LookupEntry>,
+}
+
+/// The canonical lookup BATCHING: the schedule partitioned into
+/// (family, log_k) groups in first-appearance order. Prover and
+/// verifier must agree exactly.
+pub fn lookup_groups() -> Vec<LookupGroupDef> {
+    let sched = lookup_schedule();
+    let mut groups: Vec<LookupGroupDef> = Vec::new();
+    let mut index: std::collections::HashMap<(&'static str, usize), usize> =
+        std::collections::HashMap::new();
+    for (kind, addr_col, val_col, log_k) in sched {
+        let entry = LookupEntry { addr_col, val_col };
+        if let Some(&gi) = index.get(&(kind, log_k)) {
+            groups[gi].entries.push(entry);
+        } else {
+            index.insert((kind, log_k), groups.len());
+            groups.push(LookupGroupDef {
+                kind,
+                log_k,
+                entries: vec![entry],
+            });
+        }
+    }
+    groups
+}
+
+/// The structured table of a lookup group.
+fn group_table(kind: &str, log_k: usize) -> StructuredTable {
+    match kind {
+        "decode" => StructuredTable::from_values(decode_table_v3(), log_k)
+            .unwrap_or(StructuredTable::new(TableFamily::Values, log_k)),
+        "pow2" => StructuredTable::new(TableFamily::Pow2, log_k),
+        _ => StructuredTable::new(TableFamily::Identity, log_k),
     }
 }
 
@@ -2343,8 +2583,12 @@ pub fn lookup_schedule() -> Vec<(&'static str, usize, usize, usize)> {
     // dc byte columns: 8 × range8 each (the top byte is full 8-bit).
     for di in 0..DC_COUNT {
         for k in 0..8 {
-            sched.push(("range8", byte_col(DC_BYTES + di * DC_STEP + k),
-                byte_col(DC_BYTES + di * DC_STEP + k), 8));
+            sched.push((
+                "range8",
+                byte_col(DC_BYTES + di * DC_STEP + k),
+                byte_col(DC_BYTES + di * DC_STEP + k),
+                8,
+            ));
         }
     }
     // Schoolbook carries: range12 (MUL/SLLI 14 each, DIV/SRLI 15 each).
@@ -2360,6 +2604,9 @@ pub fn lookup_schedule() -> Vec<(&'static str, usize, usize, usize)> {
 }
 
 /// The identity tables (verifier-recomputable).
+/// The identity tables (verifier-recomputable) — the Wave-9 per-lookup
+/// route's materializer, retained as the batched layer's reference.
+#[allow(dead_code)]
 fn lookup_table(kind: &str, log_k: usize) -> Vec<Goldilocks> {
     let n = 1usize << log_k;
     match kind {
@@ -2455,9 +2702,15 @@ pub fn prove_v3(
     };
 
     // ---- 3. Commit every column. ----
+    if std::env::var_os("LZX_V3_TRACE").is_some() {
+        eprintln!("[v3] at commitments");
+    }
     let mut commitments = Vec::with_capacity(NUM_COLS);
     for col in cols.iter().take(NUM_COLS) {
-        let mle = DenseMle { num_vars: log_t, evaluations: col.clone() };
+        let mle = DenseMle {
+            num_vars: log_t,
+            evaluations: col.clone(),
+        };
         commitments.push(pcs.commit(&mle)?.commitment.to_bytes());
     }
 
@@ -2483,9 +2736,13 @@ pub fn prove_v3(
     let mut claims: Vec<ColumnClaim> = Vec::new();
 
     // ---- 5. The memory legs (the v2 protocol, v3 registry). ----
-    #[cfg(test)]
-    eprintln!("[v3] at memory");
-    let fetch_ra: Vec<u64> = cols[C_FETCH_RA].iter().map(|x| x.to_canonical_u64()).collect();
+    if std::env::var_os("LZX_V3_TRACE").is_some() {
+        eprintln!("[v3] at memory");
+    }
+    let fetch_ra: Vec<u64> = cols[C_FETCH_RA]
+        .iter()
+        .map(|x| x.to_canonical_u64())
+        .collect();
     let fetch_table: Vec<Goldilocks> = (0..fetch_words)
         .map(|i| {
             let mut w = 0u32;
@@ -2504,7 +2761,13 @@ pub fn prove_v3(
             _ => None,
         });
         let (p, dim) = prove_shout_sparse(
-            &fetch_table, &fetch_ra, log_k_fetch, log_t, log_k_fetch, &res, &mut transcript,
+            &fetch_table,
+            &fetch_ra,
+            log_k_fetch,
+            log_t,
+            log_k_fetch,
+            &res,
+            &mut transcript,
         )?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
@@ -2523,10 +2786,21 @@ pub fn prove_v3(
             FactorId::ReadAddr => Some(C_RADA),
             _ => None,
         });
-        let (p, dim) = prove_onehot_sparse(&ram_ra, log_k_ram, log_t, log_k_ram, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim) = prove_onehot_sparse(
+            &ram_ra,
+            log_k_ram,
+            log_t,
+            log_k_ram,
+            OHSide::Read,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2535,10 +2809,21 @@ pub fn prove_v3(
             FactorId::WriteAddr => Some(C_WADAR),
             _ => None,
         });
-        let (p, dim) = prove_onehot_sparse(&ram_wa, log_k_ram, log_t, log_k_ram, OHSide::Write, &res, &mut transcript)?;
+        let (p, dim) = prove_onehot_sparse(
+            &ram_wa,
+            log_k_ram,
+            log_t,
+            log_k_ram,
+            OHSide::Write,
+            &res,
+            &mut transcript,
+        )?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2549,10 +2834,17 @@ pub fn prove_v3(
             _ => None,
         });
         let witness = build_twist_ports(
-            &ram_ra, &ram_wa, &cols[C_MWV], &init_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
-            log_k_ram, log_t,
+            &ram_ra,
+            &ram_wa,
+            &cols[C_MWV],
+            &init_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
+            log_k_ram,
+            log_t,
         )?;
-        let wv_mle = DenseMle { num_vars: log_t, evaluations: cols[C_MWV].clone() };
+        let wv_mle = DenseMle {
+            num_vars: log_t,
+            evaluations: cols[C_MWV].clone(),
+        };
         let (p, cl) = prove_twist_ports_sparse(&witness, &wv_mle, &res, &mut transcript)?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: match f {
@@ -2580,10 +2872,14 @@ pub fn prove_v3(
             FactorId::ReadAddr => Some(C_RS1A),
             _ => None,
         });
-        let (p, dim) = prove_onehot_sparse(&reg_ra_a, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim) =
+            prove_onehot_sparse(&reg_ra_a, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2592,10 +2888,14 @@ pub fn prove_v3(
             FactorId::ReadAddr => Some(C_RS2A),
             _ => None,
         });
-        let (p, dim) = prove_onehot_sparse(&reg_ra_b, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
+        let (p, dim) =
+            prove_onehot_sparse(&reg_ra_b, 5, log_t, 5, OHSide::Read, &res, &mut transcript)?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2604,10 +2904,14 @@ pub fn prove_v3(
             FactorId::WriteAddr => Some(C_WADA),
             _ => None,
         });
-        let (p, dim) = prove_onehot_sparse(&reg_wa, 5, log_t, 5, OHSide::Write, &res, &mut transcript)?;
+        let (p, dim) =
+            prove_onehot_sparse(&reg_wa, 5, log_t, 5, OHSide::Write, &res, &mut transcript)?;
         claims.extend(res.drain());
         claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
+            col: SENTINEL_COL,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2618,7 +2922,10 @@ pub fn prove_v3(
             _ => None,
         });
         let witness = build_twist_ports(&reg_ra_a, &reg_wa, &cols[C_WVR], &reg_init, 5, log_t)?;
-        let wv_mle = DenseMle { num_vars: log_t, evaluations: cols[C_WVR].clone() };
+        let wv_mle = DenseMle {
+            num_vars: log_t,
+            evaluations: cols[C_WVR].clone(),
+        };
         let (p, cl) = prove_twist_ports_sparse(&witness, &wv_mle, &res, &mut transcript)?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: match f {
@@ -2626,7 +2933,9 @@ pub fn prove_v3(
                 FactorId::WriteValues => C_WVR,
                 _ => SENTINEL_COL,
             },
-            factor: f.discriminant(), point: point.clone(), value: *v,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
@@ -2637,7 +2946,10 @@ pub fn prove_v3(
             _ => None,
         });
         let witness = build_twist_ports(&reg_ra_b, &reg_wa, &cols[C_WVR], &reg_init, 5, log_t)?;
-        let wv_mle = DenseMle { num_vars: log_t, evaluations: cols[C_WVR].clone() };
+        let wv_mle = DenseMle {
+            num_vars: log_t,
+            evaluations: cols[C_WVR].clone(),
+        };
         let (p, cl) = prove_twist_ports_sparse(&witness, &wv_mle, &res, &mut transcript)?;
         claims.extend(cl.iter().map(|(f, point, v)| ColumnClaim {
             col: match f {
@@ -2645,57 +2957,81 @@ pub fn prove_v3(
                 FactorId::WriteValues => C_WVR,
                 _ => SENTINEL_COL,
             },
-            factor: f.discriminant(), point: point.clone(), value: *v,
+            factor: f.discriminant(),
+            point: point.clone(),
+            value: *v,
         }));
         p
     };
 
-    // ---- 6. The lookup Shouts (decode / pow2 / al8 / ranges / carries). ----
-    #[cfg(test)]
-    eprintln!("[v3] at lookups");
-    let sched = lookup_schedule();
-    let mut lookup_shouts = Vec::with_capacity(sched.len());
-    for (kind, addr_col, val_col, log_k) in sched.iter() {
-        let kind: &str = kind;
-        let addr_col = *addr_col;
-        let val_col = *val_col;
-        let log_k = *log_k;
-        let table = lookup_table(kind, log_k);
-        let addrs: Vec<u64> = cols[addr_col].iter().map(|x| x.to_canonical_u64()).collect();
-        // The address stream must fit the table.
-        for &a in &addrs {
-            if a >= (1u64 << log_k) {
-                return Err(Pipeline3Error::BadShape(format!(
-                    "lookup {kind} address {a} out of range"
-                )));
-            }
+    // ---- 6. The batched lookup Shouts (one sumcheck per table group). ----
+    if std::env::var_os("LZX_V3_TRACE").is_some() {
+        eprintln!("[v3] at lookups (batched)");
+    }
+    let groups = lookup_groups();
+    let mut lookup_batches = Vec::with_capacity(groups.len());
+    for group in &groups {
+        let table = group_table(group.kind, group.log_k);
+        let d = group.log_k; // bit-digit dimensions (log_n = 1)
+                             // Materialize the per-lookup address streams and resolvers once
+                             // (the maps are boxed so all resolvers live simultaneously).
+        let mut addr_streams: Vec<Vec<u64>> = Vec::with_capacity(group.entries.len());
+        let maps: Vec<Box<dyn Fn(FactorId) -> Option<usize>>> = group
+            .entries
+            .iter()
+            .map(|entry| -> Box<dyn Fn(FactorId) -> Option<usize>> {
+                let val_col = entry.val_col;
+                let addr_col = entry.addr_col;
+                Box::new(move |f: FactorId| match f {
+                    FactorId::ReadValues => Some(val_col),
+                    FactorId::ReadAddr => Some(addr_col),
+                    _ => None,
+                })
+            })
+            .collect();
+        let resolvers: Vec<ColRes> = maps
+            .iter()
+            .map(|m| ColRes::new(cols, log_t, m.as_ref()))
+            .collect();
+        for entry in &group.entries {
+            let addrs: Vec<u64> = cols[entry.addr_col]
+                .iter()
+                .map(|x| x.to_canonical_u64())
+                .collect();
+            addr_streams.push(addrs);
         }
-        let map = move |f: FactorId| match f {
-            FactorId::ReadValues => Some(val_col),
-            FactorId::ReadAddr => Some(addr_col),
-            _ => None,
+        let lookups: Vec<BatchedLookup> = addr_streams
+            .iter()
+            .zip(resolvers.iter())
+            .map(|(a, r)| BatchedLookup {
+                read_addresses: a,
+                resolver: r,
+            })
+            .collect();
+        let batch_group = BatchGroup {
+            table: &table,
+            log_k: group.log_k,
+            log_t,
+            d,
         };
-        let res = ColRes::new(cols, log_t, &map);
-        let (p, dim) = match prove_shout_sparse(
-            &table, &addrs, log_k, log_t, log_k, &res, &mut transcript,
-        ) {
+        let p = match prove_shout_batched(&batch_group, &lookups, &mut transcript) {
             Ok(x) => x,
             Err(e) => {
                 #[cfg(test)]
-                eprintln!("[v3] lookup FAILED {kind} col {addr_col}: {e:?}");
+                eprintln!("[v3] lookup batch {} FAILED: {e:?}", group.kind);
                 return Err(e.into());
             }
         };
-        claims.extend(res.drain());
-        claims.extend(dim.iter().map(|(f, point, v)| ColumnClaim {
-            col: SENTINEL_COL, factor: f.discriminant(), point: point.clone(), value: *v,
-        }));
-        lookup_shouts.push(p);
+        for res in &resolvers {
+            claims.extend(res.drain());
+        }
+        lookup_batches.push(p);
     }
 
     // ---- 7. The AIR: one batched sparse sumcheck, claim zero. ----
-    #[cfg(test)]
-    eprintln!("[v3] at AIR");
+    if std::env::var_os("LZX_V3_TRACE").is_some() {
+        eprintln!("[v3] at AIR");
+    }
     let layout = air_layout(log_t);
     let alpha = transcript.challenge_field(b"v3-air-alpha")?;
     // Sparse factors from the witness supports.
@@ -2714,14 +3050,20 @@ pub fn prove_v3(
                     .map(|j| (j as u64, Goldilocks::ONE))
                     .collect(),
             };
-            SparseFactor { entries, var_map: (0..log_t).collect() }
+            SparseFactor {
+                entries,
+                var_map: (0..log_t).collect(),
+            }
         })
         .collect();
     let dense: Vec<ProjectedDense> = layout
         .dense_cols
         .iter()
         .map(|&col| ProjectedDense {
-            mle: DenseMle { num_vars: log_t, evaluations: cols[col].clone() },
+            mle: DenseMle {
+                num_vars: log_t,
+                evaluations: cols[col].clone(),
+            },
             var_map: (0..log_t).collect(),
         })
         .collect();
@@ -2745,11 +3087,21 @@ pub fn prove_v3(
                     .map(|j| j as u64)
                     .collect(),
             };
-            SparseTerm { coeff, positions, sparse: tpl.sparse.clone(), dense: tpl.dense.clone() }
+            SparseTerm {
+                coeff,
+                positions,
+                sparse: tpl.sparse.clone(),
+                dense: tpl.dense.clone(),
+            }
         })
         .collect();
-    let inst = SparseInstance { num_vars: log_t, sparse, dense, terms };
-    let air_out = prove_sparse_sumcheck(&inst, Goldilocks::ZERO, &mut transcript)?;
+    let inst = SparseInstance {
+        num_vars: log_t,
+        sparse,
+        dense,
+        terms,
+    };
+    let air_out = prove_sparse_sumcheck_owned(inst, Goldilocks::ZERO, &mut transcript)?;
     let r_air = air_out.challenges.clone();
     // Dense factor claims at r_air.
     for (i, &col) in layout.dense_cols.iter().enumerate() {
@@ -2783,8 +3135,11 @@ pub fn prove_v3(
         }
     }
     // The gate claims: every column gets an r_air claim (dedup).
-    let have_r_air: std::collections::HashSet<usize> =
-        claims.iter().filter(|c| c.point == r_air).map(|c| c.col).collect();
+    let have_r_air: std::collections::HashSet<usize> = claims
+        .iter()
+        .filter(|c| c.point == r_air)
+        .map(|c| c.col)
+        .collect();
     for col in 0..NUM_COLS {
         if !have_r_air.contains(&col) {
             claims.push(ColumnClaim {
@@ -2800,21 +3155,56 @@ pub fn prove_v3(
     let gates = build_gates();
     let _betas = transcript.challenge_fields(b"v3-gate-beta", gates.len())?;
 
-    // ---- 9. The grouped openings, one per column. ----
-    let mut openings = Vec::with_capacity(NUM_COLS);
-    for (col_idx, col) in cols.iter().enumerate().take(NUM_COLS) {
-        let col_claims: Vec<GroupedOpening> = claims
-            .iter()
-            .filter(|c| c.col == col_idx)
-            .map(|c| GroupedOpening { point: c.point.clone(), value: c.value })
-            .collect();
-        if col_claims.is_empty() {
-            openings.push(placebo_opening(pcs, col, log_t)?);
-        } else {
-            let mle = DenseMle { num_vars: log_t, evaluations: col.clone() };
-            openings.push(pcs.prove_grouped(&mle, &col_claims, &mut transcript)?);
-        }
+    if std::env::var_os("LZX_V3_TRACE").is_some() {
+        eprintln!(
+            "[v3] at fold: {} claims",
+            claims.iter().filter(|c| c.col != SENTINEL_COL).count()
+        );
     }
+    // ---- 9. The FOLDED openings (the r_air RLC fold): the per-column
+    // grouped openings replaced by chunked integer folds per DISTINCT
+    // point — the Ajtai linear homomorphism binds every column through
+    // ONE commit recompute per chunk, and the proof carries one folded
+    // packed witness per chunk instead of one full witness per column. ----
+    // Group the non-sentinel claims by point, first-appearance order.
+    let mut fold_points_order: Vec<Vec<Goldilocks>> = Vec::new();
+    let mut fold_map: HashMap<Vec<u64>, usize> = HashMap::new();
+    let mut fold_groups: Vec<Vec<(usize, Goldilocks)>> = Vec::new();
+    for c in claims.iter().filter(|c| c.col != SENTINEL_COL) {
+        let key: Vec<u64> = c.point.iter().map(|p| p.to_canonical_u64()).collect();
+        let gi = match fold_map.get(&key) {
+            Some(&gi) => gi,
+            None => {
+                fold_map.insert(key.clone(), fold_points_order.len());
+                fold_points_order.push(c.point.clone());
+                fold_groups.push(Vec::new());
+                fold_points_order.len() - 1
+            }
+        };
+        fold_groups[gi].push((c.col, c.value));
+    }
+    let fold_groups: Vec<Vec<FoldClaim>> = fold_points_order
+        .iter()
+        .zip(fold_groups.iter())
+        .map(|(point, group)| {
+            let claims: Vec<FoldClaim> = group
+                .iter()
+                .map(|&(col, value)| FoldClaim {
+                    col,
+                    evals: &cols[col],
+                    value,
+                })
+                .collect();
+            let _ = point;
+            claims
+        })
+        .collect();
+    let fold_inputs: Vec<FoldPoint> = fold_points_order
+        .iter()
+        .zip(fold_groups.iter())
+        .map(|(point, claims)| FoldPoint { point, claims })
+        .collect();
+    let openings = prove_folded_openings(pcs, &fold_inputs, &mut transcript)?;
 
     Ok((
         public_state.clone(),
@@ -2833,23 +3223,12 @@ pub fn prove_v3(
             twist_ram,
             twist_reg_a,
             twist_reg_b,
-            lookup_shouts,
+            lookup_batches,
             air: air_out.proof,
             claims,
             openings,
         },
     ))
-}
-
-fn placebo_opening(
-    pcs: &AkitaPcs,
-    col: &[Goldilocks],
-    log_vars: usize,
-) -> Result<EvaluationProof, Pipeline3Error> {
-    let mle = DenseMle { num_vars: log_vars, evaluations: col.to_vec() };
-    let mut t = Transcript::new_default(b"lzx-placebo");
-    let point: Vec<Goldilocks> = (0..log_vars).map(|i| fe(i as u64 + 1)).collect();
-    Ok(pcs.prove_evaluation(&mle, &point, &mut t)?)
 }
 
 /// Verify a v3 proof. NEVER re-executes the program.
@@ -2866,7 +3245,10 @@ pub fn verify_v3(
         return Err(Pipeline3Error::VerificationFailed);
     }
     let log_t = proof.log_t;
-    if proof.commitments.len() != NUM_COLS || proof.openings.len() != NUM_COLS {
+    if proof.commitments.len() != NUM_COLS
+        || proof.lookup_batches.len() != lookup_groups().len()
+        || proof.openings.log_t != log_t
+    {
         return Err(Pipeline3Error::VerificationFailed);
     }
     // ---- Public tables. ----
@@ -2934,106 +3316,217 @@ pub fn verify_v3(
         transcript.append_bytes(b"col-commit", &b)?;
     }
     let claims = &proof.claims;
+    // The O(1) claim index (built once; every leg/AIR/gate lookup goes
+    // through it — the linear scans were the post-opening verify hot spot).
+    let index = ClaimIndex::build(claims);
 
     // ---- The memory legs. ----
-    let fetch_res = TableRes { claims, map: &|f| match f {
-        FactorId::ReadValues => Some(C_IW),
-        FactorId::ReadAddr => Some(C_FETCH_RA),
-        _ => None,
-    }};
-    lattice_memory::verify_shout(&proof.fetch, &fetch_table, log_k_fetch, log_t, log_k_fetch, &fetch_res, &mut transcript)?;
-    let oh_ram_r = TableRes { claims, map: &|f| match f {
-        FactorId::ReadAddr => Some(C_RADA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_ram_r, log_k_ram, log_t, OHSide::Read, &oh_ram_r, &mut transcript)?;
-    let oh_ram_w = TableRes { claims, map: &|f| match f {
-        FactorId::WriteAddr => Some(C_WADAR),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_ram_w, log_k_ram, log_t, OHSide::Write, &oh_ram_w, &mut transcript)?;
-    let ram_tw = TableRes { claims, map: &|f| match f {
-        FactorId::ReadValues => Some(C_MRV),
-        FactorId::WriteValues => Some(C_MWV),
-        _ => None,
-    }};
+    let fetch_res = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadValues => Some(C_IW),
+            FactorId::ReadAddr => Some(C_FETCH_RA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_shout(
+        &proof.fetch,
+        &fetch_table,
+        log_k_fetch,
+        log_t,
+        log_k_fetch,
+        &fetch_res,
+        &mut transcript,
+    )?;
+    let oh_ram_r = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadAddr => Some(C_RADA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_ram_r,
+        log_k_ram,
+        log_t,
+        OHSide::Read,
+        &oh_ram_r,
+        &mut transcript,
+    )?;
+    let oh_ram_w = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::WriteAddr => Some(C_WADAR),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_ram_w,
+        log_k_ram,
+        log_t,
+        OHSide::Write,
+        &oh_ram_w,
+        &mut transcript,
+    )?;
+    let ram_tw = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadValues => Some(C_MRV),
+            FactorId::WriteValues => Some(C_MWV),
+            _ => None,
+        },
+    };
     verify_twist_ports_checked(
         &proof.twist_ram,
         &init_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
-        &public_state.final_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
-        log_k_ram, log_t, log_k_ram, &ram_tw, &mut transcript,
-    ).map_err(|e| {
-        #[cfg(test)]
-        {
-            eprintln!("[v3v] ram twist: {e:?}");
-            eprintln!("[v3v] leg1 rounds[0] = {:?}", proof.twist_ram.read_checking.rounds.first().map(|r| r.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>()));
-            eprintln!("[v3v] leg2 rounds[0] = {:?}", proof.twist_ram.inc_definition.rounds.first().map(|r| r.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>()));
-            eprintln!("[v3v] leg3 rounds[0] = {:?}", proof.twist_ram.telescoping.rounds.first().map(|r| r.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>()));
-            for c in claims.iter().filter(|c| c.col == C_MRV) {
-                eprintln!("[v3v] MRV claim: pt {:?} v {}", c.point.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>(), c.value.to_canonical_u64());
-            }
-            // Resolve with the twist's own point (pt of the first MRV claim).
-            if let Some(c) = claims.iter().find(|c| c.col == C_MRV) {
-                let res = TableRes { claims, map: &|f: FactorId| match f {
-                    FactorId::ReadValues => Some(C_MRV),
-                    FactorId::WriteValues => Some(C_MWV),
-                    _ => None,
-                }};
-                eprintln!("[v3v] manual resolve at pt1: {:?}", res.eval(FactorId::ReadValues, &c.point).map(|v| v.to_canonical_u64()));
-            }
-        }
-        e
-    })?;
+        &public_state
+            .final_ram
+            .iter()
+            .map(|&v| fe(v))
+            .collect::<Vec<_>>(),
+        log_k_ram,
+        log_t,
+        log_k_ram,
+        &ram_tw,
+        &mut transcript,
+    )?;
     let reg_init: Vec<Goldilocks> = {
         let mut v = vec![Goldilocks::ZERO; 32];
         v[10] = fe(public_input.len() as u64);
         v
     };
     let reg_final: Vec<Goldilocks> = public_state.final_regs.iter().map(|&x| fe(x)).collect();
-    let oh_ra = TableRes { claims, map: &|f| match f {
-        FactorId::ReadAddr => Some(C_RS1A),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_a, 5, log_t, OHSide::Read, &oh_ra, &mut transcript)?;
-    let oh_rb = TableRes { claims, map: &|f| match f {
-        FactorId::ReadAddr => Some(C_RS2A),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_b, 5, log_t, OHSide::Read, &oh_rb, &mut transcript)?;
-    let oh_rw = TableRes { claims, map: &|f| match f {
-        FactorId::WriteAddr => Some(C_WADA),
-        _ => None,
-    }};
-    lattice_memory::verify_onehot(&proof.onehot_reg_w, 5, log_t, OHSide::Write, &oh_rw, &mut transcript)?;
-    let rega_tw = TableRes { claims, map: &|f| match f {
-        FactorId::ReadValues => Some(C_RS1V),
-        FactorId::WriteValues => Some(C_WVR),
-        _ => None,
-    }};
-    verify_twist_ports_checked(&proof.twist_reg_a, &reg_init, &reg_final, 5, log_t, 5, &rega_tw, &mut transcript)?;
-    let regb_tw = TableRes { claims, map: &|f| match f {
-        FactorId::ReadValues => Some(C_RS2V),
-        FactorId::WriteValues => Some(C_WVR),
-        _ => None,
-    }};
-    verify_twist_ports_checked(&proof.twist_reg_b, &reg_init, &reg_final, 5, log_t, 5, &regb_tw, &mut transcript)?;
-
-    // ---- The lookup Shouts. ----
-    let sched = lookup_schedule();
-    if proof.lookup_shouts.len() != sched.len() {
-        return Err(Pipeline3Error::VerificationFailed);
-    }
-    for ((kind, addr_col, val_col, log_k), p) in sched.iter().zip(proof.lookup_shouts.iter()) {
-        let addr_col = *addr_col;
-        let val_col = *val_col;
-        let log_k = *log_k;
-        let table = lookup_table(kind, log_k);
-        let res = TableRes { claims, map: &move |f| match f {
-            FactorId::ReadValues => Some(val_col),
-            FactorId::ReadAddr => Some(addr_col),
+    let oh_ra = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadAddr => Some(C_RS1A),
             _ => None,
-        }};
-        lattice_memory::verify_shout(p, &table, log_k, log_t, log_k, &res, &mut transcript)?;
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_a,
+        5,
+        log_t,
+        OHSide::Read,
+        &oh_ra,
+        &mut transcript,
+    )?;
+    let oh_rb = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadAddr => Some(C_RS2A),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_b,
+        5,
+        log_t,
+        OHSide::Read,
+        &oh_rb,
+        &mut transcript,
+    )?;
+    let oh_rw = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::WriteAddr => Some(C_WADA),
+            _ => None,
+        },
+    };
+    lattice_memory::verify_onehot(
+        &proof.onehot_reg_w,
+        5,
+        log_t,
+        OHSide::Write,
+        &oh_rw,
+        &mut transcript,
+    )?;
+    let rega_tw = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadValues => Some(C_RS1V),
+            FactorId::WriteValues => Some(C_WVR),
+            _ => None,
+        },
+    };
+    verify_twist_ports_checked(
+        &proof.twist_reg_a,
+        &reg_init,
+        &reg_final,
+        5,
+        log_t,
+        5,
+        &rega_tw,
+        &mut transcript,
+    )?;
+    let regb_tw = TableRes {
+        by_col_point: &index.by_col_point,
+        sentinel: &index.sentinel,
+        map: &|f| match f {
+            FactorId::ReadValues => Some(C_RS2V),
+            FactorId::WriteValues => Some(C_WVR),
+            _ => None,
+        },
+    };
+    verify_twist_ports_checked(
+        &proof.twist_reg_b,
+        &reg_init,
+        &reg_final,
+        5,
+        log_t,
+        5,
+        &regb_tw,
+        &mut transcript,
+    )?;
+
+    // ---- The batched lookup Shouts (one verify per table group). ----
+    let groups = lookup_groups();
+    for (group, batch_proof) in groups.iter().zip(proof.lookup_batches.iter()) {
+        let table = group_table(group.kind, group.log_k);
+        let d = group.log_k;
+        let maps: Vec<Box<dyn Fn(FactorId) -> Option<usize>>> = group
+            .entries
+            .iter()
+            .map(|entry| -> Box<dyn Fn(FactorId) -> Option<usize>> {
+                let val_col = entry.val_col;
+                let addr_col = entry.addr_col;
+                Box::new(move |f: FactorId| match f {
+                    FactorId::ReadValues => Some(val_col),
+                    FactorId::ReadAddr => Some(addr_col),
+                    _ => None,
+                })
+            })
+            .collect();
+        let resolvers: Vec<TableRes> = maps
+            .iter()
+            .map(|m| TableRes {
+                by_col_point: &index.by_col_point,
+                sentinel: &index.sentinel,
+                map: m.as_ref(),
+            })
+            .collect();
+        let lookups: Vec<BatchedLookup> = resolvers
+            .iter()
+            .map(|r| BatchedLookup {
+                read_addresses: &[],
+                resolver: r,
+            })
+            .collect();
+        let batch_group = BatchGroup {
+            table: &table,
+            log_k: group.log_k,
+            log_t,
+            d,
+        };
+        verify_shout_batched(&batch_group, &lookups, batch_proof, &mut transcript)?;
     }
 
     // ---- The AIR sumcheck. ----
@@ -3051,15 +3544,9 @@ pub fn verify_v3(
         .verify(log_t, degree, Goldilocks::ZERO, &mut transcript, None)
         .map_err(Pipeline3Error::Sumcheck)?;
     let r_air = verdict.point.clone();
-    // Resolve every factor claim at r_air and check the final identity.
-    let claim_of = |col: usize| -> Result<Goldilocks, Pipeline3Error> {
-        for c in claims {
-            if c.col == col && c.point == r_air {
-                return Ok(c.value);
-            }
-        }
-        Err(Pipeline3Error::VerificationFailed)
-    };
+    let mut index = index;
+    index.set_r_air(&r_air);
+    let claim_of = |col: usize| index.claim_at_r_air(col);
     let mut expect = Goldilocks::ZERO;
     for tpl in &layout.terms {
         let mut coeff = tpl.coeff;
@@ -3102,30 +3589,64 @@ pub fn verify_v3(
         return Err(Pipeline3Error::VerificationFailed);
     }
 
-    // ---- The grouped openings. ----
+    // ---- The FOLDED openings: the claims grouped by point
+    // (first-appearance order over the proof's claim table — the same
+    // deterministic order the prover used), verified through the
+    // chunked integer folds with the verifier-computed folded
+    // commitments. ----
     let ring = &pcs.pk.params.ring;
-    for (ci, opening) in proof.openings.iter().enumerate() {
-        let col_claims: Vec<GroupedOpening> = claims
-            .iter()
-            .filter(|c| c.col == ci)
-            .map(|c| GroupedOpening { point: c.point.clone(), value: c.value })
-            .collect();
-        if col_claims.is_empty() {
-            continue;
-        }
-        let commitment = lattice_commitment::ajtai::AjtaiCommitment::from_bytes(
-            ring,
-            pcs.pk.params.k,
-            &proof.commitments[ci],
-        )
-        .map_err(|_| lattice_akita::pcs::AkitaPcsError::VerificationFailed)?;
-        let comm = lattice_akita::pcs::Commitment {
-            commitment,
-            num_packed: 0,
-            num_vars: log_t,
+    let mut fold_points_order: Vec<Vec<Goldilocks>> = Vec::new();
+    let mut fold_map: HashMap<Vec<u64>, usize> = HashMap::new();
+    let mut fold_groups: Vec<Vec<(usize, Goldilocks)>> = Vec::new();
+    for c in proof.claims.iter().filter(|c| c.col != SENTINEL_COL) {
+        let key: Vec<u64> = c.point.iter().map(|p| p.to_canonical_u64()).collect();
+        let gi = match fold_map.get(&key) {
+            Some(&gi) => gi,
+            None => {
+                fold_map.insert(key, fold_points_order.len());
+                fold_points_order.push(c.point.clone());
+                fold_groups.push(Vec::new());
+                fold_points_order.len() - 1
+            }
         };
-        pcs.verify_grouped(&comm, &col_claims, opening, &mut transcript)?;
+        fold_groups[gi].push((c.col, c.value));
     }
+    // The evals are NOT witness-side here — the verifier never sees the
+    // columns; FoldClaim.evals is unused by the verify path.
+    let fold_claim_groups: Vec<Vec<FoldClaim>> = fold_groups
+        .iter()
+        .map(|group| {
+            group
+                .iter()
+                .map(|&(col, value)| FoldClaim {
+                    col,
+                    evals: &[],
+                    value,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let fold_inputs: Vec<FoldPoint> = fold_points_order
+        .iter()
+        .zip(fold_claim_groups.iter())
+        .map(|(point, claims)| FoldPoint { point, claims })
+        .collect();
+    let commitment_of =
+        |col: usize| -> Result<lattice_commitment::ajtai::AjtaiCommitment, FoldError> {
+            lattice_commitment::ajtai::AjtaiCommitment::from_bytes(
+                ring,
+                pcs.pk.params.k,
+                &proof.commitments[col],
+            )
+            .map_err(|_| FoldError::Ajtai)
+        };
+    verify_folded_openings(
+        pcs,
+        &fold_inputs,
+        &commitment_of,
+        &proof.openings,
+        &mut transcript,
+    )?;
     Ok(())
 }
 
@@ -3152,40 +3673,34 @@ pub fn rich_program_pub() -> Vec<u8> {
     };
     let enc_s = |rs1: u32, rs2: u32, imm: i32| -> u32 {
         let i = imm as u32;
-        ((i >> 5) & 0x7f) << 25
-            | (rs2 << 20)
-            | (rs1 << 15)
-            | 0x3 << 12
-            | ((i & 0x1f) << 7)
-            | 0x23
+        ((i >> 5) & 0x7f) << 25 | (rs2 << 20) | (rs1 << 15) | 0x3 << 12 | ((i & 0x1f) << 7) | 0x23
     };
     let enc_load = |rd: u32, rs1: u32, imm: i32| -> u32 {
         (((imm as u32) & 0xfff) << 20) | (rs1 << 15) | 0x3 << 12 | (rd << 7) | 0x03
     };
-    let mut w: Vec<u32> = Vec::new();
-    w.push(enc_i(1, 0, 96));             // x1 = 96 (8-aligned scratch)
-    w.push(enc_i(2, 0, 7));              // x2 = 7
-    w.push(enc_r(3, 1, 2, 0, 0x01));     // x3 = 700
-    w.push(enc_r(4, 3, 2, 4, 0x01));     // x4 = 100
-    w.push(enc_r(5, 3, 2, 7, 0x01));     // x5 = 0
-    w.push(enc_r(6, 3, 1, 0, 0x20));     // x6 = 600
-    w.push((3 << 20) | (2 << 15) | (1 << 12) | (7 << 7) | 0x13);  // x7 = 56
-    w.push((2 << 20) | (7 << 15) | (5 << 12) | (8 << 7) | 0x13);  // x8 = 14
-    w.push(enc_r(9, 2, 1, 3, 0x00));     // x9 = 1 (bltu-style)
-    w.push(enc_s(1, 3, 0));              // mem[100] = 700
-    w.push(enc_load(10, 1, 0));          // x10 = 700
-    w.push(enc_b(6, 2, 1, 8));           // bltu x2, x1, +8 (taken)
-    w.push(enc_i(11, 0, 111));           // skipped
-    w.push(enc_i(11, 0, 222));           // x11 = 222
-    w.push(enc_b(7, 2, 1, -6));          // bgeu x2, x1, −6 (not taken)
-    w.push(enc_b(0, 5, 0, 4));           // beq x5, x0, +4 (taken)
-    w.push(enc_b(1, 5, 0, 4));           // bne (skipped)
+    let mut w: Vec<u32> = vec![enc_i(1, 0, 96)]; // x1 = 96 (8-aligned scratch)
+    w.push(enc_i(2, 0, 7)); // x2 = 7
+    w.push(enc_r(3, 1, 2, 0, 0x01)); // x3 = 700
+    w.push(enc_r(4, 3, 2, 4, 0x01)); // x4 = 100
+    w.push(enc_r(5, 3, 2, 7, 0x01)); // x5 = 0
+    w.push(enc_r(6, 3, 1, 0, 0x20)); // x6 = 600
+    w.push((3 << 20) | (2 << 15) | (1 << 12) | (7 << 7) | 0x13); // x7 = 56
+    w.push((2 << 20) | (7 << 15) | (5 << 12) | (8 << 7) | 0x13); // x8 = 14
+    w.push(enc_r(9, 2, 1, 3, 0x00)); // x9 = 1 (bltu-style)
+    w.push(enc_s(1, 3, 0)); // mem[100] = 700
+    w.push(enc_load(10, 1, 0)); // x10 = 700
+    w.push(enc_b(6, 2, 1, 8)); // bltu x2, x1, +8 (taken)
+    w.push(enc_i(11, 0, 111)); // skipped
+    w.push(enc_i(11, 0, 222)); // x11 = 222
+    w.push(enc_b(7, 2, 1, -6)); // bgeu x2, x1, −6 (not taken)
+    w.push(enc_b(0, 5, 0, 4)); // beq x5, x0, +4 (taken)
+    w.push(enc_b(1, 5, 0, 4)); // bne (skipped)
     w.push((4u32 << 21) | (12 << 7) | 0x6f); // jal x12, +4
-    w.push(enc_i(13, 0, 1));             // skipped by jal
-    w.push(0x0000_0737 | (14 << 7));     // lui x14, 1
-    w.push(0x0000_0797 | (15 << 7));     // auipc x15, 1
-    w.push(enc_i(16, 0, 0));             // nop
-    w.push(0x73);                        // ecall
+    w.push(enc_i(13, 0, 1)); // skipped by jal
+    w.push(0x0000_0737 | (14 << 7)); // lui x14, 1
+    w.push(0x0000_0797 | (15 << 7)); // auipc x15, 1
+    w.push(enc_i(16, 0, 0)); // nop
+    w.push(0x73); // ecall
     let mut v = Vec::new();
     for x in w {
         v.extend_from_slice(&x.to_le_bytes());
@@ -3228,7 +3743,10 @@ mod tests {
         let pcs = setup();
         let program = demo_program();
         let input = 42u64.to_le_bytes().to_vec();
-        let (state, proof) = match prove_v3(&pcs, &program, &input, 64) { Ok(x) => x, Err(e) => panic!("prove err: {e:?}") };
+        let (state, proof) = match prove_v3(&pcs, &program, &input, 64) {
+            Ok(x) => x,
+            Err(e) => panic!("prove err: {e:?}"),
+        };
         assert_eq!(state.num_steps, 6);
         assert_eq!(state.final_regs[3], 15);
         match verify_v3(&pcs, &program, &input, &state, &proof, 64) {
@@ -3310,12 +3828,17 @@ mod tests {
         w.push(enc_i(1, 1, -1)); // addi x1, x1, -1
         let off = loop_start * 4 - (w.len() as i32) * 4;
         // bne x1, x0, off (backwards)
-        w.push(((off as u32 >> 31) & 1) << 31
-            | (((off as u32 >> 7) & 1) << 7)
-            | (((off as u32 >> 25) & 0x3f) << 25)
-            | (((off as u32 >> 1) & 0xf) << 8)
-            | (0 << 20) | (1 << 15) | (1 << 12) | 0x63);
-        w.push(0x6f); // jal x0, 0 (halt)
+        w.push(
+            ((off as u32 >> 31) & 1) << 31
+                | (((off as u32 >> 7) & 1) << 7)
+                | (((off as u32 >> 25) & 0x3f) << 25)
+                | (((off as u32 >> 1) & 0xf) << 8)
+                | (0 << 20)
+                | (1 << 15)
+                | (1 << 12)
+                | 0x63,
+        );
+        w.push(0x0000_0073); // ecall (the executor's halt)
         let mut prog = Vec::new();
         for x in w {
             prog.extend_from_slice(&x.to_le_bytes());
@@ -3335,7 +3858,10 @@ mod tests {
         let pcs = setup();
         let program = demo_program();
         let input = 42u64.to_le_bytes().to_vec();
-        let (state, proof) = match prove_v3(&pcs, &program, &input, 64) { Ok(x) => x, Err(e) => panic!("prove err: {e:?}") };
+        let (state, proof) = match prove_v3(&pcs, &program, &input, 64) {
+            Ok(x) => x,
+            Err(e) => panic!("prove err: {e:?}"),
+        };
         let mut other = program.clone();
         other[0] ^= 0x01;
         assert!(verify_v3(&pcs, &other, &input, &state, &proof, 64).is_err());
@@ -3404,10 +3930,15 @@ mod eval_probe {
         let mut col = Vec::with_capacity(64);
         let mut x = 0x243F6A8885A308D3u64;
         for _ in 0..64 {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             col.push(Goldilocks::from_u64(x >> 32));
         }
-        let mle = DenseMle { num_vars: 6, evaluations: col.clone() };
+        let mle = DenseMle {
+            num_vars: 6,
+            evaluations: col.clone(),
+        };
         let mut pt = Vec::new();
         let mut s = 0xdeadbeefu64;
         for _ in 0..6 {
@@ -3425,34 +3956,59 @@ mod fetch_probe {
     use super::*;
     #[test]
     fn probe_fetch_shout_claim() {
-        let pcs = crate::pipeline3::v3_pcs_for(8, 6, [91u8; 32]).ok().unwrap();
+        let pcs = v3_pcs_for(8, 6, [91u8; 32]).ok().unwrap();
         let mut state = MachineState::new();
-        let program: Vec<u8> = [0x0080_0093u32, 0x0070_0113, 0x0020_81b3, 0x0030_b023,
-            0x0000_b203, 0x0000_0073]
-            .iter().flat_map(|w| w.to_le_bytes()).collect();
+        let program: Vec<u8> = [
+            0x0080_0093u32,
+            0x0070_0113,
+            0x0020_81b3,
+            0x0030_b023,
+            0x0000_b203,
+            0x0000_0073,
+        ]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
         state.load_program(0x1000, &program);
         state.pc = 0x1000;
         let rows = vm_run(&mut state, 64).ok().unwrap();
         let trace = build_trace3(&state, &rows).ok().unwrap();
         let log_t = trace.log_t;
-        let fetch_ra: Vec<u64> = trace.cols[C_FETCH_RA].iter().map(|x| x.to_canonical_u64()).collect();
+        let fetch_ra: Vec<u64> = trace.cols[C_FETCH_RA]
+            .iter()
+            .map(|x| x.to_canonical_u64())
+            .collect();
         let iw_col = &trace.cols[C_IW];
-        eprintln!("log_t={log_t} fetch_ra={fetch_ra:?} iw={:?}", iw_col.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>());
+        eprintln!(
+            "log_t={log_t} fetch_ra={fetch_ra:?} iw={:?}",
+            iw_col
+                .iter()
+                .map(|x| x.to_canonical_u64())
+                .collect::<Vec<_>>()
+        );
         let fetch_words = program.len().div_ceil(4).max(1);
         let log_k = fetch_words.next_power_of_two().max(2).trailing_zeros() as usize;
-        let mut table: Vec<Goldilocks> = (0..fetch_words).map(|i| {
-            let mut w = 0u32;
-            for b in 0..4 { w |= (program[i * 4 + b] as u32) << (b * 8); }
-            fe(w as u64)
-        }).collect();
+        let mut table: Vec<Goldilocks> = (0..fetch_words)
+            .map(|i| {
+                let mut w = 0u32;
+                for b in 0..4 {
+                    w |= (program[i * 4 + b] as u32) << (b * 8);
+                }
+                fe(w as u64)
+            })
+            .collect();
         table.resize(1 << log_k, Goldilocks::ZERO);
         // The honest check: iw_j == table[fetch_ra_j] for every j.
         for j in 0..(1usize << log_t) {
             let want = table[fetch_ra[j] as usize];
             let got = iw_col[j];
             if want != got {
-                eprintln!("MISMATCH at row {j}: table[{}] = {} vs iw = {}",
-                    fetch_ra[j], want.to_canonical_u64(), got.to_canonical_u64());
+                eprintln!(
+                    "MISMATCH at row {j}: table[{}] = {} vs iw = {}",
+                    fetch_ra[j],
+                    want.to_canonical_u64(),
+                    got.to_canonical_u64()
+                );
             }
         }
         let _ = pcs;
@@ -3473,7 +4029,7 @@ mod air_audit {
         let cols = &trace.cols;
         let t = 1usize << trace.log_t;
         let layout = air_layout(trace.log_t);
-        let ones = |j: usize| Goldilocks::ONE;
+        let ones = |_j: usize| Goldilocks::ONE;
         let sel = |f: usize, j: usize| cols[bit_col(B_SEL0 + f)][j];
         let bitv = |b: usize, j: usize| cols[bit_col(b)][j];
         let mut n_groups = 0u32;
@@ -3510,18 +4066,24 @@ mod air_audit {
         }
         // Per-row detail for failing groups.
         for (g, s) in sums.iter().enumerate() {
-            if *s == Goldilocks::ZERO { continue; }
+            if *s == Goldilocks::ZERO {
+                continue;
+            }
             for j in 0..t {
                 let mut row_sum = Goldilocks::ZERO;
                 for tpl in &layout.terms {
-                    if tpl.group as usize != g { continue; }
+                    if tpl.group as usize != g {
+                        continue;
+                    }
                     let kind = layout.sparse_kinds[tpl.sparse[0]];
                     let active = match kind {
                         SparseKind::Ones => true,
                         SparseKind::Sel(f) => sel(f, j) == Goldilocks::ONE,
                         SparseKind::Bit(b) => bitv(b, j) == Goldilocks::ONE,
                     };
-                    if !active { continue; }
+                    if !active {
+                        continue;
+                    }
                     let mut v = tpl.coeff;
                     for &sp in &tpl.sparse {
                         let k2 = layout.sparse_kinds[sp];
@@ -3537,7 +4099,10 @@ mod air_audit {
                     row_sum = row_sum.add(&v);
                 }
                 if row_sum != Goldilocks::ZERO {
-                    eprintln!("  row {j}: group {g} contributes {}", row_sum.to_canonical_u64());
+                    eprintln!(
+                        "  row {j}: group {g} contributes {}",
+                        row_sum.to_canonical_u64()
+                    );
                 }
             }
         }
@@ -3548,17 +4113,40 @@ mod air_audit {
                 let first = layout.terms.iter().find(|t| t.group as usize == g);
                 if g == 145 || g == 146 || g == 115 {
                     for t in layout.terms.iter().filter(|t| t.group as usize == g) {
-                        eprintln!("    g{g} term: coeff={} sparse={:?} dense={:?}",
+                        eprintln!(
+                            "    g{g} term: coeff={} sparse={:?} dense={:?}",
                             t.coeff.to_canonical_u64(),
-                            t.sparse.iter().map(|&sp| layout.sparse_kinds[sp]).collect::<Vec<_>>(),
-                            t.dense.iter().map(|&d| layout.dense_cols[d]).collect::<Vec<_>>());
+                            t.sparse
+                                .iter()
+                                .map(|&sp| layout.sparse_kinds[sp])
+                                .collect::<Vec<_>>(),
+                            t.dense
+                                .iter()
+                                .map(|&d| layout.dense_cols[d])
+                                .collect::<Vec<_>>()
+                        );
                     }
                 }
-                let cols_of: Vec<usize> = first.map(|t| t.dense.iter().map(|&d| layout.dense_cols[d]).collect()).unwrap_or_default();
-                let nterms = layout.terms.iter().filter(|t| t.group as usize == g).count();
-                eprintln!("GROUP {g} NONZERO: sum = {} | {nterms} terms | dense cols {:?} | spkinds {:?}",
-                    s.to_canonical_u64(), cols_of,
-                    first.map(|t| t.sparse.iter().map(|&sp| layout.sparse_kinds[sp]).collect::<Vec<_>>()).unwrap_or_default());
+                let cols_of: Vec<usize> = first
+                    .map(|t| t.dense.iter().map(|&d| layout.dense_cols[d]).collect())
+                    .unwrap_or_default();
+                let nterms = layout
+                    .terms
+                    .iter()
+                    .filter(|t| t.group as usize == g)
+                    .count();
+                eprintln!(
+                    "GROUP {g} NONZERO: sum = {} | {nterms} terms | dense cols {:?} | spkinds {:?}",
+                    s.to_canonical_u64(),
+                    cols_of,
+                    first
+                        .map(|t| t
+                            .sparse
+                            .iter()
+                            .map(|&sp| layout.sparse_kinds[sp])
+                            .collect::<Vec<_>>())
+                        .unwrap_or_default()
+                );
                 bad += 1;
             }
         }
@@ -3567,15 +4155,23 @@ mod air_audit {
     }
     #[test]
     fn audit_air_groups() {
-        let program: Vec<u8> = [0x0080_0093u32, 0x0070_0113, 0x0020_81b3, 0x0030_b023,
-            0x0000_b203, 0x0000_0073]
-            .iter().flat_map(|w| w.to_le_bytes()).collect();
+        let program: Vec<u8> = [
+            0x0080_0093u32,
+            0x0070_0113,
+            0x0020_81b3,
+            0x0030_b023,
+            0x0000_b203,
+            0x0000_0073,
+        ]
+        .iter()
+        .flat_map(|w| w.to_le_bytes())
+        .collect();
         audit(&program, &42u64.to_le_bytes());
     }
     #[test]
     fn audit_air_rich() {
         // The FULL rich program (with branches, JAL, LUI, AUIPC).
-        let program = crate::pipeline3::rich_program_pub();
+        let program = rich_program_pub();
         audit(&program, &7u64.to_le_bytes());
     }
     #[test]
@@ -3597,11 +4193,16 @@ mod air_audit {
         w.push(enc_r(3, 4, 0, 0, 0x00));
         w.push(enc_i(1, 1, -1));
         let off = loop_start * 4 - (w.len() as i32) * 4;
-        w.push(((off as u32 >> 31) & 1) << 31
-            | (((off as u32 >> 7) & 1) << 7)
-            | (((off as u32 >> 25) & 0x3f) << 25)
-            | (((off as u32 >> 1) & 0xf) << 8)
-            | (0 << 20) | (1 << 15) | (1 << 12) | 0x63);
+        w.push(
+            ((off as u32 >> 31) & 1) << 31
+                | (((off as u32 >> 7) & 1) << 7)
+                | (((off as u32 >> 25) & 0x3f) << 25)
+                | (((off as u32 >> 1) & 0xf) << 8)
+                | (0 << 20)
+                | (1 << 15)
+                | (1 << 12)
+                | 0x63,
+        );
         w.push(0x6f);
         let program: Vec<u8> = w.iter().flat_map(|x| x.to_le_bytes()).collect();
         audit(&program, &[]);
@@ -3659,7 +4260,7 @@ mod air_audit {
                 eprintln!("{name}: trace: {e:?}");
                 return false;
             }
-            Ok(trace) => {
+            Ok(_trace) => {
                 // Count the families actually used.
                 let mut fams = [0usize; 17];
                 for row in &rows {
@@ -3698,11 +4299,16 @@ fn fib_loop_program() -> Vec<u8> {
     w.push(enc_r(3, 4, 0, 0, 0x00));
     w.push(enc_i(1, 1, -1));
     let off = loop_start * 4 - (w.len() as i32) * 4;
-    w.push(((off as u32 >> 31) & 1) << 31
-        | (((off as u32 >> 7) & 1) << 7)
-        | (((off as u32 >> 25) & 0x3f) << 25)
-        | (((off as u32 >> 1) & 0xf) << 8)
-        | (0 << 20) | (1 << 15) | (1 << 12) | 0x63);
+    w.push(
+        ((off as u32 >> 31) & 1) << 31
+            | (((off as u32 >> 7) & 1) << 7)
+            | (((off as u32 >> 25) & 0x3f) << 25)
+            | (((off as u32 >> 1) & 0xf) << 8)
+            | (0 << 20)
+            | (1 << 15)
+            | (1 << 12)
+            | 0x63,
+    );
     w.push(0x6f);
     w.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
@@ -3726,42 +4332,72 @@ mod engine_bisect {
         let t_pow = 1usize << log_t;
         let layout = air_layout(log_t);
         let alpha = Goldilocks::from_u64(7);
-        let sparse: Vec<SparseFactor> = layout.sparse_kinds.iter().map(|kind| {
-            let entries: Vec<(u64, Goldilocks)> = match kind {
-                SparseKind::Ones => (0..t_pow).map(|j| (j as u64, Goldilocks::ONE)).collect(),
-                SparseKind::Sel(f) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
-                    .map(|j| (j as u64, Goldilocks::ONE)).collect(),
-                SparseKind::Bit(b) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(*b)][j] == Goldilocks::ONE)
-                    .map(|j| (j as u64, Goldilocks::ONE)).collect(),
-            };
-            SparseFactor { entries, var_map: (0..log_t).collect() }
-        }).collect();
-        let dense: Vec<ProjectedDense> = layout.dense_cols.iter().map(|&col| ProjectedDense {
-            mle: DenseMle { num_vars: log_t, evaluations: cols[col].clone() },
-            var_map: (0..log_t).collect(),
-        }).collect();
+        let sparse: Vec<SparseFactor> = layout
+            .sparse_kinds
+            .iter()
+            .map(|kind| {
+                let entries: Vec<(u64, Goldilocks)> = match kind {
+                    SparseKind::Ones => (0..t_pow).map(|j| (j as u64, Goldilocks::ONE)).collect(),
+                    SparseKind::Sel(f) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
+                        .map(|j| (j as u64, Goldilocks::ONE))
+                        .collect(),
+                    SparseKind::Bit(b) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(*b)][j] == Goldilocks::ONE)
+                        .map(|j| (j as u64, Goldilocks::ONE))
+                        .collect(),
+                };
+                SparseFactor {
+                    entries,
+                    var_map: (0..log_t).collect(),
+                }
+            })
+            .collect();
+        let dense: Vec<ProjectedDense> = layout
+            .dense_cols
+            .iter()
+            .map(|&col| ProjectedDense {
+                mle: DenseMle {
+                    num_vars: log_t,
+                    evaluations: cols[col].clone(),
+                },
+                var_map: (0..log_t).collect(),
+            })
+            .collect();
         let n_groups = layout.terms.iter().map(|t| t.group).max().unwrap_or(0) + 1;
         let mut bad: Vec<(u32, PiopError)> = Vec::new();
         for g in 0..n_groups {
             let tpls: Vec<&TermTpl> = layout.terms.iter().filter(|t| t.group == g).collect();
-            if tpls.is_empty() { continue; }
-            let terms: Vec<SparseTerm> = tpls.iter().map(|tpl| {
-                let mut coeff = tpl.coeff;
-                for _ in 0..tpl.group { coeff = coeff.mul(&alpha); }
-                let first_kind = layout.sparse_kinds[tpl.sparse[0]];
-                let positions: Vec<u64> = match first_kind {
-                    SparseKind::Ones => (0..t_pow).map(|j| j as u64).collect(),
-                    SparseKind::Sel(f) => (0..t_pow)
-                        .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
-                        .map(|j| j as u64).collect(),
-                    SparseKind::Bit(b) => (0..t_pow)
-                        .filter(|&j| cols[bit_col(b)][j] == Goldilocks::ONE)
-                        .map(|j| j as u64).collect(),
-                };
-                SparseTerm { coeff, positions, sparse: tpl.sparse.clone(), dense: tpl.dense.clone() }
-            }).collect();
+            if tpls.is_empty() {
+                continue;
+            }
+            let terms: Vec<SparseTerm> = tpls
+                .iter()
+                .map(|tpl| {
+                    let mut coeff = tpl.coeff;
+                    for _ in 0..tpl.group {
+                        coeff = coeff.mul(&alpha);
+                    }
+                    let first_kind = layout.sparse_kinds[tpl.sparse[0]];
+                    let positions: Vec<u64> = match first_kind {
+                        SparseKind::Ones => (0..t_pow).map(|j| j as u64).collect(),
+                        SparseKind::Sel(f) => (0..t_pow)
+                            .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
+                            .map(|j| j as u64)
+                            .collect(),
+                        SparseKind::Bit(b) => (0..t_pow)
+                            .filter(|&j| cols[bit_col(b)][j] == Goldilocks::ONE)
+                            .map(|j| j as u64)
+                            .collect(),
+                    };
+                    SparseTerm {
+                        coeff,
+                        positions,
+                        sparse: tpl.sparse.clone(),
+                        dense: tpl.dense.clone(),
+                    }
+                })
+                .collect();
             let inst = SparseInstance {
                 num_vars: log_t,
                 sparse: sparse.clone(),
@@ -3775,17 +4411,24 @@ mod engine_bisect {
         }
         eprintln!("engine bisect: {} bad groups", bad.len());
         for (g, e) in bad.iter().take(10) {
-            let kinds: Vec<SparseKind> = layout.terms.iter()
+            let kinds: Vec<SparseKind> = layout
+                .terms
+                .iter()
                 .find(|t| t.group == *g)
                 .map(|t| t.sparse.iter().map(|&sp| layout.sparse_kinds[sp]).collect())
                 .unwrap_or_default();
-            let dcols: Vec<usize> = layout.terms.iter()
+            let dcols: Vec<usize> = layout
+                .terms
+                .iter()
                 .find(|t| t.group == *g)
                 .map(|t| t.dense.iter().map(|&d| layout.dense_cols[d]).collect())
                 .unwrap_or_default();
             eprintln!("  group {g}: {e:?} | kinds {kinds:?} | dense {dcols:?}");
         }
-        assert!(bad.is_empty(), "engine disagrees with the audit on some groups");
+        assert!(
+            bad.is_empty(),
+            "engine disagrees with the audit on some groups"
+        );
     }
 }
 
@@ -3795,11 +4438,17 @@ mod engine_trace {
     use lattice_memory::sparse_engine::SparseOutput;
     use lattice_sumcheck::SumcheckProof;
     fn eq_lerp(t: Goldilocks, bit: u64) -> Goldilocks {
-        if bit == 1 { t } else { Goldilocks::ONE.sub(&t) }
+        if bit == 1 {
+            t
+        } else {
+            Goldilocks::ONE.sub(&t)
+        }
     }
     fn reverse_bits(x: u64, n: usize) -> u64 {
         let mut r = 0u64;
-        for i in 0..n { r |= ((x >> i) & 1) << (n - 1 - i); }
+        for i in 0..n {
+            r |= ((x >> i) & 1) << (n - 1 - i);
+        }
         r
     }
     fn interpolate_at(evals: &[Goldilocks], r: &Goldilocks) -> Goldilocks {
@@ -3809,7 +4458,9 @@ mod engine_trace {
             let mut weight = Goldilocks::ONE;
             let xi = Goldilocks::from_u64(i as u64);
             for j in 0..n {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let xj = Goldilocks::from_u64(j as u64);
                 let inv = xi.sub(&xj).inverse().unwrap_or(Goldilocks::ZERO);
                 weight = weight.mul(&r.sub(&xj).mul(&inv));
@@ -3821,28 +4472,53 @@ mod engine_trace {
     /// Instrumented copy of prove_sparse_sumcheck for one group.
     fn prove_trace(inst: &SparseInstance, claim: Goldilocks) -> Result<SparseOutput, String> {
         let n = inst.num_vars;
-        let deg = inst.terms.iter().map(|t| t.sparse.len() + t.dense.len()).max().unwrap_or(1).max(1);
-        let mut weights: Vec<Vec<Goldilocks>> = inst.sparse.iter()
-            .map(|f| f.entries.iter().map(|_| Goldilocks::ONE).collect()).collect();
-        let sparse_pos: Vec<Vec<usize>> = inst.sparse.iter().map(|f| {
-            let mut m = vec![usize::MAX; n];
-            for (i, &v) in f.var_map.iter().enumerate() { if v < n { m[v] = i; } }
-            m
-        }).collect();
+        let deg = inst
+            .terms
+            .iter()
+            .map(|t| t.sparse.len() + t.dense.len())
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        let mut weights: Vec<Vec<Goldilocks>> = inst
+            .sparse
+            .iter()
+            .map(|f| f.entries.iter().map(|_| Goldilocks::ONE).collect())
+            .collect();
+        let sparse_pos: Vec<Vec<usize>> = inst
+            .sparse
+            .iter()
+            .map(|f| {
+                let mut m = vec![usize::MAX; n];
+                for (i, &v) in f.var_map.iter().enumerate() {
+                    if v < n {
+                        m[v] = i;
+                    }
+                }
+                m
+            })
+            .collect();
         let mut dense_state: Vec<DenseMle> = inst.dense.iter().map(|f| f.mle.clone()).collect();
         let mut dense_bound: Vec<usize> = vec![0; inst.dense.len()];
-        let term_orders: Vec<Vec<usize>> = inst.terms.iter().map(|t| {
-            let mut idx: Vec<usize> = (0..t.positions.len()).collect();
-            idx.sort_by_key(|&j| reverse_bits(t.positions[j], n));
-            idx
-        }).collect();
+        let term_orders: Vec<Vec<usize>> = inst
+            .terms
+            .iter()
+            .map(|t| {
+                let mut idx: Vec<usize> = (0..t.positions.len()).collect();
+                idx.sort_by_key(|&j| reverse_bits(t.positions[j], n));
+                idx
+            })
+            .collect();
         let mut current_claim = claim;
         let mut rounds: Vec<Vec<Goldilocks>> = Vec::new();
         let mut challenges: Vec<Goldilocks> = Vec::new();
         let mut tr = Transcript::new_default(b"trace");
         for ell in 0..n {
             let suffix_len = n - 1 - ell;
-            let suffix_mask: u64 = if suffix_len >= 64 { u64::MAX } else { (1u64 << suffix_len) - 1 };
+            let suffix_mask: u64 = if suffix_len >= 64 {
+                u64::MAX
+            } else {
+                (1u64 << suffix_len) - 1
+            };
             let mut evals_at: Vec<Goldilocks> = vec![Goldilocks::ZERO; deg + 1];
             for (ti, term) in inst.terms.iter().enumerate() {
                 let order = &term_orders[ti];
@@ -3850,13 +4526,24 @@ mod engine_trace {
                 while seg < order.len() {
                     let suffix = term.positions[order[seg]] & suffix_mask;
                     let mut end = seg + 1;
-                    while end < order.len() && (term.positions[order[end]] & suffix_mask) == suffix { end += 1; }
+                    while end < order.len() && (term.positions[order[end]] & suffix_mask) == suffix
+                    {
+                        end += 1;
+                    }
                     for (t, ev) in evals_at.iter_mut().enumerate() {
                         let t_fe = Goldilocks::from_u64(t as u64);
                         let mut prod = term.coeff;
                         for &di in &term.dense {
                             let df = &inst.dense[di];
-                            let v = dense_partial_trace(&dense_state[di], dense_bound[di], &df.var_map, ell, n, t_fe, suffix);
+                            let v = dense_partial_trace(
+                                &dense_state[di],
+                                dense_bound[di],
+                                &df.var_map,
+                                ell,
+                                n,
+                                t_fe,
+                                suffix,
+                            );
                             prod = prod.mul(&v);
                         }
                         for &fi in &term.sparse {
@@ -3890,12 +4577,24 @@ mod engine_trace {
                     while seg < order.len() {
                         let suffix = term.positions[order[seg]] & suffix_mask;
                         let mut end = seg + 1;
-                        while end < order.len() && (term.positions[order[end]] & suffix_mask) == suffix { end += 1; }
+                        while end < order.len()
+                            && (term.positions[order[end]] & suffix_mask) == suffix
+                        {
+                            end += 1;
+                        }
                         let t_fe = Goldilocks::ZERO;
                         let mut prod = term.coeff;
                         for &di in &term.dense {
                             let df = &inst.dense[di];
-                            let v = dense_partial_trace(&dense_state[di], dense_bound[di], &df.var_map, ell, n, t_fe, suffix);
+                            let v = dense_partial_trace(
+                                &dense_state[di],
+                                dense_bound[di],
+                                &df.var_map,
+                                ell,
+                                n,
+                                t_fe,
+                                suffix,
+                            );
                             prod = prod.mul(&v);
                         }
                         for &fi in &term.sparse {
@@ -3906,8 +4605,9 @@ mod engine_trace {
                                 let (_, val) = f.entries[j];
                                 let base = weights[fi][j].mul(&val);
                                 let p = sparse_pos[fi][ell];
-                                if p == usize::MAX { sum = sum.add(&base); }
-                                else {
+                                if p == usize::MAX {
+                                    sum = sum.add(&base);
+                                } else {
                                     let bit = (term.positions[j] >> (n - 1 - ell)) & 1;
                                     sum = sum.add(&base.mul(&eq_lerp(t_fe, bit)));
                                 }
@@ -3917,17 +4617,33 @@ mod engine_trace {
                         tv = tv.add(&prod);
                         seg = end;
                     }
-                    eprintln!("    term {ti} g0={} coeff={} dense={:?} sparse_kinds={:?}",
-                        tv.to_canonical_u64(), term.coeff.to_canonical_u64(),
-                        term.dense.iter().map(|&d| layout_dense_col(&inst, d)).collect::<Vec<_>>(),
-                        term.sparse.iter().map(|&sp| 0).collect::<Vec<_>>());
+                    eprintln!(
+                        "    term {ti} g0={} coeff={} dense={:?} sparse_kinds={:?}",
+                        tv.to_canonical_u64(),
+                        term.coeff.to_canonical_u64(),
+                        term.dense
+                            .iter()
+                            .map(|&d| layout_dense_col(&inst, d))
+                            .collect::<Vec<_>>(),
+                        term.sparse.iter().map(|&_sp| 0).collect::<Vec<_>>()
+                    );
                 }
             }
-            eprintln!("  round {ell}: evals={:?} sum01={} claim={}",
-                evals_at.iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>(),
-                sum01.to_canonical_u64(), current_claim.to_canonical_u64());
+            eprintln!(
+                "  round {ell}: evals={:?} sum01={} claim={}",
+                evals_at
+                    .iter()
+                    .map(|x| x.to_canonical_u64())
+                    .collect::<Vec<_>>(),
+                sum01.to_canonical_u64(),
+                current_claim.to_canonical_u64()
+            );
             if sum01 != current_claim {
-                return Err(format!("round {ell} mismatch: {} != {}", sum01.to_canonical_u64(), current_claim.to_canonical_u64()));
+                return Err(format!(
+                    "round {ell} mismatch: {} != {}",
+                    sum01.to_canonical_u64(),
+                    current_claim.to_canonical_u64()
+                ));
             }
             rounds.push(evals_at.clone());
             let r = tr.challenge_field(b"c").unwrap_or(Goldilocks::ONE);
@@ -3946,7 +4662,9 @@ mod engine_trace {
             for (di, df) in inst.dense.iter().enumerate() {
                 let len = df.var_map.len();
                 if dense_bound[di] < len && df.var_map[dense_bound[di]] == ell {
-                    dense_state[di] = dense_state[di].fix_variables(&[r]).map_err(|e| format!("{e:?}"))?;
+                    dense_state[di] = dense_state[di]
+                        .fix_variables(&[r])
+                        .map_err(|e| format!("{e:?}"))?;
                     dense_bound[di] += 1;
                 }
             }
@@ -3960,11 +4678,29 @@ mod engine_trace {
             sparse_claims.push(acc);
         }
         let mut dense_claims = Vec::new();
-        for dstate in &dense_state { dense_claims.push(dstate.evaluations[0]); }
-        Ok(SparseOutput { proof: SumcheckProof { rounds }, challenges, final_claim: current_claim, sparse_claims, dense_claims })
+        for dstate in &dense_state {
+            dense_claims.push(dstate.evaluations[0]);
+        }
+        Ok(SparseOutput {
+            proof: SumcheckProof { rounds },
+            challenges,
+            final_claim: current_claim,
+            sparse_claims,
+            dense_claims,
+        })
     }
-    fn layout_dense_col(_inst: &SparseInstance, _d: usize) -> usize { _d }
-    fn dense_partial_trace(state: &DenseMle, bound: usize, var_map: &[usize], ell: usize, n: usize, t: Goldilocks, suffix: u64) -> Goldilocks {
+    fn layout_dense_col(_inst: &SparseInstance, _d: usize) -> usize {
+        _d
+    }
+    fn dense_partial_trace(
+        state: &DenseMle,
+        bound: usize,
+        var_map: &[usize],
+        ell: usize,
+        n: usize,
+        t: Goldilocks,
+        suffix: u64,
+    ) -> Goldilocks {
         let len = var_map.len();
         let arr = &state.evaluations;
         if bound < len && var_map[bound] == ell {
@@ -4004,43 +4740,90 @@ mod engine_trace {
         let layout = air_layout(log_t);
         // Group 148 = the Taken formula (bisect's failing group).
         let tpls: Vec<&TermTpl> = layout.terms.iter().filter(|t| t.group == 148).collect();
-        let sparse: Vec<SparseFactor> = layout.sparse_kinds.iter().map(|kind| {
-            let entries: Vec<(u64, Goldilocks)> = match kind {
-                SparseKind::Ones => (0..t_pow).map(|j| (j as u64, Goldilocks::ONE)).collect(),
-                SparseKind::Sel(f) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
-                    .map(|j| (j as u64, Goldilocks::ONE)).collect(),
-                SparseKind::Bit(b) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(*b)][j] == Goldilocks::ONE)
-                    .map(|j| (j as u64, Goldilocks::ONE)).collect(),
-            };
-            SparseFactor { entries, var_map: (0..log_t).collect() }
-        }).collect();
-        let dense: Vec<ProjectedDense> = layout.dense_cols.iter().map(|&col| ProjectedDense {
-            mle: DenseMle { num_vars: log_t, evaluations: cols[col].clone() },
-            var_map: (0..log_t).collect(),
-        }).collect();
+        let sparse: Vec<SparseFactor> = layout
+            .sparse_kinds
+            .iter()
+            .map(|kind| {
+                let entries: Vec<(u64, Goldilocks)> = match kind {
+                    SparseKind::Ones => (0..t_pow).map(|j| (j as u64, Goldilocks::ONE)).collect(),
+                    SparseKind::Sel(f) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
+                        .map(|j| (j as u64, Goldilocks::ONE))
+                        .collect(),
+                    SparseKind::Bit(b) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(*b)][j] == Goldilocks::ONE)
+                        .map(|j| (j as u64, Goldilocks::ONE))
+                        .collect(),
+                };
+                SparseFactor {
+                    entries,
+                    var_map: (0..log_t).collect(),
+                }
+            })
+            .collect();
+        let dense: Vec<ProjectedDense> = layout
+            .dense_cols
+            .iter()
+            .map(|&col| ProjectedDense {
+                mle: DenseMle {
+                    num_vars: log_t,
+                    evaluations: cols[col].clone(),
+                },
+                var_map: (0..log_t).collect(),
+            })
+            .collect();
         let alpha = Goldilocks::from_u64(7);
-        let terms: Vec<SparseTerm> = tpls.iter().map(|tpl| {
-            let mut coeff = tpl.coeff;
-            for _ in 0..tpl.group { coeff = coeff.mul(&alpha); }
-            let first_kind = layout.sparse_kinds[tpl.sparse[0]];
-            let positions: Vec<u64> = match first_kind {
-                SparseKind::Ones => (0..t_pow).map(|j| j as u64).collect(),
-                SparseKind::Sel(f) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
-                    .map(|j| j as u64).collect(),
-                SparseKind::Bit(b) => (0..t_pow)
-                    .filter(|&j| cols[bit_col(b)][j] == Goldilocks::ONE)
-                    .map(|j| j as u64).collect(),
-            };
-            SparseTerm { coeff, positions, sparse: tpl.sparse.clone(), dense: tpl.dense.clone() }
-        }).collect();
-        let inst = SparseInstance { num_vars: log_t, sparse, dense, terms };
+        let terms: Vec<SparseTerm> = tpls
+            .iter()
+            .map(|tpl| {
+                let mut coeff = tpl.coeff;
+                for _ in 0..tpl.group {
+                    coeff = coeff.mul(&alpha);
+                }
+                let first_kind = layout.sparse_kinds[tpl.sparse[0]];
+                let positions: Vec<u64> = match first_kind {
+                    SparseKind::Ones => (0..t_pow).map(|j| j as u64).collect(),
+                    SparseKind::Sel(f) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(B_SEL0 + f)][j] == Goldilocks::ONE)
+                        .map(|j| j as u64)
+                        .collect(),
+                    SparseKind::Bit(b) => (0..t_pow)
+                        .filter(|&j| cols[bit_col(b)][j] == Goldilocks::ONE)
+                        .map(|j| j as u64)
+                        .collect(),
+                };
+                SparseTerm {
+                    coeff,
+                    positions,
+                    sparse: tpl.sparse.clone(),
+                    dense: tpl.dense.clone(),
+                }
+            })
+            .collect();
+        let inst = SparseInstance {
+            num_vars: log_t,
+            sparse,
+            dense,
+            terms,
+        };
         eprintln!("dense_cols[49..61] = {:?}", &layout.dense_cols[49..61]);
-        for (name, b) in [("Fb0", B_FB0), ("Fb1", B_FB0 + 1), ("Fb2", B_FB0 + 2), ("Fb3", B_FB0 + 3),
-            ("Taken", B_TAKEN), ("Eqb", B_EQB), ("GT1", B_GT1), ("LT1", B_LT1)] {
-            eprintln!("  {name}: {:?}", cols[bit_col(b)].iter().map(|x| x.to_canonical_u64()).collect::<Vec<_>>());
+        for (name, b) in [
+            ("Fb0", B_FB0),
+            ("Fb1", B_FB0 + 1),
+            ("Fb2", B_FB0 + 2),
+            ("Fb3", B_FB0 + 3),
+            ("Taken", B_TAKEN),
+            ("Eqb", B_EQB),
+            ("GT1", B_GT1),
+            ("LT1", B_LT1),
+        ] {
+            eprintln!(
+                "  {name}: {:?}",
+                cols[bit_col(b)]
+                    .iter()
+                    .map(|x| x.to_canonical_u64())
+                    .collect::<Vec<_>>()
+            );
         }
         match prove_trace(&inst, Goldilocks::ZERO) {
             Ok(_) => eprintln!("trace: OK"),

@@ -82,13 +82,23 @@ measures today and which specific mechanism separates the two.
 
 | # | mechanism | paper basis | expected effect | status |
 |---|---|---|---|---|
-| 1 | GPU/Metal prover backend for the sumcheck+fold kernels | Zisk/LJ practice | ~10× (the LJ CPU→Metal ratio) | not started |
-| 2 | sparse engine as the zkVM default (the 0s-are-free path) | T&S §6.3/§7 | lifts the cycle cap; K=2¹⁰×T=2¹⁰ Shout already <60 ms | engine landed, wiring partial |
-| 3 | streaming as the default prover (O(K+log T)) | ePrint 2025/611 | unbounded T at ~3.3× the hybrid switch speed | landed, opt-in |
+| 1 | GPU/Metal prover backend for the sumcheck+fold kernels | Zisk/LJ practice | ~10× (the LJ CPU→Metal ratio) | not started (excluded by the CPU-only scope) |
+| 2 | sparse engine as the zkVM default (the 0s-are-free path) | T&S §6.3/§7 | lifts the cycle cap; K=2¹⁰×T=2¹⁰ Shout already <60 ms | **landed (Wave 10)**: the v3 pipeline registered + all-sparse (the Wave-9 dead-module fix); the scale ladder verified to 4,001 cycles |
+| 3 | streaming as the default prover (O(K+log T)) | ePrint 2025/611 | unbounded T at ~3.3× the hybrid switch speed | **landed (Wave 10)**: `prove_program_default` routes to the streaming backend (the `ProverBackend` selection; the materialized route stays selectable) |
 | 4 | the 2-level fold (LaBRADOR decider, Stage 5.2) | LaBRADOR/§5.6 | 128-bit MSIS at benchmark lengths; claims 3.5 KB → ~1 KB | **landed**: the width-fold chain (2026-10-04) + the claims fold (2026-10-05) |
-| 5 | MLE-structured verifier tables (Stage 5.3) | §9.4 constant-root | verify 198 ms → ~20 ms | specified |
-| 6 | the A3/A4 commitment-scale substitution | Akita §7 | polylog private responses (kill the terminal reveals) | the documented gap |
-| 7 | the per-level planner (digit-depth re-tuning) | Akita §12 | shrinking multi-level recursion (the A5 driver's chain grows at fixed depths) | the documented gap |
+| 5 | MLE-structured verifier tables (Stage 5.3) | §9.4 constant-root | verify 198 ms → ~20 ms | **landed (Wave 10)**: `structured_table` (identity/pow2 closed forms, no table absorbs) + the O(1) claim index — v3 verify 377 → 39 ms |
+| 6 | the A3/A4 commitment-scale substitution | Akita §7 | polylog private responses (kill the terminal reveals) | **landed (Wave 10)**: `DischargeMode::Committed` — the final-witness reveal is dead; the §8.2 final-edge t-images + the byte-packed flat commitment + the SALSAA D1∘D2 polylog response discharge the driver (the C_flat↔C_L unified-field binding + the D1 gate's 2^12-value cap are the documented residuals) |
+| 7 | the per-level planner (digit-depth re-tuning) | Akita §12 | shrinking multi-level recursion (the A5 driver's chain grows at fixed depths) | **landed (Wave 10)**: `planner.rs` (the growth-law cost model, the deterministic schedule, the planned driver wiring); the re-tuning lattice is honestly admitted-only — the row set's digit-shape coupling blocks the (64,6)/(32,7) shrinkage at this kernel (the unified-field residual family; the multi-level chain itself carries a pre-existing 1-level limitation, independently reproduced) |
+
+**The Wave-10 throughput layer (the four enumerated engineering gaps of
+the 2026-10-05 ledger, all landed 2026-10-06)**:
+
+| mechanism | landing | measured (fib 185 cycles) |
+|---|---|---|
+| batched lookups | `lattice-memory/lookup_batch.rs`: ~205 Shouts → 6 sumchecks (one per table group; the shared rcycle/eq/table factors; the ra claims ride the proofs) | in the 742 ms / 443 KB |
+| the r_air RLC fold | `lattice-akita/folded.rs`: ~300 per-column openings → chunked integer folds at the distinct points (the Ajtai linear homomorphism; `L·A·2^22 < q/2` exactness) | proof 1,970 → 443 KB |
+| SIMD (the engine inner loops) | `sparse_engine`'s affine W0/W1 round loop through the `field_simd` AVX-512 kernels (byte-identical to the dense engine — test-pinned) | in the 2.4× prove |
+| de-cloning | owned instances (half the peak memory), the eq-table dot-product claim evaluation, the O(1) claim index | in the 9.7× verify |
 
 ## 5. Reading the comparison honestly
 

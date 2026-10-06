@@ -3,17 +3,40 @@
 //! with NO cycle cap — the sparse engine and the per-column commitments
 //! scale with T, and the P0-63 profile fail-closes on out-of-profile
 //! programs (reported honestly).
+//!
+//! Container honesty: the RAM twist legs materialize the O(K·T) Val
+//! matrix (the documented virtual-Val follow-up), so programs whose
+//! geometry exceeds the container's memory budget are SKIPPED with the
+//! estimate printed — not silently dropped.
 
+use std::io::Write as _;
 use std::time::Instant;
 
 use lattice_guest::asm::{run_on_vm, AssembledProgram};
 use lattice_guest::programs::suite;
-use lattice_zkvm::pipeline4::{prove_v3, verify_v3, v3_pcs_for};
+use lattice_zkvm::pipeline4::{prove_v3, v3_pcs_for, verify_v3};
+
+/// The container memory budget for one prove's witness side (bytes).
+const MEM_BUDGET: u64 = 1 << 31; // 2 GiB
+
+/// Rough witness-side memory estimate: the RAM twist Val matrix (K·T)
+/// plus the batched-lookup entry lists (~205 lookups × their digit
+/// factors) plus the AIR supports.
+fn estimate_bytes(cycles: usize, program_len: usize, input_len: usize) -> u64 {
+    let t = (cycles.max(1)).next_power_of_two() as u64;
+    let mut max_word = 0x3000u64 / 8 + (input_len.div_ceil(8) as u64).max(1);
+    max_word = max_word.max(0x1000 / 8 + program_len.div_ceil(8) as u64);
+    let k_ram = (max_word + 1).next_power_of_two();
+    let val_matrix = k_ram * t * 8;
+    let lookups = 205 * 8 * t * 16; // range8-family entry lists (the biggest group)
+    let air = 600 * t * 8; // per-term supports (u64 positions)
+    val_matrix + lookups + air
+}
 
 fn main() {
     // A profile-compliant scale loop: x1 = n; repeat { x1 -= 1; bne x1, x0, loop }.
     // Values stay tiny (the P0-63 profile holds at any n).
-    for n in [60u32] {
+    for n in [60u32, 200, 500, 1000, 2000] {
         let enc_i = |rd: u32, rs1: u32, imm: i32| -> u32 {
             (((imm as u32) & 0xfff) << 20) | (rs1 << 15) | (rd << 7) | 0x13
         };
@@ -22,16 +45,21 @@ fn main() {
         let loop_start = 1i32;
         w.push(enc_i(1, 1, -1));
         let off = loop_start * 4 - (w.len() as i32) * 4;
-        w.push(((off as u32 >> 31) & 1) << 31
-            | (((off as u32 >> 7) & 1) << 7)
-            | (((off as u32 >> 25) & 0x3f) << 25)
-            | (((off as u32 >> 1) & 0xf) << 8)
-            | (0 << 20) | (1 << 15) | (1 << 12) | 0x63);
-        w.push(0x6f); // jal x0, 0 (halt)
+        w.push(
+            (((off as u32 >> 31) & 1) << 31)
+                | (((off as u32 >> 7) & 1) << 7)
+                | (((off as u32 >> 25) & 0x3f) << 25)
+                | (((off as u32 >> 1) & 0xf) << 8)
+                | (1 << 15)
+                | (1 << 12)
+                | 0x63,
+        );
+        w.push(0x0000_0073); // ecall (the executor's halt)
         let program: Vec<u8> = w.iter().flat_map(|x| x.to_le_bytes()).collect();
         let cycles = (n as usize) * 2 + 1;
         let t0 = Instant::now();
         let log_t = cycles.next_power_of_two().max(2).trailing_zeros() as usize;
+        eprintln!("[bench] scale n={n}: cycles={cycles} log_t={log_t}");
         let pcs = match v3_pcs_for(log_t, 6, [91u8; 32]) {
             Ok(p) => p,
             Err(e) => {
@@ -49,9 +77,14 @@ fn main() {
                 let thr = (cycles as f64) / (prove_ms as f64 / 1000.0);
                 println!(
                     "| scale_loop(n={n}) | {} | {} | {} | {:.1} | {:.0} | {} |",
-                    cycles, prove_ms, verify_ms, kb, thr,
+                    cycles,
+                    prove_ms,
+                    verify_ms,
+                    kb,
+                    thr,
                     if ok { "verified" } else { "VERIFY FAILED" }
                 );
+                let _ = std::io::stdout().flush();
             }
             Err(e) => println!("| scale_loop(n={n}) | {cycles} | - | - | - | - | {e:?} |"),
         }
@@ -80,13 +113,30 @@ fn main() {
             }
         };
         let cycles = run.steps;
+        let est = estimate_bytes(cycles as usize, prog.image.len(), prog.public_input.len());
+        if est > MEM_BUDGET {
+            let mut out = std::io::stdout().lock();
+            let _ = writeln!(
+                out,
+                "| {} | {} | - | - | - | - | skipped: witness est {:.1} GB > {:.0} GB budget (the O(K·T) Val matrix; the virtual-Val route is the documented follow-up) |",
+                prog.name, cycles, est as f64 / 1e9, MEM_BUDGET as f64 / 1e9
+            );
+            let _ = out.flush();
+            continue;
+        }
         let t0 = Instant::now();
-        let log_t = (cycles as usize).next_power_of_two().max(2).trailing_zeros() as usize;
+        let log_t = (cycles as usize)
+            .next_power_of_two()
+            .max(2)
+            .trailing_zeros() as usize;
         // Geometry: ring degree 2^6, m covering 3 limbs per value.
         let pcs = match v3_pcs_for(log_t, 6, [91u8; 32]) {
             Ok(p) => p,
             Err(e) => {
-                println!("| {} | {} | - | - | - | - | pcs error {e:?} |", prog.name, cycles);
+                println!(
+                    "| {} | {} | - | - | - | - | pcs error {e:?} |",
+                    prog.name, cycles
+                );
                 continue;
             }
         };
@@ -104,7 +154,14 @@ fn main() {
         };
         let prove_ms = t0.elapsed().as_millis();
         let t1 = Instant::now();
-        let verdict = verify_v3(&pcs, &prog.image, &prog.public_input, &state, &proof, 5_000_000);
+        let verdict = verify_v3(
+            &pcs,
+            &prog.image,
+            &prog.public_input,
+            &state,
+            &proof,
+            5_000_000,
+        );
         let verify_ms = t1.elapsed().as_millis();
         let kb = proof_size_kb(&proof);
         let thr = (cycles as f64) / (prove_ms as f64 / 1000.0);
@@ -117,6 +174,7 @@ fn main() {
             "| {} | {} | {} | {} | {:.1} | {:.0} | {} |",
             prog.name, cycles, prove_ms, verify_ms, kb, thr, status
         );
+        let _ = std::io::stdout().flush();
     }
 }
 
@@ -135,13 +193,20 @@ fn proof_size_kb(proof: &lattice_zkvm::pipeline4::ProofV3) -> f64 {
     for c in &proof.commitments {
         bytes += c.len();
     }
-    for sh in &proof.lookup_shouts {
-        bytes += sumcheck_bytes(&sh.read_checking);
+    // The batched lookup proofs (one sumcheck per table group + the
+    // per-(lookup, digit) ra claims).
+    for batch in &proof.lookup_batches {
+        bytes += sumcheck_bytes(&batch.sumcheck);
+        bytes += batch.ra_claims.len() * 8;
     }
     bytes += sumcheck_bytes(&proof.fetch.read_checking);
-    for oh in [&proof.onehot_ram_r, &proof.onehot_ram_w, &proof.onehot_reg_a,
-        &proof.onehot_reg_b, &proof.onehot_reg_w]
-    {
+    for oh in [
+        &proof.onehot_ram_r,
+        &proof.onehot_ram_w,
+        &proof.onehot_reg_a,
+        &proof.onehot_reg_b,
+        &proof.onehot_reg_w,
+    ] {
         for leg in &oh.booleanity {
             bytes += sumcheck_bytes(leg);
         }
@@ -156,13 +221,18 @@ fn proof_size_kb(proof: &lattice_zkvm::pipeline4::ProofV3) -> f64 {
     for c in &proof.claims {
         bytes += 8 + 8 + c.point.len() * 8 + 8;
     }
-    for op in &proof.openings {
-        bytes += op
-            .opened_witness
-            .iter()
-            .map(|w| w.to_bytes().len())
-            .sum::<usize>();
-        bytes += sumcheck_bytes(&op.sumcheck);
+    // The folded opening layer: one folded packed witness + one
+    // sumcheck + the integer challenges per chunk.
+    for point_chunks in &proof.openings.chunks {
+        for chunk in point_chunks {
+            bytes += chunk
+                .opened
+                .iter()
+                .map(|w| w.to_bytes().len())
+                .sum::<usize>();
+            bytes += sumcheck_bytes(&chunk.sumcheck);
+            bytes += chunk.d.len() * 8;
+        }
     }
     (bytes / 1024) as f64
 }

@@ -99,6 +99,10 @@ fn eq_lerp(t: Goldilocks, bit: u64) -> Goldilocks {
     }
 }
 
+// The scalar reference forms below (`eq_point`, `dense_partial_value`,
+// `own_index`) are superseded by the affine Wave-10 round loop; kept for
+// differential reading and future bisects.
+#[allow(dead_code)]
 fn eq_point(p: &Goldilocks, bit: u64) -> Goldilocks {
     eq_lerp(*p, bit)
 }
@@ -124,8 +128,10 @@ fn reverse_bits(x: u64, n: usize) -> u64 {
     r
 }
 
-/// A dense factor's partial value at (bound prefix, t, suffix).
+/// A dense factor's partial value at (bound prefix, t, suffix) — the
+/// scalar reference form of the affine (a, b) endpoints.
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 fn dense_partial_value(
     state: &DenseMle,
     bound: usize,
@@ -187,8 +193,50 @@ fn interpolate_at(evals: &[Goldilocks], r: &Goldilocks) -> Goldilocks {
 ///
 /// Produces the identical proof object the dense engine would produce
 /// for the equivalent `VirtualPolynomial` (equivalence is test-pinned).
+///
+/// # The Wave-10 round loop (affine partitioned sums + SIMD)
+///
+/// Every factor's per-group contribution to the round polynomial is
+/// AFFINE in the round variable `t`: for a sparse factor spanning the
+/// round variable, `Σ_k w_k·v_k·eq_lerp(t, b_k) = W0·(1−t) + W1·t`
+/// with `W0/W1` the weight-value sums over the group's bit-0 / bit-1
+/// entries; for a dense factor, `a + (b−a)·t` over the group's lerp
+/// pair. The engine therefore touches each entry ONCE per round
+/// (independent of the round length `deg+1`), evaluates the `t`-nodes
+/// from the affine coefficients, and runs the entry sums / weight
+/// binding through the `field_simd` AVX-512 slice kernels. Field
+/// arithmetic is exact and commutative, so every round value is
+/// bit-identical to the scalar reference (pinned by the equivalence
+/// tests and `LZX_NO_SIMD=1` bisects).
+///
+/// Entries are canonically ordered by `reverse_bits(position)` once at
+/// setup: the remaining-suffix groups are then CONTIGUOUS ranges, and
+/// within each group the current variable's 0/1 entries form two
+/// contiguous sub-ranges — the partitioned sums are plain slice sums.
 pub fn prove_sparse_sumcheck(
     inst: &SparseInstance,
+    claim: Goldilocks,
+    transcript: &mut Transcript,
+) -> Result<SparseOutput, PiopError> {
+    // The borrowing form clones the instance once (the pre-Wave-10
+    // engine cloned the entries and dense states internally — the same
+    // order of memory); hot callers use the owned form.
+    let owned = SparseInstance {
+        num_vars: inst.num_vars,
+        sparse: inst.sparse.clone(),
+        dense: inst.dense.clone(),
+        terms: inst.terms.clone(),
+    };
+    prove_sparse_sumcheck_owned(owned, claim, transcript)
+}
+
+/// The owned form: permutes the instance's own entries/positions into
+/// the canonical round order IN PLACE (no second copy of the entry
+/// lists stays live — roughly half the peak memory of the borrowing
+/// form at large T) and moves the dense MLE states into the working
+/// buffers.
+pub fn prove_sparse_sumcheck_owned(
+    mut inst: SparseInstance,
     claim: Goldilocks,
     transcript: &mut Transcript,
 ) -> Result<SparseOutput, PiopError> {
@@ -206,12 +254,53 @@ pub fn prove_sparse_sumcheck(
         .unwrap_or(1)
         .max(1);
 
-    // Sparse factor working state: accumulated eq weights per entry and
-    // the per-variable own-position lookup.
-    let mut weights: Vec<Vec<Goldilocks>> = inst
+    // ---- Canonical ordering (setup, once, IN PLACE). ----
+    // Per term: positions sorted by reverse_bits so the remaining-suffix
+    // groups are CONTIGUOUS ranges and the current variable's 0/1 entries
+    // form two contiguous sub-ranges inside each group. The sort
+    // permutation is applied to every first-referenced factor's entries
+    // (the SparseTerm alignment invariant makes it well-defined).
+    {
+        let mut permuted = vec![false; inst.sparse.len()];
+        for ti in 0..inst.terms.len() {
+            let orig = inst.terms[ti].positions.clone();
+            let mut perm: Vec<usize> = (0..orig.len()).collect();
+            perm.sort_by_key(|&j| reverse_bits(orig[j], n));
+            let needs_reorder = perm.iter().enumerate().any(|(a, &b)| a != b);
+            if needs_reorder {
+                inst.terms[ti].positions = perm.iter().map(|&j| orig[j]).collect();
+            }
+            if !orig.is_empty() {
+                for &fi in &inst.terms[ti].sparse {
+                    if !permuted[fi] && orig.len() == inst.sparse[fi].entries.len() {
+                        if needs_reorder {
+                            let entries = std::mem::take(&mut inst.sparse[fi].entries);
+                            inst.sparse[fi].entries = perm.iter().map(|&j| entries[j]).collect();
+                        }
+                        permuted[fi] = true;
+                    }
+                }
+            }
+        }
+        // Fail-closed alignment validation: every referencing term's
+        // support must enumerate the factor's entries.
+        for term in &inst.terms {
+            for &fi in &term.sparse {
+                if term.positions.len() != inst.sparse[fi].entries.len() {
+                    return Err(PiopError::BadLayout { log_k: n, d: 0 });
+                }
+            }
+        }
+    }
+
+    // Sparse factor working state: `wv[j] = w_j · val_j` — the accumulated
+    // eq weight times the entry value, maintained in one buffer (the
+    // terminal claim and the round-message sums both consume exactly this
+    // product; one-hot factors start as all-ONE for free).
+    let mut wv: Vec<Vec<Goldilocks>> = inst
         .sparse
         .iter()
-        .map(|f| f.entries.iter().map(|_| Goldilocks::ONE).collect())
+        .map(|f| f.entries.iter().map(|&(_, v)| v).collect())
         .collect();
     // var -> own position map per sparse factor (usize::MAX = not ours).
     let sparse_pos: Vec<Vec<usize>> = inst
@@ -227,21 +316,27 @@ pub fn prove_sparse_sumcheck(
             m
         })
         .collect();
-    // Dense factor working state.
-    let mut dense_state: Vec<DenseMle> = inst.dense.iter().map(|f| f.mle.clone()).collect();
+    // Dense factor working state: the MLEs are MOVED in (zero-copy) and
+    // bound in place (fix_variables is already the SIMD first-half
+    // binding).
+    let mut dense_state: Vec<DenseMle> = Vec::with_capacity(inst.dense.len());
+    for f in &mut inst.dense {
+        dense_state.push(std::mem::replace(
+            &mut f.mle,
+            DenseMle {
+                num_vars: 0,
+                evaluations: Vec::new(),
+            },
+        ));
+    }
     let mut dense_bound: Vec<usize> = vec![0; inst.dense.len()];
-    // Per-term entry order sorted by bit-reversed position: entries sharing
-    // the same remaining-variable suffix stay contiguous at every round
-    // (suffix groups nest as the rounds advance).
-    let term_orders: Vec<Vec<usize>> = inst
-        .terms
-        .iter()
-        .map(|t| {
-            let mut idx: Vec<usize> = (0..t.positions.len()).collect();
-            idx.sort_by_key(|&j| reverse_bits(t.positions[j], n));
-            idx
-        })
-        .collect();
+
+    // Scratch buffers reused across rounds / groups / factors.
+    let mut eqw_buf: Vec<Goldilocks> = Vec::new();
+    let mut wv_swap: Vec<Goldilocks> = Vec::new();
+    let mut dense_ab: Vec<(Goldilocks, Goldilocks, bool)> = Vec::new();
+    let mut sparse_ab: Vec<(Goldilocks, Goldilocks, bool)> = Vec::new();
+    let t_nodes: Vec<Goldilocks> = (0..=deg).map(|t| Goldilocks::from_u64(t as u64)).collect();
 
     let mut current_claim = claim;
     let mut rounds: Vec<Vec<Goldilocks>> = Vec::with_capacity(n);
@@ -255,13 +350,13 @@ pub fn prove_sparse_sumcheck(
         } else {
             (1u64 << suffix_len) - 1
         };
-        // Round polynomial values g(0..=deg), computed per suffix group:
-        // for the entries sharing a remaining suffix s, every one-hot
-        // factor contributes the SUM over its entries and the dense
-        // factors contribute their partial value at s — the product of
-        // sums reproduces the true round polynomial including the cross
-        // terms between entries of different one-hot factors that share
-        // a suffix (the per-entry product would drop them).
+        // Round polynomial values g(0..=deg). Per suffix group, every
+        // factor's contribution is AFFINE in t (the W0/W1 resp. (a, b)
+        // forms), so each entry is touched once per round regardless of
+        // the round length, and the sums run through the SIMD slice
+        // kernels. The product-of-sums per group reproduces the true
+        // round polynomial including the cross terms between entries of
+        // different one-hot factors sharing a suffix.
         let mut evals_at: Vec<Goldilocks> = vec![Goldilocks::ZERO; deg + 1];
         for (ti, term) in inst.terms.iter().enumerate() {
             if term.positions.is_empty() {
@@ -269,45 +364,89 @@ pub fn prove_sparse_sumcheck(
                 // round (all its sparse factors vanish identically).
                 continue;
             }
-            let order = &term_orders[ti];
+            let pos = &inst.terms[ti].positions;
             let mut seg = 0usize;
-            while seg < order.len() {
-                let suffix = term.positions[order[seg]] & suffix_mask;
+            while seg < pos.len() {
+                let suffix = pos[seg] & suffix_mask;
                 let mut end = seg + 1;
-                while end < order.len() && (term.positions[order[end]] & suffix_mask) == suffix {
+                while end < pos.len() && (pos[end] & suffix_mask) == suffix {
                     end += 1;
                 }
+                // Dense endpoints: (a, b) once per group and factor.
+                dense_ab.clear();
+                for &di in &term.dense {
+                    let df = &inst.dense[di];
+                    let bound = dense_bound[di];
+                    let len = df.var_map.len();
+                    let arr = &dense_state[di].evaluations;
+                    if bound < len && df.var_map[bound] == ell {
+                        let points = 1usize << (len - bound - 1);
+                        let rem = suffix_bits_at(suffix, n, &df.var_map[bound + 1..]);
+                        if rem + points >= arr.len() {
+                            return Err(PiopError::Shape {
+                                expected: arr.len(),
+                                got: rem + points,
+                            });
+                        }
+                        dense_ab.push((arr[rem], arr[rem + points], true));
+                    } else {
+                        let rem = suffix_bits_at(suffix, n, &df.var_map[bound..]);
+                        if rem >= arr.len() {
+                            return Err(PiopError::Shape {
+                                expected: arr.len(),
+                                got: rem,
+                            });
+                        }
+                        dense_ab.push((arr[rem], Goldilocks::ZERO, false));
+                    }
+                }
+                // Sparse partitioned sums: W0 over the group's bit-0 run,
+                // W1 over the bit-1 run (both contiguous by the canonical
+                // order). Non-spanning factors: the plain group sum.
+                sparse_ab.clear();
+                for &fi in &term.sparse {
+                    let p = sparse_pos[fi][ell];
+                    let f_wv = &wv[fi];
+                    if p != usize::MAX {
+                        let mut mid = seg;
+                        while mid < end && ((pos[mid] >> (n - 1 - ell)) & 1) == 0 {
+                            mid += 1;
+                        }
+                        let w0 = if mid > seg {
+                            lattice_core::field_simd::sum_slice(&f_wv[seg..mid])
+                        } else {
+                            Goldilocks::ZERO
+                        };
+                        let w1 = if end > mid {
+                            lattice_core::field_simd::sum_slice(&f_wv[mid..end])
+                        } else {
+                            Goldilocks::ZERO
+                        };
+                        sparse_ab.push((w0, w1, true));
+                    } else {
+                        let w = lattice_core::field_simd::sum_slice(&f_wv[seg..end]);
+                        sparse_ab.push((w, Goldilocks::ZERO, false));
+                    }
+                }
+                // Assemble the t-node values from the affine forms.
                 for (t, ev) in evals_at.iter_mut().enumerate() {
-                    let t_fe = Goldilocks::from_u64(t as u64);
+                    let t_fe = t_nodes[t];
                     let mut prod = term.coeff;
-                    for &di in &term.dense {
-                        let v = dense_partial_value(
-                            &dense_state[di],
-                            dense_bound[di],
-                            &inst.dense[di].var_map,
-                            ell,
-                            n,
-                            t_fe,
-                            suffix,
-                        );
+                    for &(a, b, spanning) in &dense_ab {
+                        let v = if spanning {
+                            a.add(&b.sub(&a).mul(&t_fe))
+                        } else {
+                            a
+                        };
                         prod = prod.mul(&v);
                     }
-                    for &fi in &term.sparse {
-                        let f = &inst.sparse[fi];
-                        let mut sum = Goldilocks::ZERO;
-                        for k in seg..end {
-                            let j = order[k];
-                            let (_, val) = f.entries[j];
-                            let base = weights[fi][j].mul(&val);
-                            let p = sparse_pos[fi][ell];
-                            if p == usize::MAX {
-                                sum = sum.add(&base);
-                            } else {
-                                let bit = (term.positions[j] >> (n - 1 - ell)) & 1;
-                                sum = sum.add(&base.mul(&eq_lerp(t_fe, bit)));
-                            }
-                        }
-                        prod = prod.mul(&sum);
+                    for &(w0, w1, spanning) in &sparse_ab {
+                        let v = if spanning {
+                            w0.add(&w1.sub(&w0).mul(&t_fe))
+                        } else {
+                            w0
+                        };
+                        prod = prod.mul(&v);
                     }
                     *ev = ev.add(&prod);
                 }
@@ -331,15 +470,27 @@ pub fn prove_sparse_sumcheck(
         current_claim = interpolate_at(&evals_at, &r);
         rounds.push(evals_at);
 
-        // Bind factors to r.
+        // Bind factors to r. Sparse: wv[j] *= eq(r, own_bit_j) — the two
+        // possible multipliers are selected per entry (branch-free load)
+        // and applied through the SIMD product kernel.
         for (fi, f) in inst.sparse.iter().enumerate() {
             let p = sparse_pos[fi][ell];
             if p != usize::MAX {
                 let shift = f.var_map.len() - 1 - p;
-                for (j, &(own, _)) in f.entries.iter().enumerate() {
-                    let bit = (own >> shift) & 1;
-                    weights[fi][j] = weights[fi][j].mul(&eq_point(&r, bit));
-                }
+                let e0 = Goldilocks::ONE.sub(&r);
+                eqw_buf.clear();
+                eqw_buf.extend(inst.sparse[fi].entries.iter().map(|&(own, _)| {
+                    if (own >> shift) & 1 == 1 {
+                        r
+                    } else {
+                        e0
+                    }
+                }));
+                let len = wv[fi].len();
+                wv_swap.clear();
+                wv_swap.resize(len, Goldilocks::ZERO);
+                lattice_core::field_simd::mul_slices(&wv[fi], &eqw_buf, &mut wv_swap);
+                std::mem::swap(&mut wv[fi], &mut wv_swap);
             }
         }
         for (di, df) in inst.dense.iter().enumerate() {
@@ -353,14 +504,11 @@ pub fn prove_sparse_sumcheck(
         }
     }
 
-    // Terminal: per-factor claims and the final combined claim.
+    // Terminal: per-factor claims and the final combined claim. The
+    // sparse claim is Σ_j w_j·val_j — exactly the maintained buffer.
     let mut sparse_claims = Vec::with_capacity(inst.sparse.len());
-    for (fi, f) in inst.sparse.iter().enumerate() {
-        let mut acc = Goldilocks::ZERO;
-        for (j, &(_, val)) in f.entries.iter().enumerate() {
-            acc = acc.add(&weights[fi][j].mul(&val));
-        }
-        sparse_claims.push(acc);
+    for fi in 0..inst.sparse.len() {
+        sparse_claims.push(lattice_core::field_simd::sum_slice(&wv[fi]));
     }
     let mut dense_claims = Vec::with_capacity(inst.dense.len());
     for dstate in &dense_state {
