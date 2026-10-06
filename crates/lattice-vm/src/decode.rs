@@ -161,9 +161,32 @@ pub enum Instr {
         rd: u8,
         imm: i64,
     },
-    // RV64I loads/stores (word-granular kernel; the memory layer owns
-    // subword expansion semantics).
+    // RV64I loads/stores. The byte-guest ISA extension adds the full
+    // sub-word surface (LB/LBU/LH/LHU/SB/SH) — the memory argument stays
+    // word-granular (the sub-word access is a read-modify-write on the
+    // containing 8-byte word; the extraction/merge happens in the
+    // instruction-semantics layer).
+    Lb {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Lh {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
     Lw {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Lbu {
+        rd: u8,
+        rs1: u8,
+        imm: i64,
+    },
+    Lhu {
         rd: u8,
         rs1: u8,
         imm: i64,
@@ -176,6 +199,16 @@ pub enum Instr {
     Ld {
         rd: u8,
         rs1: u8,
+        imm: i64,
+    },
+    Sb {
+        rs1: u8,
+        rs2: u8,
+        imm: i64,
+    },
+    Sh {
+        rs1: u8,
+        rs2: u8,
         imm: i64,
     },
     Sw {
@@ -456,7 +489,11 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
         0x03 => {
             let imm = sign_extend((word as u64 >> 20) & 0xfff, 12);
             Ok(match funct3 {
+                0 => Instr::Lb { rd, rs1, imm },
+                1 => Instr::Lh { rd, rs1, imm },
                 2 => Instr::Lw { rd, rs1, imm },
+                4 => Instr::Lbu { rd, rs1, imm },
+                5 => Instr::Lhu { rd, rs1, imm },
                 6 => Instr::Lwu { rd, rs1, imm },
                 3 => Instr::Ld { rd, rs1, imm },
                 _ => {
@@ -468,6 +505,8 @@ pub fn decode(pc: u64, word: u32) -> Result<Instr, DecodeError> {
             let imm = (((word >> 25) & 0x7f) << 5) | ((word >> 7) & 0x1f);
             let imm = sign_extend(imm as u64, 12);
             Ok(match funct3 {
+                0 => Instr::Sb { rs1, rs2, imm },
+                1 => Instr::Sh { rs1, rs2, imm },
                 2 => Instr::Sw { rs1, rs2, imm },
                 3 => Instr::Sd { rs1, rs2, imm },
                 _ => {

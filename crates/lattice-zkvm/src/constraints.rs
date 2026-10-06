@@ -4627,7 +4627,7 @@ fn prove_shift_dense_cfg_test(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), Con
 /// differential test below); the verifier is UNCHANGED.
 fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintError> {
     use lattice_memory::sparse_engine::{
-        prove_sparse_sumcheck, ProjectedDense, SparseFactor, SparseInstance, SparseTerm,
+        prove_sparse_sumcheck, DenseFactor, SparseFactor, SparseInstance, SparseTerm,
     };
     use std::collections::HashMap;
 
@@ -4651,10 +4651,7 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
     // tensor-row MLEs and their flipped variants (identity var_map —
     // every factor spans the full log_t variables).
     let var_map: Vec<usize> = (0..log_t).collect();
-    let mut dense: Vec<ProjectedDense> = vec![ProjectedDense {
-        mle: eq.clone(),
-        var_map: var_map.clone(),
-    }];
+    let mut dense: Vec<DenseFactor> = vec![DenseFactor::Table(eq.clone(), var_map.clone())];
     let mut views: Vec<(usize, FV)> = vec![(0usize, FV::PubTable(eq.clone()))];
     let mut rs1_memo: HashMap<usize, usize> = HashMap::new();
     let mut rs2_memo: HashMap<usize, usize> = HashMap::new();
@@ -4671,10 +4668,7 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                 let row = $nbits - 1 - bit;
                 let f = row_mle(&$tensor, row, log_t);
                 let di = dense.len();
-                dense.push(ProjectedDense {
-                    mle: f,
-                    var_map: var_map.clone(),
-                });
+                dense.push(DenseFactor::Table(f, var_map.clone()));
                 views.push((di, $view(row)));
                 $memo.insert(bit, di);
                 di
@@ -4765,10 +4759,7 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                                 instr_row_of(&w.instr_bits, row, log_t)
                             };
                             let d = dense.len();
-                            dense.push(ProjectedDense {
-                                mle: flip_mle(&f),
-                                var_map: var_map.clone(),
-                            });
+                            dense.push(DenseFactor::Table(flip_mle(&f), var_map.clone()));
                             flip_memo.insert(key, d);
                             d
                         };
@@ -4819,11 +4810,7 @@ fn prove_shift_sparse(ctx: &mut FamilyCtx<'_, '_, '_>) -> Result<(), ConstraintE
                         .map(|v| fe(*v as u64))
                         .collect();
                     let d = dense.len();
-                    dense.push(ProjectedDense {
-                        mle: DenseMle::new(col)
-                            .map_err(|e| ConstraintError::Sparse(format!("{e:?}")))?,
-                        var_map: var_map.clone(),
-                    });
+                    dense.push(DenseFactor::Table(DenseMle::new(col) .map_err(|e| ConstraintError::Sparse(format!("{e:?}")))?, var_map.clone()));
                     sel_dense_memo.insert(class.sel, d);
                     d
                 }

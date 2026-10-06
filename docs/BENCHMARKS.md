@@ -147,6 +147,76 @@ the LaBRADOR decider) — the estimator table
 (`lattice-sis-estimator/examples/fold_security_table.rs`) maps the
 knob levers and the sound `n̄ ∈ {2, 4}` regime.
 
+## 2c. The byte-guest ISA + the virtual-Val route (2026-10-06, this session)
+
+Two bottlenecks from the throughput sprint's post-mortem landed:
+
+**The byte-guest ISA** (`lattice-vm` + `lattice-zkvm` + `lattice-guest`):
+the full sub-word load/store surface — LB/LBU/LH/LHU/SB/SH — at every
+byte alignment (including straddling halfwords). The memory argument is
+UNCHANGED (word-granular RAM; the sub-word access is a read-modify-write
+splice on the containing word — the extraction/merge rides the
+mem_old/mem_new tensors and the trace columns). Conformance: the
+differential harness (120 random programs) now generates the sub-word
+surface at all alignments; a dedicated all-offsets test pins LB/LBU/LH/
+LHU/SB/SH semantics against ground truth. The new `byte_ops` benchmark
+guest (byte-reverse + byte-sum + halfword swap-XOR, 1,284 cycles) runs
+in the suite and proves end-to-end through BOTH the compact and
+block-commit modes. This unlocks the byte-oriented workload family
+(SHA-256, LEB128, CRC) that previously forced shift-and-mask whole-word
+workarounds.
+
+**The virtual-Val route** (`lattice-memory/sparse_engine.rs`): the
+O(K·T) materialized Val matrix — the container-scale memory cap (128 MB
+of field elements at K = T = 2^12; GB-scale beyond) — is REPLACED by the
+O(K + T) write-event spec. The `VirtualValSpec`/`VirtualValState` factor
+computes the Val MLE's round partials from (init, the write events):
+the k-rounds via address-bucketed integer comparisons (LT at Boolean
+points), the j-rounds via the LT-extension at the mixed points (the
+paper's own pairwise cost profile — the dispatch heuristic
+`pairwise_cost` keeps the materialized route when the address traffic is
+hot relative to K, i.e. the register instances). The V0/V1 legs'
+point-evaluations (`memory.rs`) also moved to the Eq-11 stream identity
+(`Val(r_a, r_c) = init̃(r_a) + Σ Inc̃(r_a, j')·LT̃(j', r_c)`) — the
+materialization is gone from the claim side too. **The proofs are
+byte-identical to the materialized route** (pinned by
+`twist_ports_virtual_matches_materialized_exactly`); the container-scale
+test proves + verifies at K = T = 2^12 without the matrix (8.1 s in the
+DEBUG build; the same workload would allocate 128 MB + O(K·T) round work
+on the materialized route). The live `pipeline2` RAM twists dispatch to
+the virtual route when `pairwise_cost·8 < K·T`.
+
+## 2d. The block-commit batched opening (2026-10-06, this session)
+
+The "~300 per-column Ajtai commitments dominate the prover" bottleneck:
+the compact mode's commitment layer is r·k ring elements (16 KB of the
+33 KB fibonacci proof at r=64 — the single largest component, growing
+linearly in the column count). `blockfold.rs` replaces it with **ONE
+packed block commitment per bundle** — the wide seeded key
+F ∈ R^{k×m} over the whole column universe, ONE k-vector transmitted
+(1 KB) — plus the **fused binding sumcheck** (the Akita Eq-160-style
+"outer layer" the research consensus flagged as our documented gap): a
+degree-2 Z_q sumcheck over the m-entry cube proving
+`⟨β, Σ_p c_p·w_p⟩ = ⟨β, c_y + ⟨h, v⟩⟩` whose g-half pins the witness
+to the ONE commitment and whose h-half pins the transmitted response v.
+The compact machinery (carrier, ũ_j's, interpolation, fold challenges,
+rANS response, norm gate, functional commute) is unchanged.
+
+| program | cycles | Batched compact | **Block-commit** | reduction | block prove | block verify |
+|---|---|---|---|---|---|---|
+| fibonacci | 185 | 33.0 KB | **19.0 KB** | **1.7×** | ~2,400 ms | ~1,170 ms |
+
+Block composition (fibonacci): legs ~6 KB, claims 3.5 KB, **commitments
+1 KB + 1 KB** (vs 16 KB), carriers 0.8 KB, openings ~6 KB + the binding
+sumchecks (~0.4 KB) + the terminals ŵ, statement 0.5 KB. The prover
+pays ~1.7× the compact mode (the fused sumcheck's per-round product
+passes — the same order as one extra commitment pass); the verifier's
+two streamed key passes (g and C̃(τ)) dominate its ~1.1 s — the
+streamed-key expansion (never materializing the k×m matrix) is the
+documented follow-up. The win GROWS with the column count: at richer
+workload scale (r → 256+ columns) the compact layer grows to 64+ KB per
+bundle while the block layer stays at 1 KB.
+
 
 ## 2c. The streaming / client-side prover (the small-space pipeline, 2026-09-30)
 

@@ -546,7 +546,7 @@ pub fn compact_bundle_commit_with_params(
 
 /// The column-uniform Goldilocks weights Ψ over the stream slots:
 /// Ψ(m) = eq(r_head)_{h(m)} · 2^{8·b(m)} mod p_G.
-fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldilocks> {
+pub fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldilocks> {
     // eq over the head variables, MSB-first (DenseMle convention).
     let mut table = vec![Goldilocks::ONE];
     for rr in r_head.iter().rev() {
@@ -580,6 +580,7 @@ fn psi_weights_goldilocks(shape: &PackShape, r_head: &[Goldilocks]) -> Vec<Goldi
 /// The balanced-representative Goldilocks term (moved to
 /// `lattice-widthfold::helpers`; re-exported).
 pub use lattice_widthfold::helpers::phi_term;
+
 impl CompactBundleProver {
     /// The serialized commitments (r × k ring elements) — the bundle's
     /// public commitment.

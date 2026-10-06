@@ -24,8 +24,8 @@ use lattice_core::transcript::Transcript;
 use lattice_core::{DenseMle, Goldilocks};
 use lattice_memory::onehot_check::OneHotSide as OHSide;
 use lattice_memory::sparse_engine::{
-    build_twist_ports, prove_onehot_sparse, prove_shout_sparse, prove_twist_ports_sparse,
-    verify_twist_ports_checked,
+    build_twist_ports, build_twist_ports_virtual, prove_onehot_sparse, prove_shout_sparse,
+    prove_twist_ports_sparse, verify_twist_ports_checked, VirtualValSpec,
 };
 use lattice_memory::twist::TwistProof;
 use lattice_memory::{FactorId, FactorResolver, OneHotProof, PiopError, ShoutProof};
@@ -230,7 +230,11 @@ pub fn prove_v2_with_stage5(
     if rows.is_empty() {
         return Err(PipelineError::BadShape("empty trace".into()));
     }
-    let trace = build_trace(&state, &rows)?;
+    let trace = build_trace(
+        &state,
+        &rows,
+        &[(0x1000, program), (0x3000, public_input)],
+    )?;
     let log_t = trace.log_t;
     // ---- 2. The access streams. ----
     // Fetch stream: every step's ((pc - 0x1000)/4 -> instruction word).
@@ -381,14 +385,24 @@ pub fn prove_v2_with_stage5(
         .collect();
     input_table.resize(1 << log_k_in, Goldilocks::ZERO);
     // ---- 5. Twist witnesses. ----
-    let ram_witness = build_twist_ports(
-        &ram_ra,
-        &ram_wa,
-        &ram_wv,
-        &init_ram.iter().map(|&v| fe(v)).collect::<Vec<_>>(),
-        log_k_ram,
-        log_t,
-    )?;
+    // The RAM instance takes the VIRTUAL-VAL route when the address
+    // traffic is sparse relative to the container (the dispatch
+    // heuristic from VirtualValSpec::pairwise_cost): the O(K·T)
+    // materialized Val matrix — the container-scale cap — is never
+    // allocated. The register instances (K = 32, every address hot)
+    // stay on the materialized route: K·T is small there and the
+    // pairwise cost would exceed it.
+    let ram_witness = {
+        let ram_init: Vec<Goldilocks> = init_ram.iter().map(|&v| fe(v)).collect();
+        let pairwise = VirtualValSpec::pairwise_cost(&ram_ra, &ram_wa);
+        let k_ram = 1u64 << log_k_ram;
+        let t_pow = 1u64 << log_t;
+        if pairwise * 8 < k_ram * t_pow {
+            build_twist_ports_virtual(&ram_ra, &ram_wa, &ram_wv, &ram_init, log_k_ram, log_t)?
+        } else {
+            build_twist_ports(&ram_ra, &ram_wa, &ram_wv, &ram_init, log_k_ram, log_t)?
+        }
+    };
     let reg_init: Vec<Goldilocks> = {
         let mut v = vec![Goldilocks::ZERO; 32];
         v[10] = fe(public_input.len() as u64);

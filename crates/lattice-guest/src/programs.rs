@@ -39,6 +39,8 @@ const T0: u8 = 5;
 const T1: u8 = 6;
 const T2: u8 = 7;
 const T3: u8 = 28;
+const T4: u8 = 29;
+const T5: u8 = 30;
 const S0: u8 = 8;
 
 /// Register x10 (a0) — the primary result register.
@@ -303,6 +305,111 @@ pub fn memory_ops(seed: u64) -> Result<GuestProgram, AsmError> {
         description: "strided stores + pointer chase over 256 words (jolt: memory-ops)",
         image: a.finish()?.code,
         public_input: vec![],
+        result_regs: vec![(A0, expected)],
+        data_base: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// byte_ops: the byte-guest ISA workload (LB/LBU/LH/LHU/SB/SH) — the
+// byte-reverse + byte-sum + halfword-XSH pipeline over the public input.
+// This is the workload family the sub-word ISA unlocks (SHA-256-style
+// byte codecs, LEB128, CRC): before the extension the guests had to
+// shift-and-mask whole words.
+// ---------------------------------------------------------------------------
+
+/// The reference: reverse the buffer, sum the bytes, XOR the swapped
+/// halfwords, combine.
+pub fn reference_byte_ops(bytes: &[u8]) -> u64 {
+    let n = bytes.len();
+    let mut rev = bytes.to_vec();
+    rev.reverse();
+    let byte_sum: u64 = bytes.iter().map(|&b| b as u64).sum();
+    // Halfword pass over the REVERSED buffer (odd tail byte handled as-is).
+    let mut hx: u64 = 0;
+    let mut i = 0;
+    while i + 1 < n {
+        let h = (rev[i] as u64) | ((rev[i + 1] as u64) << 8);
+        let swapped = ((h & 0xFF) << 8) | (h >> 8);
+        hx ^= swapped.wrapping_mul(0x9E37);
+        i += 2;
+    }
+    // Store the swapped halfwords back (SH) and finish with the byte sum.
+    byte_sum.wrapping_mul(1 << 20) ^ hx.rotate_left(17)
+}
+
+/// `byte_ops`: reverse the 64-byte public input in place with LB/SB, sum
+/// the original bytes with LBU, then walk the reversed buffer with
+/// LHU/SH applying the swap-multiply-XOR chain.
+pub fn byte_ops(input: &[u8; 64]) -> Result<GuestProgram, AsmError> {
+    let expected = reference_byte_ops(input);
+    const N: u64 = 64;
+    let mut a = Assembler::new();
+    // a2 = dst (scratch region after the program image), a3 = src base.
+    a.li(A2, 0x2000)?;
+    a.li(A3, crate::PUBLIC_INPUT_BASE as i64)?;
+    // Copy the input into the scratch region byte-by-byte (LBU/SB),
+    // accumulating the byte sum in a4 — simultaneously writing the
+    // REVERSE order (src index = N-1-i).
+    a.li(A4, 0)?; // byte sum
+    a.li(A5, 0)?; // i
+    let cloop = a.label("cloop");
+    let cdone = a.label("cdone");
+    let rloop = a.label("rloop");
+    let rdone = a.label("rdone");
+    a.bind(cloop)?;
+    a.li(T0, N as i64)?;
+    a.bge(A5, T0, cdone.into())?;
+    // dst offset = i*1; src offset = N-1-i.
+    a.li(T1, N as i64)?;
+    a.sub(T1, T1, A5)?;
+    a.addi(T1, T1, -1)?;
+    a.add(T2, A3, T1)?;
+    a.lbu(T3, T2, 0)?;
+    a.add(A4, A4, T3)?; // byte sum += byte
+    a.add(T2, A2, A5)?;
+    a.sb(T2, T3, 0)?; // scratch[i] = input[N-1-i]
+    a.addi(A5, A5, 1)?;
+    a.j(cloop.into())?;
+    a.bind(cdone)?;
+    // Halfword pass over the reversed scratch: h = LHU; swapped; x ^= (swapped*0x9E37).
+    a.li(A6, 0)?; // hx accumulator
+    a.li(A5, 0)?; // i (halfword index)
+    a.bind(rloop)?;
+    a.li(T0, N as i64)?;
+    a.bge(A5, T0, rdone.into())?;
+    a.add(T2, A2, A5)?;
+    a.lhu(T3, T2, 0)?;
+    // swap: lo<<8 | hi>>8.
+    a.li(T1, 0xFF)?;
+    a.and(T4, T3, T1)?;
+    a.slli(T4, T4, 8)?;
+    a.srli(T5, T3, 8)?;
+    a.or(T4, T4, T5)?;
+    // x ^= swapped * 0x9E37, stored back with SH.
+    a.li(T1, 0x9E37)?;
+    a.mul(T4, T4, T1)?;
+    a.xor(A6, A6, T4)?;
+    a.sh(T2, T4, 0)?;
+    a.addi(A5, A5, 2)?;
+    a.j(rloop.into())?;
+    a.bind(rdone)?;
+    // a0 = (byte_sum << 20) ^ rotl(hx, 17).
+    a.li(T1, 20)?;
+    a.sll(A0, A4, T1)?;
+    a.li(T1, 17)?;
+    a.li(T2, 64)?;
+    a.sub(T2, T2, T1)?;
+    a.sll(T3, A6, T1)?;
+    a.srl(T4, A6, T2)?;
+    a.or(T3, T3, T4)?; // rotl(hx,17) via (hx<<17 | hx>>47)
+    a.xor(A0, A0, T3)?;
+    a.ecall()?;
+    Ok(GuestProgram {
+        name: "byte_ops",
+        description: "byte-reverse (LB/SB) + byte-sum (LBU) + halfword swap-XOR (LHU/SH) over the 64-byte input (the byte-guest ISA unlock)",
+        image: a.finish()?.code,
+        public_input: input.to_vec(),
         result_regs: vec![(A0, expected)],
         data_base: 0,
     })
@@ -759,6 +866,9 @@ pub fn suite() -> Result<Vec<GuestProgram>, AsmError> {
     out.push(memory_ops(12345)?);
     let bytes: Vec<u8> = b"ababcbaabbaccababacabbacabbaabcabc".to_vec();
     out.push(regex(&bytes)?);
+    // The byte-guest ISA workload (sub-word loads/stores).
+    let binput: [u8; 64] = core::array::from_fn(|i| ((i * 31 + 7) & 0xFF) as u8);
+    out.push(byte_ops(&binput)?);
     let n = 8usize;
     let a: Vec<u64> = lcg(0xACE).take(n * n).collect();
     let b: Vec<u64> = lcg(0xBEEF).take(n * n).collect();

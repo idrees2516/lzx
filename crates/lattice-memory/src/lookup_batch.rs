@@ -33,7 +33,7 @@
 //! committed-column binding and the claim-table flow are unchanged.
 
 use crate::sparse_engine::{
-    prove_sparse_sumcheck_owned, ProjectedDense, SparseFactor, SparseInstance, SparseTerm,
+    prove_sparse_sumcheck_owned, DenseFactor, SparseFactor, SparseInstance, SparseTerm,
 };
 use crate::structured_table::StructuredTable;
 use crate::{FactorId, FactorResolver, PiopError};
@@ -172,14 +172,8 @@ pub fn prove_shout_batched(
             dense: vec![0, 1],
         });
     }
-    let eq_j = ProjectedDense {
-        mle: DenseMle::eq_extension(&rcycle),
-        var_map: (log_k..log_k + log_t).collect(),
-    };
-    let val_f = ProjectedDense {
-        mle: DenseMle::new(table_values)?,
-        var_map: (0..log_k).collect(),
-    };
+    let eq_j = DenseFactor::Table(DenseMle::eq_extension(&rcycle), (log_k..log_k + log_t).collect());
+    let val_f = DenseFactor::Table(DenseMle::new(table_values)?, (0..log_k).collect());
     let inst = SparseInstance {
         num_vars: log_k + log_t,
         sparse,

@@ -1015,8 +1015,6 @@ pub(crate) fn val_vp(
     let (r_a, r_c) = point.split_at(m.log_k);
     let init_mle = DenseMle::new(m.init.clone()).map_err(MemoryError::Mle)?;
     let init_at = init_mle.evaluate(r_a).map_err(MemoryError::Mle)?;
-    let val = m.val_matrix();
-    let val_at = val.evaluate(point).map_err(MemoryError::Mle)?;
     let u: Vec<Goldilocks> = (0..m.t_s())
         .map(|j| {
             let sel = eq_of_addr(r_a, m.addr[j], m.log_k);
@@ -1036,7 +1034,17 @@ pub(crate) fn val_vp(
             DenseMle::lt_extension(&bits, r_c).map_err(MemoryError::Mle)
         })
         .collect::<Result<_, _>>()?;
-    let claim = val_at.sub(&init_at);
+    // The virtual-Val route (Fig 9 Eq 11): the point evaluation comes
+    // from the STREAMS (`Val(r_a, r_c) = init̃(r_a) + Σ_{j'} Inc̃(r_a,
+    // j')·LT̃(j', r_c)`), never materializing the O(K·T) matrix. For the
+    // honest prover this equals the materialized MLE evaluation exactly
+    // (the multilinear identity); the binding chain is unchanged.
+    let mut sum = Goldilocks::ZERO;
+    for j in 0..m.t_s() {
+        sum = sum.add(&u[j].mul(&lt[j]));
+    }
+    let val_at = init_at.add(&sum);
+    let claim = sum;
     let mut vp = VirtualPolynomial::new(m.log_ts);
     let ui = vp
         .add_factor(DenseMle {
@@ -1303,8 +1311,6 @@ fn prove_val_eval(
     let (r_a, r_c) = point.split_at(m.log_k);
     let init_mle = DenseMle::new(m.init.clone()).map_err(MemoryError::Mle)?;
     let init_at = init_mle.evaluate(r_a).map_err(MemoryError::Mle)?;
-    let val = m.val_matrix();
-    let val_at = val.evaluate(point).map_err(MemoryError::Mle)?;
     let u: Vec<Goldilocks> = (0..m.t_s())
         .map(|j| {
             let sel = eq_of_addr(r_a, m.addr[j], m.log_k);
@@ -1324,7 +1330,20 @@ fn prove_val_eval(
             DenseMle::lt_extension(&bits, r_c).map_err(MemoryError::Mle)
         })
         .collect::<Result<_, _>>()?;
-    let claim = val_at.sub(&init_at);
+    // The virtual-Val route (Fig 9 Eq 11): the point evaluation is
+    // computed from the STREAMS — `Val(r_a, r_c) = init̃(r_a) +
+    // Σ_{j'} Inc̃(r_a, j')·LT̃(j', r_c)` — never materializing the
+    // O(K·T) matrix. For the honest prover this equals the materialized
+    // MLE evaluation exactly (the multilinear identity); the sumcheck
+    // below binds this claim to the u-factor claims (→ Mu legs → Inc →
+    // the committed digit tensors), so the binding chain is identical
+    // — and the K·T materialization is gone.
+    let mut sum = Goldilocks::ZERO;
+    for j in 0..m.t_s() {
+        sum = sum.add(&u[j].mul(&lt[j]));
+    }
+    let val_at = init_at.add(&sum);
+    let claim = sum;
     let mut vp = VirtualPolynomial::new(m.log_ts);
     let ui = vp
         .add_factor(DenseMle {

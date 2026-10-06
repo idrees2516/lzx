@@ -546,6 +546,8 @@ mod tests {
         // the trace's claimed values, so the PIOP's read-checking leg
         // carries the discrepancy (the claim binds the observed column).
         let witness = build_twist_matrices(&stale, &init, 2, 2, 1).ok().unwrap();
+        // Row 0 (cycle 1), col 1 of the flattened Val matrix: the value
+        // the witness materialized for the stale read cycle.
         let observed = witness.val.evaluations[1];
         assert_ne!(
             observed,

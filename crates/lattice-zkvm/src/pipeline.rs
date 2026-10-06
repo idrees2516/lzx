@@ -259,8 +259,8 @@ pub fn decode_family(word: u32) -> u64 {
         },
         0x6f => one << fam::JAL,
         0x67 if funct3 == 0x00 => one << fam::JALR,
-        0x03 if funct3 == 0x3 => one << fam::LOAD,
-        0x23 if funct3 == 0x3 => one << fam::STORE,
+        0x03 if (0x0..=0x6).contains(&funct3) => one << fam::LOAD,
+        0x23 if (0x0..=0x3).contains(&funct3) => one << fam::STORE,
         0x37 => one << fam::LUI,
         0x17 => one << fam::AUIPC,
         0x73 => one << fam::HALT,
@@ -356,12 +356,34 @@ pub struct TraceData {
 pub fn build_trace(
     state: &MachineState,
     rows: &[lattice_vm::TraceRow],
+    boot_regions: &[(u64, &[u8])],
 ) -> Result<TraceData, PipelineError> {
     let log_t = rows.len().next_power_of_two().max(2).trailing_zeros() as usize;
     let t_pow = 1usize << log_t;
     let mut regs = [0u64; 32];
-    let mut ram_now: std::collections::BTreeMap<u64, u64> =
-        state.memory.snapshot_pairs().into_iter().collect();
+    // The word-granular RAM shadow replay, seeded from the BOOT regions
+    // (the executor's memory holds the POST state — seeding from it made
+    // read-before-write sequences observe final values, a trace-correctness
+    // bug this rewrite fixes). Every word the replay has not yet written
+    // reads its boot bytes; words outside every region read zero.
+    let boot_word = |addr: u64| -> u64 {
+        let base = addr & !0x7;
+        let mut w = 0u64;
+        for i in 0..8usize {
+            let a = base + i as u64;
+            let mut byte = 0u8;
+            'regions: for (rbase, rbytes) in boot_regions {
+                let off = a.wrapping_sub(*rbase);
+                if off < rbytes.len() as u64 {
+                    byte = rbytes[off as usize];
+                    break 'regions;
+                }
+            }
+            w |= (byte as u64) << (8 * i);
+        }
+        w
+    };
+    let mut ram_now: std::collections::BTreeMap<u64, u64> = Default::default();
     let mut cols: Vec<Vec<Goldilocks>> = vec![Vec::new(); NUM_COLS];
     let mut ram_ra = Vec::with_capacity(t_pow);
     let mut ram_wa = Vec::with_capacity(t_pow);
@@ -551,18 +573,59 @@ pub fn build_trace(
         p(Col::Fb1 as usize, (fb == 1) as u64);
         p(Col::Fb2 as usize, (fb == 6) as u64);
         p(Col::Fb3 as usize, (fb == 7) as u64);
-        // RAM ports.
+        // RAM ports: the word-granular replay supplies the port values —
+        // Mrv = the containing word BEFORE the access (the true current
+        // value: the running map, falling back to the boot image), Mwv =
+        // the FULL MERGED word AFTER a store (sub-word stores splice into
+        // the containing word; reads carry the current word unchanged).
         let rada = if is_load { ea } else { 0 };
         let wada_r = if is_store { ea } else { 0 };
         p(Col::Rada as usize, rada);
         p(Col::WadaR as usize, wada_r);
         p(Col::Rs1m as usize, rs1a);
         p(Col::Rs2m as usize, rs2a);
-        let mrv_v = *ram_now.get(&(rada * 8)).unwrap_or(&0);
-        let mwv_v = if is_store {
-            new_w.unwrap_or(0)
+        let access_word_base = row.mem_access.map(|(a, _, _)| a & !0x7);
+        let current_word = access_word_base.map(|base| {
+            *ram_now.get(&base).unwrap_or(&boot_word(base))
+        });
+        let mrv_v = if is_load {
+            current_word.unwrap_or(0)
         } else {
-            *ram_now.get(&0).unwrap_or(&0)
+            0
+        };
+        let mwv_v = if is_store {
+            // The merged word after the splice.
+            let base = access_word_base.unwrap_or(0);
+            let before = *ram_now.get(&base).unwrap_or(&boot_word(base));
+            let raw = new_w.unwrap_or(0);
+            let funct3 = (iw >> 12) & 0x7;
+            match funct3 {
+                0 => {
+                    let off = (row.mem_access.map(|(a, _, _)| a).unwrap_or(0) & 0x7) * 8;
+                    (before & !(0xFFu64 << off)) | ((raw & 0xFF) << off)
+                }
+                1 => {
+                    let off = (row.mem_access.map(|(a, _, _)| a).unwrap_or(0) & 0x7) * 8;
+                    if off <= 48 {
+                        (before & !(0xFFFFu64 << off)) | ((raw & 0xFFFF) << off)
+                    } else {
+                        let lo_bits = 64 - off;
+                        let lo_mask = (1u64 << lo_bits) - 1;
+                        (before & !(lo_mask << off)) | ((raw & lo_mask) << off)
+                    }
+                }
+                2 => {
+                    let half = (row.mem_access.map(|(a, _, _)| a).unwrap_or(0) >> 2) & 1;
+                    if half == 0 {
+                        (before & 0xFFFF_FFFF_0000_0000) | (raw & 0xFFFF_FFFF)
+                    } else {
+                        (before & 0x0000_0000_FFFF_FFFF) | ((raw & 0xFFFF_FFFF) << 32)
+                    }
+                }
+                _ => raw, // SD: the full word.
+            }
+        } else {
+            0
         };
         if let Some(x) = cols[Col::Mrv as usize].last_mut() {
             *x = fe(mrv_v);
@@ -583,8 +646,11 @@ pub fn build_trace(
                 regs[r as usize] = v;
             }
         }
-        if let Some((addr, _, Some(new))) = &row.mem_access {
-            ram_now.insert(*addr, *new);
+        // The store's merged word lands in the replay at the WORD base.
+        if is_store {
+            if let Some(base) = access_word_base {
+                ram_now.insert(base, mwv_v);
+            }
         }
     }
     // Pad with halt steps.

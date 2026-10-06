@@ -172,3 +172,24 @@ verifier tables (5.3), the sparse prover + SIMD/RNS (5.4), and the
 instruction-semantics families (5.5 — the substrate and aux columns are
 built; the arith/logic/comparison/control/routing constraint
 polynomials are the next focused session).
+
+## 9. The three-bottleneck session (2026-10-06)
+
+The throughput sprint's post-mortem named three bottlenecks; all three
+landed this session. Workspace: **709 tests green, clippy clean on the
+touched crates**.
+
+| Item | The landing | Tests |
+|---|---|---|
+| **(a) The block-commit batching** | `blockfold.rs` (~1,150 lines): ONE packed block Ajtai commitment per bundle (the wide `F ∈ R^{k×m}` key, ONE k-vector transmitted — 16 KB → 1 KB at the fib scale, r× at scale) + the **fused binding sumcheck** (degree-2 over Z_q; the g-half pins W to the commitment, the h-half pins the response v; the terminal ŵ). `prove/verify_memory_argument_block` wired e2e. **fibonacci 33.0 → 19.0 KB** | `blockfold::tests` (9: roundtrips at r∈{2,4,8}, the commitment-size pin, tamper×6), `memproof::block_tests` (the e2e honest + tamper×10 suite), `memproof_e2e::byte_workload_block_and_compact_proof` |
+| **(b) The byte-guest ISA** | LB/LBU/LH/LHU/SB/SH across `decode`/`exec`/`reference`/`differential` (the random-program generator emits the sub-word surface at ALL alignments) / the witness (`merge_word` splicing, the relaxed alignment contract) / the pipeline decode table + the word-granular replay fix (the v2 trace's RAM shadow was seeded from the POST state — read-before-write sequences observed final values; now boot-region-seeded with the merged-word stores) / the assembler mnemonics / the `byte_ops` guest (1,284 cycles, in the suite) | `exec::tests::subword_load_store_all_offsets` (every lane × every op vs ground truth), the differential suite (120 programs), `memproof_e2e::subword_byte_guest_memory_argument` |
+| **(c) The virtual-Val route** | `VirtualValSpec`/`VirtualValState` in the sparse engine: the Val factor computed from (init, write events) — the k-rounds via address-bucketed `[j_w < j_e]`, the j-rounds via the LT-extension (the paper's pairwise profile), the terminal via Eq-11; the `pairwise_cost` dispatch (virtual iff `Σ reads·writes·8 < K·T` — the sparse-address regime); `build_twist_ports_virtual` (the O(K+T) witness); the V0/V1 claims via the Eq-11 stream identity (`val_vp`, `prove_val_eval`); pipeline2's RAM twists dispatch to it. **Byte-identical proofs** vs the materialized route | `twist_ports_virtual_matches_materialized_exactly` (the byte-identity pin), `virtual_val_container_scale` (K = T = 2^12, no 128 MB matrix, 8.1 s debug) |
+
+The honest ledger for this wave: the block mode's prover is ~1.7× the
+compact mode at fib scale (the fused sumcheck's product passes — see
+BENCHMARKS.md §2d for the composition); the block verifier's two key
+passes dominate its 1.1 s (the streamed-key expansion is the follow-up);
+the block geometry's MSIS table has not been re-run (SECURITY.md's gap
+list); the instruction-semantics constraint families for the sub-word
+extraction/merge (the P1 layer) are staged in the trace columns but the
+constraint polynomials remain the next focused session (as before).

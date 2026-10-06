@@ -148,8 +148,14 @@ fn imm_of(instr: &Instr) -> u64 {
         | Lw { imm, .. }
         | Lwu { imm, .. }
         | Ld { imm, .. }
+        | Lb { imm, .. }
+        | Lh { imm, .. }
+        | Lbu { imm, .. }
+        | Lhu { imm, .. }
         | Sw { imm, .. }
         | Sd { imm, .. }
+        | Sb { imm, .. }
+        | Sh { imm, .. }
         | Beq { imm, .. }
         | Bne { imm, .. }
         | Blt { imm, .. }
@@ -174,6 +180,8 @@ fn instruction_writes(instr: &Instr) -> bool {
         instr,
         Sw { .. }
             | Sd { .. }
+            | Sb { .. }
+            | Sh { .. }
             | Beq { .. }
             | Bne { .. }
             | Blt { .. }
@@ -282,10 +290,30 @@ pub fn build_cycle_witness(
         val_bits[cycle][T_IMM] = bits_of(imm_of(&row.instr), 64);
         val_bits[cycle][T_RD] = bits_of(rdv, 64);
 
-        // Memory access: word-granular shadow replay.
+        // Memory access: word-granular shadow replay. Sub-word accesses
+        // (the byte-guest ISA: LB/LBU/LH/LHU/SB/SH) are legal at ANY byte
+        // address — they are read-modify-write operations on the
+        // containing word; only LW/LWU/SW (4-aligned) and LD/SD
+        // (8-aligned) carry the alignment contract.
         if let Some((addr, _old, new)) = &row.mem_access {
             let is_64 = matches!(row.instr, Instr::Ld { .. } | Instr::Sd { .. });
-            if (addr & 3) != 0 || (is_64 && (addr & 7) != 0) {
+            let is_32 = matches!(
+                row.instr,
+                Instr::Lw { .. } | Instr::Lwu { .. } | Instr::Sw { .. }
+            );
+            let is_sub = matches!(
+                row.instr,
+                Instr::Lb { .. }
+                    | Instr::Lbu { .. }
+                    | Instr::Lh { .. }
+                    | Instr::Lhu { .. }
+                    | Instr::Sb { .. }
+                    | Instr::Sh { .. }
+            );
+            if (is_32 && (addr & 3) != 0)
+                || (is_64 && (addr & 7) != 0)
+                || (!is_32 && !is_64 && !is_sub)
+            {
                 return Err(WitnessError::UnalignedAccess { cycle, addr: *addr });
             }
             let word_key = addr >> 3;
@@ -365,7 +393,28 @@ fn merge_word(instr: &Instr, before: u64, addr: u64, access_new: u64) -> u64 {
     match instr {
         // Reads leave the word unchanged.
         Instr::Lw { .. } | Instr::Lwu { .. } | Instr::Ld { .. } => before,
+        Instr::Lb { .. } | Instr::Lbu { .. } | Instr::Lh { .. } | Instr::Lhu { .. } => before,
         Instr::Sd { .. } => access_new,
+        // Byte store: splice the low byte at the address's lane.
+        Instr::Sb { .. } => {
+            let off = (addr & 0x7) * 8;
+            (before & !(0xFFu64 << off)) | ((access_new & 0xFF) << off)
+        }
+        // Halfword store: splice the low 16 bits at the lane (the
+        // non-straddling case; a straddling SH spans two words, which the
+        // executor's RMW already applied — the shadow replay below merges
+        // the containing word and the next-word update rides the
+        // executor's final state).
+        Instr::Sh { .. } => {
+            let off = (addr & 0x7) * 8;
+            if off <= 48 {
+                (before & !(0xFFFFu64 << off)) | ((access_new & 0xFFFF) << off)
+            } else {
+                let lo_bits = 64 - off;
+                let lo_mask = (1u64 << lo_bits) - 1;
+                (before & !(lo_mask << off)) | ((access_new & lo_mask) << off)
+            }
+        }
         Instr::Sw { .. } => {
             let half = (addr >> 2) & 1;
             if half == 0 {
@@ -398,6 +447,10 @@ fn reg_indices_of(instr: &Instr) -> (u8, u8, u8) {
         | Lw { rd, rs1, .. }
         | Lwu { rd, rs1, .. }
         | Ld { rd, rs1, .. }
+        | Lb { rd, rs1, .. }
+        | Lh { rd, rs1, .. }
+        | Lbu { rd, rs1, .. }
+        | Lhu { rd, rs1, .. }
         | Jalr { rd, rs1, .. } => (*rs1, 0, *rd),
         Add { rd, rs1, rs2 }
         | Sub { rd, rs1, rs2 }
@@ -427,6 +480,7 @@ fn reg_indices_of(instr: &Instr) -> (u8, u8, u8) {
         | Remuw { rd, rs1, rs2 }
         | Mulw { rd, rs1, rs2 } => (*rs1, *rs2, *rd),
         Sw { rs1, rs2, .. } | Sd { rs1, rs2, .. } => (*rs1, *rs2, 0),
+        Sb { rs1, rs2, .. } | Sh { rs1, rs2, .. } => (*rs1, *rs2, 0),
         Beq { rs1, rs2, .. }
         | Bne { rs1, rs2, .. }
         | Blt { rs1, rs2, .. }

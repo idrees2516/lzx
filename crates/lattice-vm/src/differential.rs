@@ -155,18 +155,30 @@ fn gen_program(prng: &mut Prng, n: usize) -> Vec<u32> {
                 }
             }
             4 => {
-                // LOAD: LW/LWU/LD from sandbox bases.
-                let funct3 = [2u32, 6, 3][prng.range(3) as usize];
+                // LOAD: the full byte-guest surface — LB/LH/LW/LD/LBU/LHU/
+                // LWU from sandbox bases, at every legal alignment
+                // (sub-word loads are legal at ANY byte address, including
+                // straddling halfwords).
+                let funct3 = [0u32, 1, 2, 3, 4, 5, 6][prng.range(7) as usize];
                 let rs1 = (1u8 + prng.range(4) as u8) & 0x1f;
-                let imm = prng.range(0x60) as u32; // small offsets
+                let imm = match funct3 {
+                    2 | 6 => prng.range(0x60) as u32 & !3, // LW/LWU: 4-aligned
+                    3 => prng.range(0x60) as u32 & !7,     // LD: 8-aligned
+                    _ => prng.range(0x60) as u32,          // sub-word: any
+                };
                 enc_i(imm, rs1, funct3, r8(prng), LOAD)
             }
             5 => {
-                // STORE: SW/SD to sandbox bases.
-                let funct3 = if prng.range(2) == 0 { 2u32 } else { 3 };
+                // STORE: SB/SH/SW/SD to sandbox bases at every legal
+                // alignment (SB/SH splice at any byte offset).
+                let funct3 = [0u32, 1, 2, 3][prng.range(4) as usize];
                 let rs1 = (1u8 + prng.range(4) as u8) & 0x1f;
                 let rs2 = r8(prng);
-                let imm = prng.range(0x60) as u32;
+                let imm = match funct3 {
+                    2 => prng.range(0x60) as u32 & !3, // SW: 4-aligned
+                    3 => prng.range(0x60) as u32 & !7, // SD: 8-aligned
+                    _ => prng.range(0x60) as u32,      // SB/SH: any
+                };
                 enc_s(imm, rs2, rs1, funct3, STORE)
             }
             6 => {

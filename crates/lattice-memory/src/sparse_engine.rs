@@ -42,6 +42,346 @@ pub struct ProjectedDense {
     pub var_map: Vec<usize>,
 }
 
+/// A dense factor source: a materialized table, or the VIRTUAL current-
+/// value matrix `Val` (the virtual-Val route — `Val(k, j) = init(k) +
+/// Σ_{writes to k before j} inc`, never materialized as a `K·T` table).
+///
+/// The virtual factor spans ALL `log_k + log_t` variables (address bits
+/// first, slot bits last — the same layout the materialized Val table
+/// uses), so its round messages are IDENTICAL to the dense engine's —
+/// the proofs are byte-identical (pinned by the equivalence tests).
+#[derive(Clone)]
+pub enum DenseFactor {
+    /// A materialized table + its variable map.
+    Table(DenseMle, Vec<usize>),
+    /// The virtual current-value matrix from (init, the write events).
+    VirtualVal(VirtualValSpec),
+}
+
+impl DenseFactor {
+    /// The variable map (the virtual Val spans all variables).
+    pub fn var_map(&self) -> Vec<usize> {
+        match self {
+            DenseFactor::Table(_, vm) => vm.clone(),
+            DenseFactor::VirtualVal(spec) => (0..spec.log_k + spec.log_t).collect(),
+        }
+    }
+}
+
+/// One write event: `(address, slot j, increment)` — the value of
+/// `Val(addr, ·)` jumps by `inc` after slot `j`.
+#[derive(Clone, Debug)]
+pub struct ValWrite {
+    pub addr: u64,
+    pub j: u64,
+    pub inc: Goldilocks,
+}
+
+/// The virtual-Val specification: the O(K + T) witness replacing the
+/// O(K·T) materialized matrix (the container-scale cap lift).
+#[derive(Clone, Debug)]
+pub struct VirtualValSpec {
+    /// The public initial state (K entries).
+    pub init: Vec<Goldilocks>,
+    pub log_k: usize,
+    pub log_t: usize,
+    /// The write events, in slot order.
+    pub writes: Vec<ValWrite>,
+}
+
+impl VirtualValSpec {
+    /// Build from the ports streams (the same inputs as
+    /// `build_twist_ports`): the writes are the nonzero increments.
+    pub fn from_ports(
+        write_addr: &[u64],
+        write_val: &[Goldilocks],
+        init: &[Goldilocks],
+        log_k: usize,
+        log_t: usize,
+    ) -> Result<Self, PiopError> {
+        let k = 1usize << log_k;
+        let t = 1usize << log_t;
+        if write_addr.len() != t || write_val.len() != t || init.len() != k {
+            return Err(PiopError::Shape { expected: t, got: write_addr.len() });
+        }
+        for &a in write_addr {
+            if a >= k as u64 {
+                return Err(PiopError::AddressOutOfRange { address: a, k });
+            }
+        }
+        let mut running = init.to_vec();
+        let mut writes = Vec::new();
+        for j in 0..t {
+            let wa = write_addr[j] as usize;
+            let delta = write_val[j].sub(&running[wa]);
+            if !delta.is_zero() {
+                writes.push(ValWrite { addr: wa as u64, j: j as u64, inc: delta });
+            }
+            running[wa] = write_val[j];
+        }
+        Ok(VirtualValSpec { init: init.to_vec(), log_k, log_t, writes })
+    }
+
+    /// The number of `(read, prior write)` pairs the prover's j-rounds
+    /// will touch — the dispatch heuristic: virtual iff this stays under
+    /// the materialization cost `K·T/8`.
+    pub fn pairwise_cost(read_addr: &[u64], write_addr: &[u64]) -> u64 {
+        let t = read_addr.len();
+        let mut writes_per: std::collections::HashMap<u64, u64> = Default::default();
+        for &a in write_addr {
+            *writes_per.entry(a).or_insert(0) += 1;
+        }
+        read_addr
+            .iter()
+            .map(|&a| writes_per.get(&a).copied().unwrap_or(0))
+            .sum::<u64>()
+            .min(t as u64 * 64)
+    }
+}
+
+/// The cached Boolean-endpoint evaluation for one (round, suffix).
+#[derive(Clone, Copy)]
+struct ValCache {
+    round: usize,
+    suffix: u64,
+    v0: Goldilocks,
+    v1: Goldilocks,
+}
+
+/// The per-round state of the virtual Val factor.
+struct VirtualValState {
+    spec: VirtualValSpec,
+    /// The init MLE bound on the k-vars bound so far (starts at the full
+    /// K-table; one `fix_variables` per k-round).
+    init_bound: DenseMle,
+    /// Per-write eq weights over the BOUND k-vars.
+    w_eq: Vec<Goldilocks>,
+    /// The bound k-vars' challenges (in binding order).
+    bound_k: usize,
+    /// The bound j-vars' challenges (in binding order).
+    j_rho: Vec<Goldilocks>,
+    /// The k-round bucket cache: free-k-bit key → write indices.
+    buckets: std::collections::HashMap<u64, Vec<usize>>,
+    /// The round the bucket cache was built for.
+    bucket_round: usize,
+    /// The Boolean-endpoint cache (one entry — the engine queries each
+    /// suffix group across the whole t-loop before moving on).
+    cache: Option<ValCache>,
+    /// Precomputed write bit-vectors (MSB-first) — allocated once.
+    write_bits: Vec<Vec<Goldilocks>>,
+}
+
+impl VirtualValState {
+    fn new(spec: VirtualValSpec) -> Self {
+        let nw = spec.writes.len();
+        let init_mle = DenseMle {
+            num_vars: spec.log_k,
+            evaluations: spec.init.clone(),
+        };
+        let log_t = spec.log_t;
+        let write_bits: Vec<Vec<Goldilocks>> = spec
+            .writes
+            .iter()
+            .map(|w| {
+                (0..log_t)
+                    .map(|b| Goldilocks::from_u64((w.j >> (log_t - 1 - b)) & 1))
+                    .collect()
+            })
+            .collect();
+        VirtualValState {
+            w_eq: vec![Goldilocks::ONE; nw],
+            init_bound: init_mle,
+            bound_k: 0,
+            j_rho: Vec::new(),
+            buckets: Default::default(),
+            bucket_round: usize::MAX,
+            cache: None,
+            write_bits,
+            spec,
+        }
+    }
+
+    /// The k-bucket for a round: writes grouped by their address's bits on
+    /// the free k-vars (vars `ell+1 .. log_k-1` — the low
+    /// `log_k-1-ell` address bits, matching `suffix >> log_t`).
+    fn build_buckets(&mut self, ell: usize) {
+        if self.bucket_round == ell {
+            return;
+        }
+        self.buckets.clear();
+        let free_k = self.spec.log_k.saturating_sub(1 + ell);
+        let mask: u64 = if free_k >= 64 { u64::MAX } else { (1u64 << free_k) - 1 };
+        for (wi, w) in self.spec.writes.iter().enumerate() {
+            let key = w.addr & mask;
+            self.buckets.entry(key).or_default().push(wi);
+        }
+        self.bucket_round = ell;
+    }
+
+    /// The partial value of the Val MLE at the point
+    /// `(ρ_0..ρ_{ell−1}, t, suffix-bits on ell+1..n−1)`.
+    ///
+    /// The Val factor's contribution is LINEAR in the round variable `t`
+    /// (the init lerp and the per-write eq-lerp / LT-extension are all
+    /// degree ≤ 1 in `t`), so the value at ANY node `t` is the lerp of
+    /// the two Boolean evaluations. The Boolean pair is cached per
+    /// (round, suffix) — the engine's `deg+1`-node t-loop costs two
+    /// passes per suffix group, not `2·(deg+1)`.
+    fn partial_value(
+        &mut self,
+        ell: usize,
+        t: Goldilocks,
+        suffix: u64,
+    ) -> Goldilocks {
+        let (v0, v1) = match self.cache {
+            Some(c) if c.round == ell && c.suffix == suffix => (c.v0, c.v1),
+            _ => {
+                let v0 = self.partial_value_bool(ell, false, suffix);
+                let v1 = self.partial_value_bool(ell, true, suffix);
+                self.cache = Some(ValCache { round: ell, suffix, v0, v1 });
+                (v0, v1)
+            }
+        };
+        let one = Goldilocks::ONE;
+        one.sub(&t).mul(&v0).add(&t.mul(&v1))
+    }
+
+    /// The partial value at the round variable set to the Boolean `bit`.
+    fn partial_value_bool(
+        &mut self,
+        ell: usize,
+        bit: bool,
+        suffix: u64,
+    ) -> Goldilocks {
+        let log_k = self.spec.log_k;
+        let log_t = self.spec.log_t;
+        let n = log_k + log_t;
+        let one = Goldilocks::ONE;
+        let t = if bit { one } else { Goldilocks::ZERO };
+        if ell < log_k {
+            // ---- A k-round: the free j-vars are all Boolean (the entry's
+            // slot bits), so LT̃(j_w, j_e) = [j_w < j_e] as integers. ----
+            // The init part: the bound-init table's partial value at
+            // (bound_k, t, the suffix's k-bits) — the same arithmetic as
+            // `dense_partial_value` with var_map (0..log_k).
+            let init_part = {
+                let var_map: Vec<usize> = (0..log_k).collect();
+                let bound = self.bound_k;
+                let len = log_k;
+                if bound < len && var_map[bound] == ell {
+                    let points = 1usize << (len - bound - 1);
+                    let rem = suffix_bits_at(suffix, n, &var_map[bound + 1..]);
+                    let a = self.init_bound.evaluations[rem];
+                    let b = self.init_bound.evaluations[rem + points];
+                    a.add(&b.sub(&a).mul(&t))
+                } else {
+                    let rem = suffix_bits_at(suffix, n, &var_map[bound..]);
+                    self.init_bound.evaluations[rem]
+                }
+            };
+            // The Inc part: the bucket for the suffix's free-k bits; each
+            // write contributes w_eq·inc·eq_lerp(t, addr's var-ell bit)·[j_w < j_e].
+            self.build_buckets(ell);
+            let j_e = suffix & ((1u64 << log_t) - 1); // the low log_t bits = the j-vars
+            let mut acc = Goldilocks::ZERO;
+            if let Some(bucket) = self.buckets.get(&(suffix >> log_t)) {
+                for &wi in bucket {
+                    let w = &self.spec.writes[wi];
+                    let bit_ell = (w.addr >> (log_k - 1 - ell)) & 1;
+                    // At the Boolean node t = bit: eq_lerp(t, bit_ell) is
+                    // 1 iff bit == bit_ell.
+                    if bit_ell == (bit as u64) {
+                        let _ = one;
+                        if w.j < j_e {
+                            acc = acc.add(&self.w_eq[wi].mul(&w.inc));
+                        }
+                    }
+                }
+            }
+            init_part.add(&acc)
+        } else {
+            // ---- A j-round: all k-vars are bound (x_k = ρ_k); the Inc
+            // part sums over ALL writes with the per-write k-eq weights
+            // and the LT-extension at the mixed j-point (the paper's
+            // pairwise cost profile — the dispatch heuristic keeps this
+            // on the sparse-address regime). ----
+            let init_part = self.init_bound.evaluations[0];
+            // The mixed j-point: (j_rho on the bound j-vars, t on var
+            // ell, the suffix's free j-bits).
+            let bound_j = ell - log_k; // the number of j-vars bound so far (incl. the round var)
+            let x_j: Vec<Goldilocks> = (0..log_t)
+                .map(|v| {
+                    if v < bound_j {
+                        self.j_rho[v]
+                    } else if v == bound_j {
+                        t
+                    } else {
+                        // The suffix's bit for the full-space var log_k+v:
+                        // the suffix covers vars ell+1..n-1, MSB-first.
+                        let bit = (suffix >> (n - 1 - (log_k + v))) & 1;
+                        Goldilocks::from_u64(bit)
+                    }
+                })
+                .collect();
+            let mut acc = Goldilocks::ZERO;
+            for (wi, w) in self.spec.writes.iter().enumerate() {
+                // LT̃(j_w, x_j) — allocation-free inline (the same
+                // recurrence as DenseMle::lt_extension).
+                let bits = &self.write_bits[wi];
+                let mut lt = Goldilocks::ZERO;
+                let mut prefix = Goldilocks::ONE;
+                for (a, b) in bits.iter().zip(x_j.iter()) {
+                    let term = Goldilocks::ONE.sub(a).mul(b);
+                    lt = lt.add(&prefix.mul(&term));
+                    let same = a.mul(b).add(
+                        &Goldilocks::ONE.sub(a).mul(&Goldilocks::ONE.sub(b)),
+                    );
+                    prefix = prefix.mul(&same);
+                }
+                acc = acc.add(&self.w_eq[wi].mul(&w.inc).mul(&lt));
+            }
+            init_part.add(&acc)
+        }
+    }
+
+    /// Bind the round variable (index `ell`) to `r`.
+    fn bind(&mut self, ell: usize, r: Goldilocks) {
+        let log_k = self.spec.log_k;
+        self.cache = None; // invalidate the endpoint cache
+        if ell < log_k {
+            // The init table halves.
+            if let Ok(bound) = self.init_bound.fix_variables(&[r]) {
+                self.init_bound = bound;
+            }
+            // The write weights pick up eq(r, addr's var-ell bit).
+            for (wi, w) in self.spec.writes.iter().enumerate() {
+                let bit = (w.addr >> (log_k - 1 - ell)) & 1;
+                self.w_eq[wi] = self.w_eq[wi].mul(&eq_point(&r, bit));
+            }
+            self.bound_k += 1;
+            self.bucket_round = usize::MAX; // invalidate the cache
+        } else {
+            self.j_rho.push(r);
+        }
+    }
+
+    /// The terminal claim: Val̃(ρ) via the Eq-11 identity —
+    /// `init̃(ρ_k) + Σ_w eq(ρ_k, addr_w)·inc_w·LT̃(j_w, ρ_j)`.
+    fn terminal(&self) -> Goldilocks {
+        let init_part = self.init_bound.evaluations[0];
+        let mut acc = Goldilocks::ZERO;
+        for (wi, w) in self.spec.writes.iter().enumerate() {
+            let bits = &self.write_bits[wi];
+            let lt = match DenseMle::lt_extension(bits, &self.j_rho) {
+                Ok(v) => v,
+                Err(_) => Goldilocks::ZERO,
+            };
+            acc = acc.add(&self.w_eq[wi].mul(&w.inc).mul(&lt));
+        }
+        init_part.add(&acc)
+    }
+}
+
 /// A sparse factor: nonzero entries over its own variable subset.
 ///
 /// `entries[j] = (own_index, value)`; the own index bits pair with
@@ -74,8 +414,14 @@ pub struct SparseTerm {
 pub struct SparseInstance {
     pub num_vars: usize,
     pub sparse: Vec<SparseFactor>,
-    pub dense: Vec<ProjectedDense>,
+    pub dense: Vec<DenseFactor>,
     pub terms: Vec<SparseTerm>,
+}
+
+/// The working state of one dense factor (materialized or virtual).
+enum DenseState {
+    Table(DenseMle),
+    Virtual(Box<VirtualValState>),
 }
 
 /// Prover output: the proof plus per-factor evaluation claims.
@@ -316,20 +662,28 @@ pub fn prove_sparse_sumcheck_owned(
             m
         })
         .collect();
-    // Dense factor working state: the MLEs are MOVED in (zero-copy) and
-    // bound in place (fix_variables is already the SIMD first-half
-    // binding).
-    let mut dense_state: Vec<DenseMle> = Vec::with_capacity(inst.dense.len());
+    // Dense factor working state: the Table MLEs are MOVED in
+    // (zero-copy; fix_variables is already the SIMD first-half binding)
+    // and the virtual-Val factors start their O(K+T) write-event state.
+    let mut dense_state: Vec<DenseState> = Vec::with_capacity(inst.dense.len());
     for f in &mut inst.dense {
-        dense_state.push(std::mem::replace(
-            &mut f.mle,
-            DenseMle {
-                num_vars: 0,
-                evaluations: Vec::new(),
-            },
-        ));
+        dense_state.push(match f {
+            DenseFactor::Table(mle, _) => DenseState::Table(std::mem::replace(
+                mle,
+                DenseMle {
+                    num_vars: 0,
+                    evaluations: Vec::new(),
+                },
+            )),
+            DenseFactor::VirtualVal(spec) => {
+                DenseState::Virtual(Box::new(VirtualValState::new(spec.clone())))
+            }
+        });
     }
     let mut dense_bound: Vec<usize> = vec![0; inst.dense.len()];
+    // The per-factor var maps, hoisted for the round loop (the virtual
+    // Val spans ALL variables — the identity map).
+    let dense_var_maps: Vec<Vec<usize>> = inst.dense.iter().map(|f| f.var_map()).collect();
 
     // Scratch buffers reused across rounds / groups / factors.
     let mut eqw_buf: Vec<Goldilocks> = Vec::new();
@@ -372,32 +726,50 @@ pub fn prove_sparse_sumcheck_owned(
                 while end < pos.len() && (pos[end] & suffix_mask) == suffix {
                     end += 1;
                 }
-                // Dense endpoints: (a, b) once per group and factor.
+                // Dense endpoints: (a, b) once per group and factor. Table
+                // factors read the two children of the bound array directly
+                // (contiguous by the canonical order); the virtual Val
+                // resolves its Boolean pair through the endpoint cache —
+                // its partial value is AFFINE in the round variable, so the
+                // pair pins every t-node value (byte-identical to the
+                // per-node partial_value calls the materialized route pins).
                 dense_ab.clear();
                 for &di in &term.dense {
-                    let df = &inst.dense[di];
+                    let var_map: &[usize] = &dense_var_maps[di];
                     let bound = dense_bound[di];
-                    let len = df.var_map.len();
-                    let arr = &dense_state[di].evaluations;
-                    if bound < len && df.var_map[bound] == ell {
-                        let points = 1usize << (len - bound - 1);
-                        let rem = suffix_bits_at(suffix, n, &df.var_map[bound + 1..]);
-                        if rem + points >= arr.len() {
-                            return Err(PiopError::Shape {
-                                expected: arr.len(),
-                                got: rem + points,
-                            });
+                    let len = var_map.len();
+                    match &mut dense_state[di] {
+                        DenseState::Table(mle) => {
+                            let arr = &mle.evaluations;
+                            if bound < len && var_map[bound] == ell {
+                                let points = 1usize << (len - bound - 1);
+                                let rem = suffix_bits_at(suffix, n, &var_map[bound + 1..]);
+                                if rem + points >= arr.len() {
+                                    return Err(PiopError::Shape {
+                                        expected: arr.len(),
+                                        got: rem + points,
+                                    });
+                                }
+                                dense_ab.push((arr[rem], arr[rem + points], true));
+                            } else {
+                                let rem = suffix_bits_at(suffix, n, &var_map[bound..]);
+                                if rem >= arr.len() {
+                                    return Err(PiopError::Shape {
+                                        expected: arr.len(),
+                                        got: rem,
+                                    });
+                                }
+                                dense_ab.push((arr[rem], Goldilocks::ZERO, false));
+                            }
                         }
-                        dense_ab.push((arr[rem], arr[rem + points], true));
-                    } else {
-                        let rem = suffix_bits_at(suffix, n, &df.var_map[bound..]);
-                        if rem >= arr.len() {
-                            return Err(PiopError::Shape {
-                                expected: arr.len(),
-                                got: rem,
-                            });
+                        DenseState::Virtual(vs) => {
+                            // The virtual Val spans ALL variables (identity
+                            // map): every round variable is one of its own, so
+                            // the endpoints are the two Boolean partials.
+                            let a = vs.partial_value(ell, Goldilocks::ZERO, suffix);
+                            let b = vs.partial_value(ell, Goldilocks::ONE, suffix);
+                            dense_ab.push((a, b, true));
                         }
-                        dense_ab.push((arr[rem], Goldilocks::ZERO, false));
                     }
                 }
                 // Sparse partitioned sums: W0 over the group's bit-0 run,
@@ -428,7 +800,9 @@ pub fn prove_sparse_sumcheck_owned(
                         sparse_ab.push((w, Goldilocks::ZERO, false));
                     }
                 }
-                // Assemble the t-node values from the affine forms.
+                // Assemble the t-node values from the affine forms (every
+                // factor's contribution — Table, virtual, and sparse alike —
+                // is degree ≤ 1 in the round variable).
                 for (t, ev) in evals_at.iter_mut().enumerate() {
                     let t_fe = t_nodes[t];
                     let mut prod = term.coeff;
@@ -494,11 +868,16 @@ pub fn prove_sparse_sumcheck_owned(
             }
         }
         for (di, df) in inst.dense.iter().enumerate() {
-            let len = df.var_map.len();
-            if dense_bound[di] < len && df.var_map[dense_bound[di]] == ell {
-                dense_state[di] = dense_state[di]
-                    .fix_variables(&[r])
-                    .map_err(PiopError::Mle)?;
+            let len = df.var_map().len();
+            if dense_bound[di] < len && dense_var_maps[di][dense_bound[di]] == ell {
+                match &mut dense_state[di] {
+                    DenseState::Table(mle) => {
+                        *mle = mle
+                            .fix_variables(&[r])
+                            .map_err(PiopError::Mle)?;
+                    }
+                    DenseState::Virtual(vs) => vs.bind(ell, r),
+                }
                 dense_bound[di] += 1;
             }
         }
@@ -512,7 +891,11 @@ pub fn prove_sparse_sumcheck_owned(
     }
     let mut dense_claims = Vec::with_capacity(inst.dense.len());
     for dstate in &dense_state {
-        dense_claims.push(dstate.evaluations[0]);
+        let claim = match dstate {
+            DenseState::Table(mle) => mle.evaluations[0],
+            DenseState::Virtual(vs) => vs.terminal(),
+        };
+        dense_claims.push(claim);
     }
     let mut final_claim = Goldilocks::ZERO;
     for term in &inst.terms {
@@ -600,15 +983,9 @@ pub fn prove_shout_sparse(
     let positions: Vec<u64> = (0..t)
         .map(|j| (read_addresses[j] << log_t) | j as u64)
         .collect();
-    let eq_j = ProjectedDense {
-        mle: DenseMle::eq_extension(&rcycle),
-        var_map: (log_k..log_k + log_t).collect(),
-    };
+    let eq_j = DenseFactor::Table(DenseMle::eq_extension(&rcycle), (log_k..log_k + log_t).collect());
     let table_m = DenseMle::new(table.to_vec())?;
-    let val_f = ProjectedDense {
-        mle: table_m,
-        var_map: (0..log_k).collect(),
-    };
+    let val_f = DenseFactor::Table(table_m, (0..log_k).collect());
     let inst = SparseInstance {
         num_vars: log_k + log_t,
         sparse: ra_dims,
@@ -724,7 +1101,7 @@ pub fn prove_onehot_sparse(
         // Dim-space numbering: address vars [0..log_n), then cycle vars.
         let mut var_map: Vec<usize> = (0..log_n).collect();
         var_map.extend(log_n..log_n + log_t);
-        let eq_f = ProjectedDense { mle: eq_m, var_map };
+        let eq_f = DenseFactor::Table(eq_m, var_map);
         let mut entries = Vec::with_capacity(t);
         for j in 0..t {
             entries.push((
@@ -765,17 +1142,11 @@ pub fn prove_onehot_sparse(
     }
 
     // 3. raf-evaluation over the full (k, j) space.
-    let eq_j = ProjectedDense {
-        mle: DenseMle::eq_extension(&r_prime),
-        var_map: (log_k..log_k + log_t).collect(),
-    };
+    let eq_j = DenseFactor::Table(DenseMle::eq_extension(&r_prime), (log_k..log_k + log_t).collect());
     let w_evals: Vec<Goldilocks> = (0..layout.k())
         .map(|k| Goldilocks::from_u64(k as u64))
         .collect();
-    let w_f = ProjectedDense {
-        mle: DenseMle::new(w_evals)?,
-        var_map: (0..log_k).collect(),
-    };
+    let w_f = DenseFactor::Table(DenseMle::new(w_evals)?, (0..log_k).collect());
     let mut ra_dims = Vec::with_capacity(d);
     for i in 0..d {
         let mut var_map: Vec<usize> = (i * log_n..(i + 1) * log_n).collect();
@@ -858,6 +1229,11 @@ pub struct TwistPortsWitness {
     pub init: Vec<Goldilocks>,
     /// Public final state (K entries).
     pub final_state: Vec<Goldilocks>,
+    /// The virtual-Val route: when set, the prover computes the Val
+    /// factors from this O(K + T) spec instead of the materialized
+    /// `val` table (the container-scale cap lift). The proofs are
+    /// byte-identical (pinned by the equivalence tests).
+    pub val_spec: Option<VirtualValSpec>,
 }
 
 /// Build the ports witness. `write_val[j]` is the value written at cycle
@@ -910,6 +1286,54 @@ pub fn build_twist_ports(
         inc,
         init: init.to_vec(),
         final_state: running,
+        val_spec: None,
+    })
+}
+
+/// Build the ports witness on the VIRTUAL-VAL route: the O(K·T)
+/// materialized `val` matrix is replaced by the O(K + T) write-event
+/// spec — the container-scale cap (memory) is lifted while the proofs
+/// stay byte-identical. The `read`/`write` streams and the increment
+/// entries are the same as `build_twist_ports`.
+#[allow(clippy::too_many_arguments)]
+pub fn build_twist_ports_virtual(
+    read_addr: &[u64],
+    write_addr: &[u64],
+    write_val: &[Goldilocks],
+    init: &[Goldilocks],
+    log_k: usize,
+    log_t: usize,
+) -> Result<TwistPortsWitness, PiopError> {
+    let k = 1usize << log_k;
+    let t = 1usize << log_t;
+    if read_addr.len() != t
+        || write_addr.len() != t
+        || write_val.len() != t
+        || init.len() != k
+    {
+        return Err(PiopError::Shape { expected: t, got: read_addr.len() });
+    }
+    let val_spec = VirtualValSpec::from_ports(write_addr, write_val, init, log_k, log_t)?;
+    let mut running = init.to_vec();
+    let mut inc: Vec<(u64, Goldilocks)> = Vec::new();
+    for j in 0..t {
+        let wa = write_addr[j] as usize;
+        let delta = write_val[j].sub(&running[wa]);
+        if !delta.is_zero() {
+            inc.push((((wa as u64) << log_t) | j as u64, delta));
+        }
+        running[wa] = write_val[j];
+    }
+    Ok(TwistPortsWitness {
+        log_k,
+        log_t,
+        read_addr: read_addr.to_vec(),
+        write_addr: write_addr.to_vec(),
+        val: Vec::new(), // never materialized on this route
+        inc,
+        init: init.to_vec(),
+        final_state: running,
+        val_spec: Some(val_spec),
     })
 }
 
@@ -975,14 +1399,15 @@ pub fn prove_twist_ports_sparse(
             .collect::<Result<Vec<_>, PiopError>>()?;
         ra_dims.push(SparseFactor { entries, var_map });
     }
-    let eq_j = ProjectedDense {
-        mle: DenseMle::eq_extension(&rcycle),
-        var_map: (log_k..log_k + log_t).collect(),
-    };
-    let val_mle = DenseMle::new(w.val.clone())?;
-    let val_f = ProjectedDense {
-        mle: val_mle,
-        var_map: (0..log_k + log_t).collect(),
+    let eq_j = DenseFactor::Table(DenseMle::eq_extension(&rcycle), (log_k..log_k + log_t).collect());
+    // The Val factor: the virtual route (O(K + T) state, the container-
+    // scale cap lift) or the materialized table — byte-identical proofs.
+    let val_f = match &w.val_spec {
+        Some(spec) => DenseFactor::VirtualVal(spec.clone()),
+        None => {
+            let val_mle = DenseMle::new(w.val.clone())?;
+            DenseFactor::Table(val_mle, (0..log_k + log_t).collect())
+        }
     };
     let inst1 = SparseInstance {
         num_vars: log_k + log_t,
@@ -1001,18 +1426,14 @@ pub fn prove_twist_ports_sparse(
 
     // ---- Leg 2: Inc definition over (k, j). ----
     let r_inc = transcript.challenge_fields(b"twist-rinc", log_k + log_t)?;
-    let eq_full = ProjectedDense {
-        mle: DenseMle::eq_extension(&r_inc),
-        var_map: (0..log_k + log_t).collect(),
-    };
-    let wv_proj = ProjectedDense {
-        mle: wv_col.clone(),
-        var_map: (log_k..log_k + log_t).collect(),
-    };
-    let val_mle2 = DenseMle::new(w.val.clone())?;
-    let val_f2 = ProjectedDense {
-        mle: val_mle2,
-        var_map: (0..log_k + log_t).collect(),
+    let eq_full = DenseFactor::Table(DenseMle::eq_extension(&r_inc), (0..log_k + log_t).collect());
+    let wv_proj = DenseFactor::Table(wv_col.clone(), (log_k..log_k + log_t).collect());
+    let val_f2 = match &w.val_spec {
+        Some(spec) => DenseFactor::VirtualVal(spec.clone()),
+        None => {
+            let val_mle2 = DenseMle::new(w.val.clone())?;
+            DenseFactor::Table(val_mle2, (0..log_k + log_t).collect())
+        }
     };
     let inc_positions: Vec<u64> = w.inc.iter().map(|&(p, _)| p).collect();
     let inc_entries: Vec<(u64, Goldilocks)> = w.inc.clone();
@@ -1075,10 +1496,7 @@ pub fn prove_twist_ports_sparse(
     // ---- Leg 3: telescoping. ----
     let r_tel = transcript.challenge_fields(b"twist-rtel", log_k + log_t)?;
     let r_k: Vec<Goldilocks> = r_tel.iter().take(log_k).copied().collect();
-    let eq_k = ProjectedDense {
-        mle: DenseMle::eq_extension(&r_k),
-        var_map: (0..log_k).collect(),
-    };
+    let eq_k = DenseFactor::Table(DenseMle::eq_extension(&r_k), (0..log_k).collect());
     let inc_f3 = SparseFactor {
         entries: inc_entries,
         var_map: (0..log_k + log_t).collect(),
@@ -1554,6 +1972,7 @@ mod tests {
 #[cfg(test)]
 mod identity_differential {
     use super::*;
+    use crate::WitnessResolver;
     use lattice_sumcheck::sumcheck;
     use lattice_sumcheck::VirtualPolynomial;
 
@@ -1693,18 +2112,9 @@ mod identity_differential {
                     },
                 ],
                 dense: vec![
-                    ProjectedDense {
-                        mle: eq.clone(),
-                        var_map: var_map.clone(),
-                    },
-                    ProjectedDense {
-                        mle: row_a.clone(),
-                        var_map: var_map.clone(),
-                    },
-                    ProjectedDense {
-                        mle: row_b.clone(),
-                        var_map: var_map.clone(),
-                    },
+                    DenseFactor::Table(eq.clone(), var_map.clone()),
+                    DenseFactor::Table(row_a.clone(), var_map.clone()),
+                    DenseFactor::Table(row_b.clone(), var_map.clone()),
                 ],
                 terms: vec![
                     SparseTerm {
@@ -1743,5 +2153,155 @@ mod identity_differential {
             assert_eq!(out_d.final_claim, out_s.final_claim);
             assert_eq!(out_d.challenges, out_s.challenges);
         }
+    }
+
+    // ---- The virtual-Val route (the container-scale cap lift). ----
+
+    /// The read values from the streams (the running map — no Val matrix).
+    fn rv_from_streams(
+        read_addr: &[u64],
+        write_addr: &[u64],
+        write_val: &[Goldilocks],
+        init: &[Goldilocks],
+    ) -> Vec<Goldilocks> {
+        let mut running = init.to_vec();
+        let mut out = Vec::with_capacity(read_addr.len());
+        for j in 0..read_addr.len() {
+            out.push(running[read_addr[j] as usize]);
+            running[write_addr[j] as usize] = write_val[j];
+        }
+        out
+    }
+
+    #[test]
+    fn twist_ports_virtual_matches_materialized_exactly() {
+        // The SAME streams proven through the materialized table and the
+        // virtual (init, writes) spec must produce byte-identical proofs —
+        // the pin that the virtual route changes nothing on the wire.
+        let log_k = 3usize;
+        let log_t = 3usize;
+        let k = 8usize;
+        let t = 8usize;
+        let init: Vec<Goldilocks> = (0..k).map(|i| fe((i as u64) * 3 + 1)).collect();
+        // A read-write plan with repeated addresses (stale-read structure).
+        let read_addr: Vec<u64> = vec![0, 5, 2, 5, 0, 7, 2, 5];
+        let write_addr: Vec<u64> = vec![5, 2, 0, 5, 7, 2, 5, 0];
+        let write_val: Vec<Goldilocks> =
+            (0..t).map(|j| fe((j as u64 * 17 + 3) % 97)).collect();
+        let rv_vals =
+            rv_from_streams(&read_addr, &write_addr, &write_val, &init);
+        let rv_col = DenseMle::new(rv_vals).ok().unwrap();
+        let wv_col = DenseMle::new(write_val.clone()).ok().unwrap();
+        let resolver = WitnessResolver {
+            read_values: Some(&rv_col),
+            write_values: Some(&wv_col),
+            ..Default::default()
+        };
+        // Materialized.
+        let w_mat = build_twist_ports(&read_addr, &write_addr, &write_val, &init, log_k, log_t)
+            .ok().unwrap();
+        let mut t1 = Transcript::new_default(b"lzx-twist-ports");
+        let (proof_mat, _) = prove_twist_ports_sparse(&w_mat, &wv_col, &resolver, &mut t1)
+            .map_err(|e| panic!("materialized prove err: {e:?}")).ok().unwrap();
+        // Virtual.
+        let w_virt = build_twist_ports_virtual(
+            &read_addr, &write_addr, &write_val, &init, log_k, log_t,
+        )
+        .ok().unwrap();
+        assert!(w_virt.val.is_empty(), "the virtual route never materializes");
+        let mut t2 = Transcript::new_default(b"lzx-twist-ports");
+        let (proof_virt, claims_virt) = prove_twist_ports_sparse(&w_virt, &wv_col, &resolver, &mut t2)
+            .map_err(|e| panic!("virtual prove err: {e:?}")).ok().unwrap();
+        // Byte-identical proofs.
+        assert_eq!(proof_mat.read_checking.rounds, proof_virt.read_checking.rounds);
+        assert_eq!(proof_mat.inc_definition.rounds, proof_virt.inc_definition.rounds);
+        assert_eq!(proof_mat.telescoping.rounds, proof_virt.telescoping.rounds);
+        // The virtual proof verifies through the SAME verifier.
+        struct TableResolver<'a> {
+            claims: &'a [FactorClaim],
+        }
+        impl<'a> FactorResolver for TableResolver<'a> {
+            fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
+                for (f, p, v) in self.claims {
+                    if *f == factor && p.as_slice() == point {
+                        return Ok(*v);
+                    }
+                }
+                Err(PiopError::MissingFactor { factor })
+            }
+        }
+        let table_res = TableResolver { claims: &claims_virt };
+        let mut vt = Transcript::new_default(b"lzx-twist-ports");
+        let res = verify_twist_ports_checked(
+            &proof_virt, &w_virt.init, &w_virt.final_state, log_k, log_t, log_k,
+            &table_res, &mut vt,
+        );
+        assert!(res.is_ok(), "virtual ports twist must verify: {:?}", res.err());
+    }
+
+    #[test]
+    fn virtual_val_container_scale() {
+        // K = 2^12, T = 2^12 — the MATERIALIZED route would allocate the
+        // 2^24-cell Val matrix (128 MB of field elements); the virtual
+        // route carries O(K + T) state. Prove + verify end-to-end.
+        let log_k = 12usize;
+        let log_t = 12usize;
+        let k = 1usize << log_k;
+        let t = 1usize << log_t;
+        let init: Vec<Goldilocks> = (0..k).map(|i| fe((i as u64 * 7 + 1) % 1009)).collect();
+        // Sparse-address traffic: reads and writes scattered over the
+        // container (the regime the dispatch heuristic selects virtual).
+        let read_addr: Vec<u64> = (0..t)
+            .map(|j| (j as u64).wrapping_mul(0x9E3779B97F4A7C15) >> (64 - log_k))
+            .collect();
+        let write_addr: Vec<u64> = (0..t)
+            .map(|j| ((j as u64).wrapping_mul(0x632BE59BD9B4E019)) >> (64 - log_k))
+            .collect();
+        let write_val: Vec<Goldilocks> =
+            (0..t).map(|j| fe((j as u64 * 13 + 5) % 251)).collect();
+        let rv_vals = rv_from_streams(&read_addr, &write_addr, &write_val, &init);
+        let rv_col = DenseMle::new(rv_vals).ok().unwrap();
+        let wv_col = DenseMle::new(write_val.clone()).ok().unwrap();
+        let resolver = WitnessResolver {
+            read_values: Some(&rv_col),
+            write_values: Some(&wv_col),
+            ..Default::default()
+        };
+        let w = build_twist_ports_virtual(
+            &read_addr, &write_addr, &write_val, &init, log_k, log_t,
+        )
+        .ok().unwrap();
+        assert!(w.val.is_empty());
+        let mut tr = Transcript::new_default(b"lzx-twist-ports");
+        let start = std::time::Instant::now();
+        let (proof, claims) = prove_twist_ports_sparse(&w, &wv_col, &resolver, &mut tr)
+            .map_err(|e| panic!("container-scale virtual prove err: {e:?}"))
+            .ok().unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(proof.read_checking.rounds.len(), log_k + log_t);
+        // Verify through the standard verifier with the claim table.
+        struct TableResolver<'a> {
+            claims: &'a [FactorClaim],
+        }
+        impl<'a> FactorResolver for TableResolver<'a> {
+            fn eval(&self, factor: FactorId, point: &[Goldilocks]) -> Result<Goldilocks, PiopError> {
+                for (f, p, v) in self.claims {
+                    if *f == factor && p.as_slice() == point {
+                        return Ok(*v);
+                    }
+                }
+                Err(PiopError::MissingFactor { factor })
+            }
+        }
+        let table_res = TableResolver { claims: &claims };
+        let mut vt = Transcript::new_default(b"lzx-twist-ports");
+        let res = verify_twist_ports_checked(
+            &proof, &w.init, &w.final_state, log_k, log_t, log_k, &table_res, &mut vt,
+        );
+        assert!(res.is_ok(), "container-scale virtual twist must verify: {:?}", res.err());
+        assert!(
+            elapsed.as_secs() < 120,
+            "container-scale virtual twist must be tractable, took {elapsed:?}"
+        );
     }
 }

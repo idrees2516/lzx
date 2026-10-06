@@ -130,7 +130,7 @@ pub fn prove_v3(
     if rows.is_empty() {
         return Err(PipelineError::BadShape("empty trace".into()));
     }
-    let trace = build_trace(&state, &rows)?;
+    let trace = build_trace(&state, &rows, &[(0x1000, program), (0x3000, public_input)])?;
     let log_t = trace.log_t;
     // ---- 2. The public RAM window (same layout as v2). ----
     let num_input_words = public_input.len().div_ceil(8).max(1);

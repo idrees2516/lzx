@@ -7,8 +7,9 @@ use std::time::Instant;
 use lattice_guest::asm::{run_on_vm, AssembledProgram};
 use lattice_guest::programs::{suite, GuestProgram};
 use lattice_zkvm::memproof::{
-    prove_memory_argument, prove_memory_argument_compact, verify_memory_argument,
-    verify_memory_argument_compact, CompactMemoryProof,
+    prove_memory_argument, prove_memory_argument_block, prove_memory_argument_compact,
+    verify_memory_argument, verify_memory_argument_block, verify_memory_argument_compact,
+    BlockMemoryProof, CompactMemoryProof,
 };
 
 /// Programs above this cycle count skip the memory-argument proof (the
@@ -24,10 +25,8 @@ fn main() {
             return;
         }
     };
-    println!(
-        "| program | cycles | prove (ms) | verify (ms) | clear (KB) | compact (KB) | proved |"
-    );
-    println!("|---|---|---|---|---|---|---|");
+    println!("| program | cycles | prove (ms) | verify (ms) | clear (KB) | compact (KB) | block (KB) | proved |");
+    println!("|---|---|---|---|---|---|---|---|");
     for prog in &programs {
         let asm_prog = AssembledProgram {
             code: prog.image.clone(),
@@ -43,27 +42,28 @@ fn main() {
             }
         };
         let cycles = run.steps;
-        let (prove_ms, verify_ms, clear_kb, compact_kb, proved) = if cycles <= PROVE_CYCLE_CAP {
-            match measure_memory_argument(prog) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("{}: memory-argument failed: {e:?}", prog.name);
-                    (String::from("err"), String::from("err"), 0.0, 0.0, false)
+        let (prove_ms, verify_ms, clear_kb, compact_kb, block_kb, proved) =
+            if cycles <= PROVE_CYCLE_CAP {
+                match measure_memory_argument(prog) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("{}: memory-argument failed: {e:?}", prog.name);
+                        (String::from("err"), String::from("err"), 0.0, 0.0, 0.0, false)
+                    }
                 }
-            }
-        } else {
-            (String::from("-"), String::from("-"), 0.0, 0.0, false)
-        };
+            } else {
+                (String::from("-"), String::from("-"), 0.0, 0.0, 0.0, false)
+            };
         println!(
-            "| {} | {} | {} | {} | {:.1} | {:.1} | {} |",
-            prog.name, cycles, prove_ms, verify_ms, clear_kb, compact_kb, proved
+            "| {} | {} | {} | {} | {:.1} | {:.1} | {:.1} | {} |",
+            prog.name, cycles, prove_ms, verify_ms, clear_kb, compact_kb, block_kb, proved
         );
     }
 }
 
 fn measure_memory_argument(
     prog: &GuestProgram,
-) -> Result<(String, String, f64, f64, bool), String> {
+) -> Result<(String, String, f64, f64, f64, bool), String> {
     // Adaptive RAM window: the smallest power-of-two word window whose
     // prove does not fail closed on an out-of-window address.
     let fetch_words = prog.image.len().div_ceil(4);
@@ -120,13 +120,79 @@ fn measure_memory_argument(
         "  {{compact}} {}: prove {} ms, verify {} ms, size {:.1} KB",
         prog.name, compact_prove_ms, compact_verify_ms, compact_kb
     );
+
+    // The block-commit mode: prove + verify + size (ONE packed block
+    // commitment per bundle + the fused binding sumcheck).
+    let t4 = Instant::now();
+    let mut block: Option<BlockMemoryProof> = None;
+    for ram_log_k in 4..=12usize {
+        if let Ok((p, _)) = prove_memory_argument_block(
+            &prog.image,
+            &prog.public_input,
+            1 << 22,
+            ram_log_k,
+            fetch_log_k,
+        ) {
+            block = Some(p);
+            break;
+        }
+    }
+    let block = block.ok_or_else(|| "no window fits (block)".to_string())?;
+    let block_prove_ms = t4.elapsed().as_millis();
+    let t5 = Instant::now();
+    verify_memory_argument_block(&block, &prog.image, &prog.public_input)
+        .map_err(|e| format!("block verify: {e:?}"))?;
+    let block_verify_ms = t5.elapsed().as_millis();
+    let block_kb = block_proof_size_kb(&block) as f64;
+    eprintln!(
+        "  {{block}} {}: prove {} ms, verify {} ms, size {:.1} KB (commitments {} B + {} B)",
+        prog.name, block_prove_ms, block_verify_ms, block_kb,
+        block.bits_commitment.len(), block.values_commitment.len()
+    );
     Ok((
         prove_ms.to_string(),
         verify_ms.to_string(),
         clear_kb,
         compact_kb,
+        block_kb,
         true,
     ))
+}
+
+fn block_proof_size_kb(proof: &BlockMemoryProof) -> usize {
+    let mut bytes = 0usize;
+    for _c in &proof.claims {
+        bytes += 1 + 1 + 8;
+    }
+    for sc in proof.legs.sumchecks() {
+        bytes += sc.rounds.len() * sc.rounds[0].len().max(1) * 8 + 16;
+    }
+    bytes += proof.legs.ra_claims.len() * 8
+        + proof.legs.val_read_claims.len() * 8
+        + proof.legs.u_read_claims.len() * 8
+        + proof.legs.wa_claims.len() * 8
+        + proof.legs.inc_w_claims.len() * 8
+        + proof.legs.val_write_claims.len() * 8
+        + proof.legs.u_write_claims.len() * 8
+        + proof.legs.inc_tel_claims.len() * 8;
+    // THE ONE k-vector commitment per bundle (vs the compact mode's r·k).
+    bytes += proof.bits_commitment.len();
+    bytes += proof.values_commitment.len();
+    for carrier in [&proof.bits_carrier, &proof.values_carrier] {
+        bytes += carrier.rounds.iter().map(|r| r.len() * 8).sum::<usize>() + 16;
+        bytes += 8;
+    }
+    for (op, lens) in [
+        (&proof.bits_opening, &proof.bits_factor_lens),
+        (&proof.values_opening, &proof.values_factor_lens),
+    ] {
+        bytes += op.u_tilde.len() * 8;
+        bytes += op.response.hist.len() + op.response.payload.len() + op.response.raw.len();
+        bytes += op.binding_rounds.len() * 12;
+        bytes += op.w_hat.len() * 4;
+        bytes += lens.len() + 16;
+    }
+    bytes / 1024
 }
 
 fn compact_proof_size_kb(proof: &CompactMemoryProof) -> usize {

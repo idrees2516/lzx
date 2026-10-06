@@ -203,6 +203,50 @@ pub fn step(state: &mut MachineState, step_index: u64) -> Result<TraceRow, ExecE
             let w = (a as i32).wrapping_shr(b as u32 & 0x1f);
             rd_write(&mut reg_writes, rd, w as i64 as u64);
         }
+        Instr::Lb { rd, rs1, imm } => {
+            let a = rr!(rs1);
+            let addr = a.wrapping_add(imm as u64);
+            let val = state.memory.load_u8(addr) as u64;
+            mem_access = Some((addr, val, None));
+            // Sign-extend the byte.
+            rd_write(&mut reg_writes, rd, (val as u8 as i8) as i64 as u64);
+        }
+        Instr::Lh { rd, rs1, imm } => {
+            let a = rr!(rs1);
+            let addr = a.wrapping_add(imm as u64);
+            let val = state.memory.load_u16(addr) as u64;
+            mem_access = Some((addr, val, None));
+            // Sign-extend the halfword.
+            rd_write(&mut reg_writes, rd, (val as u16 as i16) as i64 as u64);
+        }
+        Instr::Lbu { rd, rs1, imm } => {
+            let a = rr!(rs1);
+            let addr = a.wrapping_add(imm as u64);
+            let val = state.memory.load_u8(addr) as u64;
+            mem_access = Some((addr, val, None));
+            rd_write(&mut reg_writes, rd, val);
+        }
+        Instr::Lhu { rd, rs1, imm } => {
+            let a = rr!(rs1);
+            let addr = a.wrapping_add(imm as u64);
+            let val = state.memory.load_u16(addr) as u64;
+            mem_access = Some((addr, val, None));
+            rd_write(&mut reg_writes, rd, val);
+        }
+        Instr::Sb { rs1, rs2, imm } => {
+            let (a, v) = (rr!(rs1), rr!(rs2));
+            let addr = a.wrapping_add(imm as u64);
+            let old = state.memory.load_u8(addr);
+            state.memory.store_u8(addr, v as u8);
+            mem_access = Some((addr, old as u64, Some(v & 0xFF)));
+        }
+        Instr::Sh { rs1, rs2, imm } => {
+            let (a, v) = (rr!(rs1), rr!(rs2));
+            let addr = a.wrapping_add(imm as u64);
+            let old = state.memory.load_u16(addr);
+            state.memory.store_u16(addr, v as u16);
+            mem_access = Some((addr, old as u64, Some(v & 0xFFFF)));
+        }
         Instr::Lw { rd, rs1, imm } => {
             let a = rr!(rs1);
             let addr = a.wrapping_add(imm as u64);
@@ -532,6 +576,7 @@ impl TraceRow {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::identity_op)]
     use super::*;
 
     fn enc_addi(rd: u8, rs1: u8, imm: i64) -> u32 {
@@ -619,6 +664,113 @@ mod tests {
         let (addr, _old, written) = store_row.mem_access.ok_or(()).ok().unwrap();
         assert_eq!(addr, 0x100);
         assert_eq!(written, Some(0xAB));
+    }
+
+    #[test]
+    fn subword_load_store_all_offsets() {
+        // The byte-guest ISA: SB/SH/LB/LBU/LH/LHU at EVERY byte offset
+        // within a word (including straddling halfwords), checked against
+        // a ground-truth byte array.
+        let base = 0x200u64;
+        let ground: [u8; 32] = core::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11));
+        // Verify LB/LBU at every offset.
+        for off in 0u32..16 {
+            let mut s = MachineState::new();
+            for (i, b) in ground.iter().enumerate() {
+                s.memory.store_u8(base + i as u64, *b);
+            }
+            let lb = (off << 20) | (1 << 15) | (0 << 12) | (3 << 7) | 0x03; // lb x3, off(x1)
+            let lbu = (off << 20) | (1 << 15) | (4 << 12) | (4 << 7) | 0x03; // lbu x4, off(x1)
+            let lh = (off << 20) | (1 << 15) | (1 << 12) | (5 << 7) | 0x03; // lh x5, off(x1)
+            let lhu = (off << 20) | (1 << 15) | (5 << 12) | (6 << 7) | 0x03; // lhu x6, off(x1)
+            let mut prog = Vec::new();
+            prog.extend_from_slice(&enc_addi(1, 0, 0x200).to_le_bytes());
+            for w in [lb, lbu, lh, lhu] {
+                prog.extend_from_slice(&w.to_le_bytes());
+            }
+            prog.extend_from_slice(&0x73u32.to_le_bytes());
+            s.load_program(0, &prog);
+            run(&mut s, 16).ok().unwrap();
+            let b = ground[off as usize];
+            assert_eq!(s.reg(3) as u8, b, "LB at off {off}");
+            assert_eq!((s.reg(3) as u8 as i8) as i64 as u64, s.reg(3), "LB sign-extends at {off}");
+            assert_eq!(s.reg(4), b as u64, "LBU at off {off}");
+            let h = (b as u16) | ((ground[off as usize + 1] as u16) << 8);
+            assert_eq!(s.reg(5), (h as i16) as i64 as u64, "LH at off {off}");
+            assert_eq!(s.reg(6), h as u64, "LHU at off {off}");
+        }
+        // Verify SB/SH splicing at every offset.
+        for off in 0u32..16 {
+            let mut s = MachineState::new();
+            for (i, b) in ground.iter().enumerate() {
+                s.memory.store_u8(base + i as u64, *b);
+            }
+            let sb = (2 << 20) | (1 << 15) | (0 << 12) | (off << 7) | 0x23; // sb x2, off(x1)
+            let mut prog = Vec::new();
+            prog.extend_from_slice(&enc_addi(1, 0, 0x200).to_le_bytes());
+            prog.extend_from_slice(&enc_addi(2, 0, -1).to_le_bytes());
+            prog.extend_from_slice(&sb.to_le_bytes());
+            // Read the byte back through the containing word (LD).
+            let ld = (off << 20) | (1 << 15) | (3 << 12) | (3 << 7) | 0x03;
+            prog.extend_from_slice(&ld.to_le_bytes());
+            prog.extend_from_slice(&0x73u32.to_le_bytes());
+            s.load_program(0, &prog);
+            run(&mut s, 16).ok().unwrap();
+            let expect = {
+                let mut g = ground;
+                g[off as usize] = 0xFF;
+                let wb = (off / 8) * 8;
+                let w = (g[wb as usize] as u64)
+                    | ((g[wb as usize + 1] as u64) << 8)
+                    | ((g[wb as usize + 2] as u64) << 16)
+                    | ((g[wb as usize + 3] as u64) << 24)
+                    | ((g[wb as usize + 4] as u64) << 32)
+                    | ((g[wb as usize + 5] as u64) << 40)
+                    | ((g[wb as usize + 6] as u64) << 48)
+                    | ((g[wb as usize + 7] as u64) << 56);
+                w
+            };
+            let word_base = base + ((off / 8) * 8) as u64;
+            assert_eq!(
+                s.memory.load_u64(word_base),
+                expect,
+                "SB splice at off {off}"
+            );
+        }
+        // SH at every halfword offset (including the straddling one).
+        for off in (0u32..16).step_by(2) {
+            let mut s = MachineState::new();
+            for (i, b) in ground.iter().enumerate() {
+                s.memory.store_u8(base + i as u64, *b);
+            }
+            let mut prog = Vec::new();
+            prog.extend_from_slice(&enc_addi(1, 0, 0x200).to_le_bytes());
+            prog.extend_from_slice(&enc_addi(2, 0, 0x234).to_le_bytes());
+            let sh = (2 << 20) | (1 << 15) | (1 << 12) | (off << 7) | 0x23; // sh x2, off(x1)
+            prog.extend_from_slice(&sh.to_le_bytes());
+            prog.extend_from_slice(&0x73u32.to_le_bytes());
+            s.load_program(0, &prog);
+            run(&mut s, 16).ok().unwrap();
+            // Ground truth via the byte-level semantics.
+            let mut g = ground;
+            g[off as usize] = 0x34;
+            g[off as usize + 1] = 0x02;
+            let word_base = base + ((off / 8) * 8) as u64;
+            let expect = s_memory_word_from(&g, ((off / 8) * 8) as usize);
+            assert_eq!(
+                s.memory.load_u64(word_base),
+                expect,
+                "SH splice at off {off}"
+            );
+        }
+    }
+
+    fn s_memory_word_from(bytes: &[u8; 32], off: usize) -> u64 {
+        let mut w = 0u64;
+        for i in 0..8 {
+            w |= (bytes[off + i] as u64) << (8 * i);
+        }
+        w
     }
 
     #[test]

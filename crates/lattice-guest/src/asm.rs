@@ -1084,6 +1084,46 @@ impl Assembler {
         Ok(self)
     }
 
+    /// `lb rd, imm(rs1)` (sign-extended 8-bit load — the byte-guest ISA).
+    pub fn lb(&mut self, rd: u8, rs1: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rd)?;
+        check_reg(rs1)?;
+        check_imm("lb imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_i(OPC_LOAD, rd, 0, rs1, imm));
+        Ok(self)
+    }
+
+    /// `lh rd, imm(rs1)` (sign-extended 16-bit load).
+    pub fn lh(&mut self, rd: u8, rs1: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rd)?;
+        check_reg(rs1)?;
+        check_imm("lh imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_i(OPC_LOAD, rd, 1, rs1, imm));
+        Ok(self)
+    }
+
+    /// `lbu rd, imm(rs1)` (zero-extended 8-bit load).
+    pub fn lbu(&mut self, rd: u8, rs1: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rd)?;
+        check_reg(rs1)?;
+        check_imm("lbu imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_i(OPC_LOAD, rd, 4, rs1, imm));
+        Ok(self)
+    }
+
+    /// `lhu rd, imm(rs1)` (zero-extended 16-bit load).
+    pub fn lhu(&mut self, rd: u8, rs1: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rd)?;
+        check_reg(rs1)?;
+        check_imm("lhu imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_i(OPC_LOAD, rd, 5, rs1, imm));
+        Ok(self)
+    }
+
     /// `lwu rd, imm(rs1)` (zero-extended 32-bit load).
     pub fn lwu(&mut self, rd: u8, rs1: u8, imm: i64) -> Result<&mut Self, AsmError> {
         check_reg(rd)?;
@@ -1111,6 +1151,26 @@ impl Assembler {
         check_imm("sw imm", imm, -2048, 2047)?;
         self.require_text()?;
         self.code.push(enc_s(OPC_STORE, 2, rs1, rs2, imm));
+        Ok(self)
+    }
+
+    /// `sb rs2, imm(rs1)` (byte store — the byte-guest ISA).
+    pub fn sb(&mut self, rs1: u8, rs2: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rs1)?;
+        check_reg(rs2)?;
+        check_imm("sb imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_s(OPC_STORE, 0, rs1, rs2, imm));
+        Ok(self)
+    }
+
+    /// `sh rs2, imm(rs1)` (halfword store).
+    pub fn sh(&mut self, rs1: u8, rs2: u8, imm: i64) -> Result<&mut Self, AsmError> {
+        check_reg(rs1)?;
+        check_reg(rs2)?;
+        check_imm("sh imm", imm, -2048, 2047)?;
+        self.require_text()?;
+        self.code.push(enc_s(OPC_STORE, 1, rs1, rs2, imm));
         Ok(self)
     }
 
@@ -2042,24 +2102,30 @@ fn parse_instruction(
             }
         }
         // ---- loads ----
-        "lw" | "lwu" | "ld" => {
+        "lw" | "lwu" | "ld" | "lb" | "lbu" | "lh" | "lhu" => {
             arity(2)?;
             let rd = r!(0);
             let (imm, rs1) = mem!(1);
             match mn {
                 "lw" => asm.lw(rd, rs1, imm),
                 "lwu" => asm.lwu(rd, rs1, imm),
+                "lb" => asm.lb(rd, rs1, imm),
+                "lbu" => asm.lbu(rd, rs1, imm),
+                "lh" => asm.lh(rd, rs1, imm),
+                "lhu" => asm.lhu(rd, rs1, imm),
                 _ => asm.ld(rd, rs1, imm),
             }
             .map_err(|e| relabel(e, line))?;
         }
         // ---- stores ----
-        "sw" | "sd" => {
+        "sw" | "sd" | "sb" | "sh" => {
             arity(2)?;
             let rs2 = r!(0);
             let (imm, rs1) = mem!(1);
             match mn {
                 "sw" => asm.sw(rs1, rs2, imm),
+                "sb" => asm.sb(rs1, rs2, imm),
+                "sh" => asm.sh(rs1, rs2, imm),
                 _ => asm.sd(rs1, rs2, imm),
             }
             .map_err(|e| relabel(e, line))?;

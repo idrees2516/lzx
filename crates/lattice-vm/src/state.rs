@@ -105,6 +105,46 @@ impl Memory {
         }
     }
 
+    /// Load a byte (the byte-guest ISA extension: sub-word loads).
+    pub fn load_u8(&self, addr: u64) -> u8 {
+        ((self.load(addr & !0x7) >> ((addr & 0x7) * 8)) & 0xFF) as u8
+    }
+
+    /// Store a byte at any alignment (RMW on the containing word).
+    pub fn store_u8(&mut self, addr: u64, value: u8) {
+        let base = addr & !0x7;
+        let off = (addr & 0x7) * 8;
+        let w = self.load(base);
+        let mask = 0xFFu64 << off;
+        self.store(base, (w & !mask) | ((value as u64) << off));
+    }
+
+    /// Load a 16-bit halfword at any alignment (straddling reads span
+    /// two words).
+    pub fn load_u16(&self, addr: u64) -> u16 {
+        ((self.load_word32(addr)) & 0xFFFF) as u16
+    }
+
+    /// Store a 16-bit halfword at any alignment.
+    pub fn store_u16(&mut self, addr: u64, value: u16) {
+        let base = addr & !0x7;
+        let off = (addr & 0x7) * 8;
+        if off <= 48 {
+            let w = self.load(base);
+            let mask = 0xFFFFu64 << off;
+            self.store(base, (w & !mask) | ((value as u64) << off));
+        } else {
+            // Straddle: the low bits land in this word, the rest in the next.
+            let lo_bits = 64 - off;
+            let lo_mask: u64 = (1u64 << lo_bits) - 1;
+            let w = self.load(base);
+            self.store(base, (w & !(lo_mask << off)) | (((value as u64) & lo_mask) << off));
+            let hi = self.load(base + 8);
+            let hi_mask: u64 = (0xFFFFu64 >> lo_bits) & 0xFFFF;
+            self.store(base + 8, (hi & !hi_mask) | ((value as u64) >> lo_bits));
+        }
+    }
+
     /// Deterministic (address, value) pairs (the Twist final state).
     pub fn snapshot_pairs(&self) -> Vec<(u64, u64)> {
         self.words.iter().map(|(a, v)| (*a, *v)).collect()

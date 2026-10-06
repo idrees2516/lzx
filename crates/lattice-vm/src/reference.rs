@@ -38,6 +38,23 @@ impl RefMemory {
         self.bytes.insert(addr, v);
     }
 
+    pub fn read_u8(&self, addr: u64) -> u8 {
+        self.read_byte(addr)
+    }
+
+    pub fn write_u8(&mut self, addr: u64, v: u8) {
+        self.write_byte(addr, v)
+    }
+
+    pub fn read_u16(&self, addr: u64) -> u16 {
+        (self.read_byte(addr) as u16) | ((self.read_byte(addr + 1) as u16) << 8)
+    }
+
+    pub fn write_u16(&mut self, addr: u64, v: u16) {
+        self.write_byte(addr, (v & 0xFF) as u8);
+        self.write_byte(addr + 1, (v >> 8) as u8);
+    }
+
     pub fn read_u32(&self, addr: u64) -> u32 {
         let mut v = 0u32;
         for i in 0..4 {
@@ -391,22 +408,35 @@ impl RefMachine {
                     next
                 };
             }
-            // LOAD (0000011): LW / LWU / LD.
+            // LOAD (0000011): LB / LH / LW / LBU / LHU / LWU / LD — the
+            // full byte-guest surface.
             0x00 => {
                 let addr = self.reg(rs1).wrapping_add(imm_i as u64);
                 let v = match funct3 {
+                    0 => {
+                        let b = self.mem.read_u8(addr);
+                        (b as i8) as i64 as u64
+                    }
+                    1 => {
+                        let h = self.mem.read_u16(addr);
+                        (h as i16) as i64 as u64
+                    }
                     2 => self.mem.read_u32(addr) as i32 as i64 as u64,
+                    4 => self.mem.read_u8(addr) as u64,
+                    5 => self.mem.read_u16(addr) as u64,
                     3 => self.mem.read_u32(addr) as u64,
-                    4 => self.mem.read_u64(addr),
+                    6 => self.mem.read_u64(addr),
                     _ => return Err(RefError::IllegalInstruction { pc, word }),
                 };
                 self.set_reg(rd, v);
                 self.pc = next;
             }
-            // STORE (0100011): SW / SD.
+            // STORE (0100011): SB / SH / SW / SD.
             0x08 => {
                 let addr = self.reg(rs1).wrapping_add(imm_s as u64);
                 match funct3 {
+                    0 => self.mem.write_u8(addr, self.reg(rs2) as u8),
+                    1 => self.mem.write_u16(addr, self.reg(rs2) as u16),
                     2 => self.mem.write_u32(addr, self.reg(rs2) as u32),
                     3 => self.mem.write_u64(addr, self.reg(rs2)),
                     _ => return Err(RefError::IllegalInstruction { pc, word }),

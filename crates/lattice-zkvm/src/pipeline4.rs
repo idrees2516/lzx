@@ -87,7 +87,7 @@ use lattice_memory::sparse_engine::{
     verify_twist_ports_checked,
 };
 use lattice_memory::sparse_engine::{
-    prove_sparse_sumcheck_owned, ProjectedDense, SparseFactor, SparseInstance, SparseTerm,
+    prove_sparse_sumcheck_owned, DenseFactor, SparseFactor, SparseInstance, SparseTerm,
 };
 use lattice_memory::structured_table::{StructuredTable, TableFamily};
 use lattice_memory::twist::TwistProof;
@@ -3056,16 +3056,10 @@ pub fn prove_v3(
             }
         })
         .collect();
-    let dense: Vec<ProjectedDense> = layout
+    let dense: Vec<DenseFactor> = layout
         .dense_cols
         .iter()
-        .map(|&col| ProjectedDense {
-            mle: DenseMle {
-                num_vars: log_t,
-                evaluations: cols[col].clone(),
-            },
-            var_map: (0..log_t).collect(),
-        })
+        .map(|&col| DenseFactor::Table(DenseMle { num_vars: log_t, evaluations: cols[col].clone(), }, (0..log_t).collect()))
         .collect();
     let terms: Vec<SparseTerm> = layout
         .terms
@@ -3833,7 +3827,6 @@ mod tests {
                 | (((off as u32 >> 7) & 1) << 7)
                 | (((off as u32 >> 25) & 0x3f) << 25)
                 | (((off as u32 >> 1) & 0xf) << 8)
-                | (0 << 20)
                 | (1 << 15)
                 | (1 << 12)
                 | 0x63,
@@ -3881,20 +3874,19 @@ mod tests {
         // Use x1 = 2^32+1, x2 = 2^32+1 → product ≥ 2^64 → rdv = 2^64+2^32+1
         // mod 2^64 = 2^32+1 < 2^63 — inside. To exceed: 2^62·2 = 2^63:
         // x1 = 2^62, x2 = 2 → x3 = 2^63 → ProfileViolation.
+        // addi x1, x0, 2^30 — the 12-bit immediate cannot reach it; the
+        // audit must reject the encoding (fail-closed decode).
         let mut v = Vec::new();
-        for w in [
-            enc_i(1, 0, 0x4000_0000u32 as i32), // addi x1, x0, 2^30 — imm is 12-bit!
-        ] {
-            v.extend_from_slice(&w.to_le_bytes());
-        }
+        v.extend_from_slice(&enc_i(1, 0, 0x4000_0000u32 as i32).to_le_bytes());
         // 12-bit immediates cannot reach 2^62 directly; build via slli.
         // addi x1, x0, 1; slli x1, x1, 62 → x1 = 2^62; addi x2, x0, 2; mul.
-        let mut w = Vec::new();
-        w.push(enc_i(1, 0, 1));
-        w.push((62u32 << 20) | (1 << 15) | (1 << 12) | (1 << 7) | 0x13); // slli x1, x1, 62
-        w.push(enc_i(2, 0, 2));
-        w.push(enc_r(3, 1, 2, 0, 0x01)); // mul x3, x1, x2 = 2^63
-        w.push(0x73u32);
+        let w = vec![
+            enc_i(1, 0, 1),
+            (62u32 << 20) | (1 << 15) | (1 << 12) | (1 << 7) | 0x13, // slli x1, x1, 62
+            enc_i(2, 0, 2),
+            enc_r(3, 1, 2, 0, 0x01), // mul x3, x1, x2 = 2^63
+            0x73u32,
+        ];
         let mut prog = Vec::new();
         for x in w {
             prog.extend_from_slice(&x.to_le_bytes());
@@ -4198,7 +4190,6 @@ mod air_audit {
                 | (((off as u32 >> 7) & 1) << 7)
                 | (((off as u32 >> 25) & 0x3f) << 25)
                 | (((off as u32 >> 1) & 0xf) << 8)
-                | (0 << 20)
                 | (1 << 15)
                 | (1 << 12)
                 | 0x63,
@@ -4239,7 +4230,7 @@ mod air_audit {
                 },
                 Err(e) => eprintln!("{}: vm fail {e:?}", prog.name),
             }
-            let _ = audit_raw(&prog.image, &prog.public_input, &prog.name);
+            let _ = audit_raw(&prog.image, &prog.public_input, prog.name);
         }
     }
     fn audit_raw(program: &[u8], input: &[u8], name: &str) -> bool {
@@ -4353,16 +4344,10 @@ mod engine_bisect {
                 }
             })
             .collect();
-        let dense: Vec<ProjectedDense> = layout
+        let dense: Vec<DenseFactor> = layout
             .dense_cols
             .iter()
-            .map(|&col| ProjectedDense {
-                mle: DenseMle {
-                    num_vars: log_t,
-                    evaluations: cols[col].clone(),
-                },
-                var_map: (0..log_t).collect(),
-            })
+            .map(|&col| DenseFactor::Table(DenseMle { num_vars: log_t, evaluations: cols[col].clone(), }, (0..log_t).collect()))
             .collect();
         let n_groups = layout.terms.iter().map(|t| t.group).max().unwrap_or(0) + 1;
         let mut bad: Vec<(u32, PiopError)> = Vec::new();
@@ -4497,7 +4482,21 @@ mod engine_trace {
                 m
             })
             .collect();
-        let mut dense_state: Vec<DenseMle> = inst.dense.iter().map(|f| f.mle.clone()).collect();
+        let mut dense_state: Vec<DenseMle> = inst
+            .dense
+            .iter()
+            .map(|f| match f {
+                DenseFactor::Table(mle, _) => mle.clone(),
+                // The test-only reference prover pins the Table path; the
+                // virtual-Val route is exercised through the engine proper.
+                DenseFactor::VirtualVal(_) => DenseMle {
+                    num_vars: 0,
+                    evaluations: Vec::new(),
+                },
+            })
+            .collect();
+        let dense_var_maps: Vec<Vec<usize>> =
+            inst.dense.iter().map(|f| f.var_map()).collect();
         let mut dense_bound: Vec<usize> = vec![0; inst.dense.len()];
         let term_orders: Vec<Vec<usize>> = inst
             .terms
@@ -4534,11 +4533,10 @@ mod engine_trace {
                         let t_fe = Goldilocks::from_u64(t as u64);
                         let mut prod = term.coeff;
                         for &di in &term.dense {
-                            let df = &inst.dense[di];
                             let v = dense_partial_trace(
                                 &dense_state[di],
                                 dense_bound[di],
-                                &df.var_map,
+                                &dense_var_maps[di],
                                 ell,
                                 n,
                                 t_fe,
@@ -4585,11 +4583,10 @@ mod engine_trace {
                         let t_fe = Goldilocks::ZERO;
                         let mut prod = term.coeff;
                         for &di in &term.dense {
-                            let df = &inst.dense[di];
                             let v = dense_partial_trace(
                                 &dense_state[di],
                                 dense_bound[di],
-                                &df.var_map,
+                                &dense_var_maps[di],
                                 ell,
                                 n,
                                 t_fe,
@@ -4659,9 +4656,9 @@ mod engine_trace {
                     }
                 }
             }
-            for (di, df) in inst.dense.iter().enumerate() {
-                let len = df.var_map.len();
-                if dense_bound[di] < len && df.var_map[dense_bound[di]] == ell {
+            for di in 0..inst.dense.len() {
+                let len = dense_var_maps[di].len();
+                if dense_bound[di] < len && dense_var_maps[di][dense_bound[di]] == ell {
                     dense_state[di] = dense_state[di]
                         .fix_variables(&[r])
                         .map_err(|e| format!("{e:?}"))?;
@@ -4761,16 +4758,10 @@ mod engine_trace {
                 }
             })
             .collect();
-        let dense: Vec<ProjectedDense> = layout
+        let dense: Vec<DenseFactor> = layout
             .dense_cols
             .iter()
-            .map(|&col| ProjectedDense {
-                mle: DenseMle {
-                    num_vars: log_t,
-                    evaluations: cols[col].clone(),
-                },
-                var_map: (0..log_t).collect(),
-            })
+            .map(|&col| DenseFactor::Table(DenseMle { num_vars: log_t, evaluations: cols[col].clone(), }, (0..log_t).collect()))
             .collect();
         let alpha = Goldilocks::from_u64(7);
         let terms: Vec<SparseTerm> = tpls

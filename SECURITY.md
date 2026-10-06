@@ -284,3 +284,53 @@ The table itself regenerates with:
 `cargo run --release -p lattice-sis-estimator --example fold_security_table`
 (and the width fold's own regime:
 `cargo run --release -p lattice-sis-estimator --example width_fold_table`).
+
+## The block-commit batched opening (2026-10-06) — security notes
+
+`blockfold.rs` replaces the compact mode's r per-column Ajtai
+commitments `y_j = F̄·w_j` (the column-uniform key) with ONE packed
+block commitment `y = F·vec(W)` under the wide seeded key
+`F ∈ R_q^{k×m}`, `m = r·n̄^pad`, and replaces the linear fold check
+`F̄·v = Σ_j d_j·y_j` with the **fused binding sumcheck**:
+
+* the verifier derives `ρ ∈ Z_q^k`, `h ∈ R^{n̄}`, `β ∈ R`, computes
+  `g := Σ_l ρ_l·F[l]` (one streamed key pass) and `c_y := Σ_l ρ_l·y_l`,
+  and checks `⟨β, Σ_p c_p·w_p⟩ = ⟨β, c_y + ⟨h, v⟩⟩` by a degree-2
+  sumcheck over the m-entry cube, with the public C̃ factor and the
+  prover's terminal ring element ŵ: `⟨β, C̃(τ)·ŵ⟩ = final claim`;
+* the binding chain: carrier `w` ← interpolation ← `ũ_j` ← functional
+  commute `Φ(v) = Σ d_j·ũ_j` ← the h-half pins v ← the W-side round
+  messages + ŵ ← the g-half pins y (`⟨g, W⟩ = ⟨ρ, y⟩`).
+
+**Why the linear check had to go**: a single linear Ajtai commitment
+cannot be checked against the folded short response by any linear
+relation — `⟨ρ, y⟩ = ⟨Fᵀρ, W⟩` and `⟨μ, v⟩ = ⟨d⊗μ, W⟩` span
+generically-transversal subspaces, so the per-column granularity of the
+old check was load-bearing; removing it REQUIRES a sumcheck to carry
+the binding. This is exactly Akita's fused Eq-160 pattern — the "outer
+layer" gap the research consensus documented.
+
+**The honest gaps** (recorded, not hidden):
+
+1. The composite extractor (sumcheck rewinding over (ρ, h, β, τ)
+   composed with the Ajtai relation, terminating in MSIS on the wide
+   `[F | −y]` with the byte-bounded preimage and the norm-gated
+   response difference) is argued at the engineering level, not a
+   written formal reduction. The wide m-column key strengthens the
+   estimator's m/n regime vs the column-uniform F̄ (more constraints
+   per unknown), but the estimator table has not been re-run for the
+   block geometry — the follow-up is
+   `lattice-sis-estimator` at (k, m, n̄_pad) with the byte bound.
+2. The degree-2 sumcheck's soundness over Z_q (q prime, ≈ 2^31.6) gives
+   ~31 bits per round × log₂m rounds — the binding is
+   information-theoretically strong at the cube sizes in play, but the
+   two-round rewinding schedule (the standard strong extractability
+   argument for linear-PCS-style sumchecks) is not written out.
+3. The verifier materializes the wide key when computing `g` and
+   binding `C̃(τ)` (O(k·m) ring state at fib scale ≈ 10 MB); the
+   streamed expansion (a follow-up) removes the allocation without
+   changing the checks.
+
+The per-column compact mode (`compact.rs`) is UNCHANGED and remains the
+default; the block mode (`prove_memory_argument_block`) is the
+committed-optimization path selected by the benchmark harness.
